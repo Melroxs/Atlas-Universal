@@ -122,7 +122,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const workspace = useQuery(api.tenants.getMyWorkspace);
-  const recCounts = useQuery(api.recommendations.recommendationCounts);
+  // recommendationCounts calls requireTenant server-side, which throws for
+  // signed-in users who don't have a workspace yet (fresh sign-in before
+  // /setup completes). Subscribe only once a workspace actually exists; the
+  // loading/null early returns below would otherwise still run this query.
+  const recCounts = useQuery(
+    api.recommendations.recommendationCounts,
+    workspace ? undefined : "skip",
+  );
   const seedIntelligence = useMutation(api.intelligence.seedIntelligence);
   const claimInvites = useMutation(api.tenants.claimInvites);
   const runDueSyncs = useAction(api.connectionsSync.runDueSyncs);

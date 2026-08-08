@@ -3,6 +3,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Id } from "./_generated/dataModel";
 import { action } from "./_generated/server";
 import { aiAvailable, chat, embedTexts } from "./ai/provider";
 import { cosine, keywordScore, localEmbed } from "./ai/localEmbed";
@@ -19,7 +20,25 @@ interface ChunkHit {
 
 export const askAtlas = action({
   args: { question: v.string() },
-  handler: async (ctx, { question }) => {
+  handler: async (ctx, { question }): Promise<{
+    sessionId: Id<"askSessions">;
+    answer: string;
+    classification: "FACT" | "RULE" | "OBSERVATION" | "INFERENCE" | "RECOMMENDATION";
+    confidence: number;
+    mode: "ai" | "local";
+    limitations?: string;
+    suggestedActions: string[];
+    evidence: Array<{
+      kind: string;
+      documentId?: string;
+      chunkId?: string;
+      entityId?: string;
+      title: string;
+      snippet: string;
+      relevance: number;
+      documentTitle?: string;
+    }>;
+  }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("You must be signed in.");
     const membership = await ctx.runQuery(internal.internal.getMembershipByUser, {

@@ -125,7 +125,13 @@ export const processDocument = action({
     size: v.number(),
     sourceType: v.optional(v.string()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<{
+    docId: Id<"documents">;
+    classification: string;
+    chunks: number;
+    entities: number;
+    mode: "ai" | "local";
+  }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("You must be signed in.");
 
@@ -364,7 +370,10 @@ Reply with only the category name.`;
 /** Re-process an existing document record (retry path). */
 export const reprocessDocument = action({
   args: { documentId: v.id("documents") },
-  handler: async (ctx, { documentId }) => {
+  handler: async (
+    ctx,
+    { documentId },
+  ): Promise<{ docId: Id<"documents">; classification: string }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("You must be signed in.");
     const membership = await ctx.runQuery(internal.internal.getMembershipByUser, {

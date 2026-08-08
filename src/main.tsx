@@ -1,6 +1,7 @@
 import '@vly-ai/integrations';
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { AppShell } from "@/components/app-shell";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { ConvexAuthProvider } from "@convex-dev/auth/react";
 import { ConvexReactClient } from "convex/react";
@@ -12,8 +13,27 @@ import "./index.css";
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
+const Setup = lazy(() => import("./pages/Setup.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Ask = lazy(() => import("./pages/Ask.tsx"));
+const Knowledge = lazy(() => import("./pages/Knowledge.tsx"));
+const KnowledgeDetail = lazy(() => import("./pages/KnowledgeDetail.tsx"));
+const Intelligence = lazy(() => import("./pages/Intelligence.tsx"));
+const Recommendations = lazy(() => import("./pages/Recommendations.tsx"));
+const Connections = lazy(() => import("./pages/Connections.tsx"));
+const Team = lazy(() => import("./pages/Team.tsx"));
+const Audit = lazy(() => import("./pages/Audit.tsx"));
+const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+
+/** Protected section: auth gate + workspace shell (workspace gate inside). */
+function ProtectedLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RequireAuth>
+      <AppShell>{children}</AppShell>
+    </RequireAuth>
+  );
+}
 
 // Simple loading fallback for route transitions
 function RouteLoading() {
@@ -125,11 +145,91 @@ createRoot(document.getElementById("root")!).render(
                 element={<AuthPage redirectAfterAuth="/dashboard" />}
               />
               <Route
-                path="/dashboard"
+                path="/setup"
                 element={
                   <RequireAuth>
-                    <Dashboard />
+                    <Setup />
                   </RequireAuth>
+                }
+              />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedLayout>
+                    <Dashboard />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/ask"
+                element={
+                  <ProtectedLayout>
+                    <Ask />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/knowledge"
+                element={
+                  <ProtectedLayout>
+                    <Knowledge />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/knowledge/:id"
+                element={
+                  <ProtectedLayout>
+                    <KnowledgeDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/intelligence"
+                element={
+                  <ProtectedLayout>
+                    <Intelligence />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/recommendations"
+                element={
+                  <ProtectedLayout>
+                    <Recommendations />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/connections"
+                element={
+                  <ProtectedLayout>
+                    <Connections />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/team"
+                element={
+                  <ProtectedLayout>
+                    <Team />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/audit"
+                element={
+                  <ProtectedLayout>
+                    <Audit />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/settings"
+                element={
+                  <ProtectedLayout>
+                    <Settings />
+                  </ProtectedLayout>
                 }
               />
               <Route path="*" element={<NotFound />} />

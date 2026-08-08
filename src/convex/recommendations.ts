@@ -40,7 +40,7 @@ interface DetectorResult {
  */
 export const runDetectors = action({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<{ created: number; closed: number }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("You must be signed in.");
     const membership = await ctx.runQuery(internal.internal.getMembershipByUser, {

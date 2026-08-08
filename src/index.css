@@ -78,49 +78,107 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
+/* ---------------------------------------------------------------------------
+   ATLAS "MISSION CONTROL" DARK THEME
+   Deep ink + signal teal. The app runs dark by default (see index.html).
+--------------------------------------------------------------------------- */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  --background: oklch(0.157 0.016 258);
+  --foreground: oklch(0.955 0.008 258);
+  --card: oklch(0.197 0.018 258);
+  --card-foreground: oklch(0.955 0.008 258);
+  --popover: oklch(0.207 0.018 258);
+  --popover-foreground: oklch(0.955 0.008 258);
+  --primary: oklch(0.752 0.132 178);
+  --primary-foreground: oklch(0.16 0.04 178);
+  --secondary: oklch(0.26 0.02 258);
+  --secondary-foreground: oklch(0.955 0.008 258);
+  --muted: oklch(0.235 0.018 258);
+  --muted-foreground: oklch(0.685 0.02 258);
+  --accent: oklch(0.262 0.028 190);
+  --accent-foreground: oklch(0.955 0.01 190);
+  --destructive: oklch(0.68 0.185 25);
   --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.68 0.1 178);
+  --chart-1: oklch(0.752 0.132 178);
+  --chart-2: oklch(0.78 0.115 230);
+  --chart-3: oklch(0.802 0.14 80);
+  --chart-4: oklch(0.7 0.16 20);
+  --chart-5: oklch(0.72 0.13 300);
+  --sidebar: oklch(0.128 0.013 258);
+  --sidebar-foreground: oklch(0.93 0.008 258);
+  --sidebar-primary: oklch(0.752 0.132 178);
+  --sidebar-primary-foreground: oklch(0.16 0.04 178);
+  --sidebar-accent: oklch(0.235 0.02 258);
+  --sidebar-accent-foreground: oklch(0.95 0.008 258);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.68 0.1 178);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.752 0.132 178 / 0.07), transparent 70%);
+    background-attachment: fixed;
   }
   button:not([disabled]),
   [role="button"]:not([disabled]) {
     cursor: pointer;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   Atlas utilities
+--------------------------------------------------------------------------- */
+
+/* Faint radar grid used on the landing page and empty states. */
+.atlas-grid {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 5%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 5%) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.atlas-grid-fine {
+  background-image:
+    linear-gradient(to right, oklch(1 0 0 / 4%) 1px, transparent 1px),
+    linear-gradient(to bottom, oklch(1 0 0 / 4%) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* Teal signal glow for hero / cards. */
+.atlas-glow-teal {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.752 0.132 178 / 0.16), transparent 72%);
+}
+
+.atlas-glow-amber {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.802 0.14 80 / 0.12), transparent 72%);
+}
+
+/* Thin scrollbars inside panels. */
+.atlas-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.atlas-scroll::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 14%);
+  border-radius: 9999px;
+}
+.atlas-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Monospace eyebrow label. */
+.atlas-eyebrow {
+  @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-teal-400/90;
 }

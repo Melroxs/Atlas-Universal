@@ -1,4 +1,22 @@
-.env.local
+# Local env files — never commit real values
+.env
+.env.*
+!.env.example
+
+# Local deployment target for `npx convex dev`
+convex/.env.local
+
+# Dependencies / build output
 node_modules
 dist
 src/convex/_generated
+
+# Secrets, keys and credentials (defensive)
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+service-account*.json
+id_rsa*
+credentials.json

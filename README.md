@@ -270,3 +270,152 @@ When using convex, make sure:
 - This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
 - Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
 - NEVER have return type validators.
+
+---
+
+# Atlas V1 Production Deployment
+
+Atlas V1 is a Vite + React SPA with a Convex backend. This section documents
+how the production baseline is deployed and how future changes ship.
+
+## Architecture
+
+```
+GitHub
+   \|
+   v
+Vercel  ──►  serves the built SPA (dist/)
+   \|
+   v
+Convex  ──►  database / functions / actions / storage
+   \|
+   v
+Atlas application
+```
+
+Everything in `src/convex/` (schema, queries, mutations, actions, HTTP routes,
+auth, Google Drive sync, Ask Atlas) runs on Convex. Vercel only builds and
+hosts the frontend; the frontend talks to Convex through `VITE_CONVEX_URL`.
+
+## Local development
+
+```bash
+bun install
+cp .env.example .env.local   # fill in values (see manifest below)
+bunx convex dev               # local Convex backend + regenerates code
+bun run dev                   # Vite dev server
+```
+
+`src/convex/_generated/` is intentionally gitignored — the Convex CLI
+regenerates it (`convex dev` locally, `convex deploy` on Vercel).
+
+## Environment variables
+
+> Names only — values live in the Convex dashboard, Vercel project settings,
+> and the project's Keys/API keys UI. Never commit secrets.
+
+### Frontend / public (safe in the browser)
+
+| Variable          | Used by          | Notes                                       |
+| ----------------- | ---------------- | ------------------------------------------- |
+| `VITE_CONVEX_URL` | `src/main.tsx`   | Convex deployment URL baked into the build. |
+
+### Convex CLI / deployment tooling
+
+| Variable                | Notes                                                        |
+| ----------------------- | ------------------------------------------------------------ |
+| `CONVEX_DEPLOYMENT`     | Deployment URL used by `npx convex dev` / `convex deploy`. On Vercel set this to the **production** deployment URL (e.g. `https://<deployment>.convex.cloud`). |
+| `CONVEX_DEPLOY_KEY`     | Deploy key for non-interactive `convex deploy` in CI (Convex dashboard → Deployment → Settings → Deploy Keys). Required for Vercel builds. |
+
+### Convex server (secrets — Convex dashboard → Environment Variables)
+
+| Variable                     | Used in                    | Notes                                                        |
+| ---------------------------- | -------------------------- | ------------------------------------------------------------ |
+| `CONVEX_SITE_URL`            | `src/convex/auth.config.ts`| Origin this app runs at (Convex Auth JWT issuer). Local: `http://localhost:5173`; production: the Vercel URL. |
+| `VLY_CONVEX_AUTH_ISSUER`     | `src/convex/auth.config.ts`| Optional. Freebuff federated-auth issuer (defaults to `https://freebuff.com`). |
+| `VLY_APP_NAME`               | `src/convex/auth/emailOtp.ts` | Optional. App name shown in emailed one-time passcodes. |
+| `VLY_INTEGRATION_KEY`        | `src/convex/ai/provider.ts` | Freebuff AI gateway key (auto-injected). Absent ⇒ Ask Atlas and extraction fall back to deterministic heuristics. |
+| `VLY_INTEGRATION_BASE_URL`   | `src/lib/vly-integrations.ts` | Optional gateway base URL override. |
+| `GOOGLE_CLIENT_ID`           | `src/convex/http.ts`, `connections.ts`, `connectionsSync.ts` | Google OAuth client ID for the Google Drive connector. |
+| `GOOGLE_CLIENT_SECRET`       | same as above              | Google OAuth client secret (server-side only). |
+
+## Google OAuth setup
+
+1. Create an OAuth 2.0 Client ID in Google Cloud Console (Desktop/Web app).
+2. Add the authorized redirect URI — it is derived at runtime from the Convex
+   site URL, so register exactly:
+   `https://<your-deployment>.convex.cloud/google/oauth/callback`
+   (dev: `http://localhost:5173`-equivalent Convex URL + same path).
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the Convex deployment
+   (dev dashboard and production dashboard).
+
+Drive connects with `drive.readonly` scope. Connectors are only ever shown as
+"connected" after a real OAuth exchange — no simulated syncs exist.
+
+## Convex deployments
+
+- **Development:** `bunx convex dev` creates/runs the dev deployment and
+  regenerates `src/convex/_generated/`.
+- **Production:** `npx convex deploy` uploads functions to the deployment in
+  `CONVEX_DEPLOYMENT`. Server env vars for production are set in the Convex
+  dashboard for that deployment.
+
+## Vercel deployment
+
+1. Push the repository to GitHub (see Git workflow below).
+2. In Vercel, **Import Project** → pick the Atlas repo. Vercel auto-detects
+   Vite; output directory is `dist` (see `vercel.json` SPA rewrite).
+3. **Build command:**
+   ```
+   npx convex deploy --cmd "npm run build" --yes
+   ```
+   This deploys the Convex functions to the production deployment first, then
+   runs the existing frontend build (`tsc -b && vite build`) with
+   `VITE_CONVEX_URL` available at build time.
+4. **Environment variables on Vercel:**
+   - `CONVEX_DEPLOYMENT` — production Convex deployment URL
+   - `CONVEX_DEPLOY_KEY` — deploy key (non-interactive auth for step 3)
+   - `VITE_CONVEX_URL` — same production URL (public, for the frontend build)
+   - `CONVEX_SITE_URL` — the Vercel production URL (e.g. `https://<app>.vercel.app`)
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — passed through to Convex env
+     during deploy
+5. Deploy. Every subsequent push to the production branch triggers the same
+   build automatically.
+
+### Deployment flow for future changes
+
+```
+Change code → validate locally (tsc + build) → commit → push GitHub
+   → Vercel builds automatically → Convex production functions deploy → live Atlas
+```
+
+## Git workflow
+
+- Intended repository: `https://github.com/Melroxs/ATLAS-YC-MVP.git`
+- The production baseline commit is: `feat: finalize Atlas V1 production baseline`
+- Never force-push, never rewrite published history, never commit `.env*`
+  files or keys (see `.gitignore`).
+- This workspace manages version control through the platform; to push from a
+  local clone:
+  ```bash
+  git init && git add -A
+  git commit -m "feat: finalize Atlas V1 production baseline"
+  git remote add origin https://github.com/Melroxs/ATLAS-YC-MVP.git
+  git branch -M main
+  git push -u origin main
+  ```
+
+## Known V1 limitations
+
+- **Connectors:** Google Drive (OAuth, change detection, dedupe, sync) is the
+  only implemented connector. CRM / accounting / PM / email / communication
+  connectors are catalog entries only ("coming soon") — nothing is faked.
+- **OCR:** Scanned PDFs report an honest error when no text layer exists; OCR
+  credentials are not configured yet (`src/convex/lib/ocr.ts` has the hook).
+- **Legacy formats:** `.doc` (old Word) is not supported; save as `.docx`.
+- **AI:** Ask Atlas and extraction degrade to deterministic heuristics when
+  `VLY_INTEGRATION_KEY` is not configured.
+- **Background jobs:** connector sync is triggered on app load / after OAuth
+  connect; scheduled cron sync is not enabled on the deployment.
+- **Auth:** email OTP + anonymous sign-in (Convex Auth). Google Drive OAuth is
+  separate from app sign-in.

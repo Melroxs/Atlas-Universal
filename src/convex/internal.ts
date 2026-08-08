@@ -226,7 +226,9 @@ export const createDoc = internalMutation({
     mimeType: v.string(),
     size: v.number(),
     sourceType: v.string(),
-    storageId: v.id("_storage"),
+    storageId: v.optional(v.id("_storage")),
+    sourceId: v.optional(v.string()),
+    sourceModifiedAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("documents", {
@@ -236,6 +238,8 @@ export const createDoc = internalMutation({
       size: args.size,
       sourceType: args.sourceType,
       storageId: args.storageId,
+      sourceId: args.sourceId,
+      sourceModifiedAt: args.sourceModifiedAt,
       uploadedBy: args.userId,
       classification: "Unknown",
       status: "processing",
@@ -498,6 +502,7 @@ export const insertAskEvidence = internalMutation({
     title: v.optional(v.string()),
     snippet: v.optional(v.string()),
     relevance: v.number(),
+    evidenceType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("askEvidence", args);
@@ -572,5 +577,48 @@ export const deleteSystem = internalMutation({
   args: { id: v.id("companySystems") },
   handler: async (ctx, { id }) => {
     await ctx.db.delete(id);
+  },
+});
+
+export const getDocBySource = internalQuery({
+  args: { tenantId: v.id("tenants"), sourceId: v.string() },
+  handler: async (ctx, { tenantId, sourceId }) => {
+    return await ctx.db
+      .query("documents")
+      .withIndex("by_tenant_source", (q) =>
+        q.eq("tenantId", tenantId).eq("sourceId", sourceId),
+      )
+      .first();
+  },
+});
+
+export const listConnectionsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    return await ctx.db
+      .query("connections")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect();
+  },
+});
+
+export const listAllConnections = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("connections").collect();
+  },
+});
+
+export const getConnectionById = internalQuery({
+  args: { connectionId: v.id("connections") },
+  handler: async (ctx, { connectionId }) => {
+    return await ctx.db.get(connectionId);
+  },
+});
+
+export const patchConnection = internalMutation({
+  args: { id: v.id("connections"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
   },
 });

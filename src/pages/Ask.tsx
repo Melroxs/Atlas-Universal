@@ -33,6 +33,7 @@ interface Evidence {
   snippet?: string;
   relevance?: number;
   documentTitle?: string;
+  evidenceType?: string;
 }
 
 interface Turn {
@@ -56,10 +57,11 @@ const EVIDENCE_ICONS: Record<string, typeof FileText> = {
 };
 
 const SUGGESTIONS = [
-  "What documentation is required before we invoice?",
-  "Which claims have unpaid invoices?",
-  "What are our carrier requirements for supplements?",
-  "Where are the documentation gaps in current projects?",
+  "Who are our largest customers?",
+  "Which customers have active projects and unpaid invoices?",
+  "What does our SOP require before we invoice?",
+  "Summarize everything we know about Harborview Property Group.",
+  "Which information is uncertain or missing?",
 ];
 
 export default function Ask() {
@@ -165,13 +167,13 @@ export default function Ask() {
           >
             {turns.length === 0 && (
               <div className="m-auto flex max-w-md flex-col items-center py-10 text-center">
-                <div className="flex size-12 items-center justify-center rounded-xl border border-teal-400/25 bg-teal-400/10 text-teal-300">
+                <div className="flex size-12 items-center justify-center rounded-xl border border-teal-400/25 bg-teal-400/10 text-teal-600 dark:text-teal-300">
                   <Radar className="size-6" />
                 </div>
                 <h3 className="mt-4 text-sm font-semibold">Atlas is listening</h3>
                 <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-                  Ask about your claims, invoices, policies, carriers or documentation — or start
-                  with one of these:
+                  Ask about customers, projects, invoices, policies or SOPs — Atlas searches every
+                  connected source and cites what it finds. Or start with one of these:
                 </p>
                 <div className="mt-4 flex w-full flex-col gap-2">
                   {SUGGESTIONS.map((s) => (
@@ -179,7 +181,7 @@ export default function Ask() {
                       key={s}
                       type="button"
                       onClick={() => submit(s)}
-                      className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-teal-400/40 hover:text-teal-200"
+                      className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:border-teal-400/40 hover:text-teal-700 dark:hover:text-teal-200"
                     >
                       {s}
                     </button>
@@ -191,7 +193,7 @@ export default function Ask() {
             {turns.map((t) =>
               t.role === "user" ? (
                 <div key={t.id} className="flex justify-end gap-3">
-                  <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-teal-400/25 bg-teal-400/10 px-4 py-2.5 text-sm leading-6 text-teal-50">
+                  <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-teal-400/25 bg-teal-400/10 px-4 py-2.5 text-sm leading-6 text-teal-800 dark:text-teal-50">
                     {t.text}
                   </div>
                   <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -200,7 +202,7 @@ export default function Ask() {
                 </div>
               ) : (
                 <div key={t.id} className="flex gap-3">
-                  <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-400/15 text-teal-300 ring-1 ring-teal-400/25">
+                  <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-400/15 text-teal-600 dark:text-teal-300 ring-1 ring-teal-400/25">
                     <Bot className="size-3.5" />
                   </div>
                   <div className="min-w-0 max-w-[88%] flex-1">
@@ -218,14 +220,14 @@ export default function Ask() {
                       {t.suggestedActions && t.suggestedActions.length > 0 && (
                         <div className="mt-3 border-t border-border/50 pt-2.5">
                           <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                            <Lightbulb className="size-3 text-amber-300" />
+                            <Lightbulb className="size-3 text-amber-600 dark:text-amber-300" />
                             Suggested actions
                           </p>
                           <div className="mt-1.5 flex flex-wrap gap-1.5">
                             {t.suggestedActions.map((a) => (
                               <span
                                 key={a}
-                                className="rounded-md border border-amber-400/25 bg-amber-400/5 px-2 py-0.5 text-[11px] text-amber-200"
+                                className="rounded-md border border-amber-400/25 bg-amber-400/5 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-200"
                               >
                                 {a}
                               </span>
@@ -249,10 +251,13 @@ export default function Ask() {
                               className="group rounded-lg border border-border/60 bg-muted/20"
                             >
                               <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs">
-                                <Icon className="size-3.5 shrink-0 text-teal-300" />
+                                <Icon className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
                                 <span className="truncate font-medium">
                                   {e.documentTitle ?? e.title ?? e.kind}
                                 </span>
+                                {e.evidenceType && (
+                                  <KnowledgeBadge classification={e.evidenceType} />
+                                )}
                                 <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground/70">
                                   [{i + 1}]
                                 </span>
@@ -274,11 +279,11 @@ export default function Ask() {
 
             {busy && (
               <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                <div className="flex size-7 items-center justify-center rounded-full bg-teal-400/15 text-teal-300 ring-1 ring-teal-400/25">
+                <div className="flex size-7 items-center justify-center rounded-full bg-teal-400/15 text-teal-600 dark:text-teal-300 ring-1 ring-teal-400/25">
                   <Bot className="size-3.5" />
                 </div>
                 <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-4 py-3">
-                  <Loader2 className="size-4 animate-spin text-teal-300" />
+                  <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
                   Retrieving evidence and reasoning…
                 </div>
               </div>
@@ -315,7 +320,7 @@ export default function Ask() {
         <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <History className="size-4 text-cyan-300" />
+              <History className="size-4 text-cyan-600 dark:text-cyan-300" />
               Session history
             </h2>
             <Button
@@ -357,9 +362,9 @@ export default function Ask() {
           <button
             type="button"
             onClick={() => navigate("/dashboard/knowledge")}
-            className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:border-teal-400/30 hover:text-teal-200"
+            className="flex items-center gap-2 rounded-lg border border-dashed border-border/70 px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:border-teal-400/30 hover:text-teal-700 dark:hover:text-teal-200"
           >
-            <Database className="size-3.5 text-teal-300" />
+            <Database className="size-3.5 text-teal-600 dark:text-teal-300" />
             Answers depend on your knowledge base
             <ArrowRight className="ml-auto size-3" />
           </button>

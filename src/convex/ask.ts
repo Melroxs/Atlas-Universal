@@ -37,6 +37,7 @@ export const askAtlas = action({
       snippet: string;
       relevance: number;
       documentTitle?: string;
+      evidenceType?: string;
     }>;
   }> => {
     const userId = await getAuthUserId(ctx);
@@ -161,6 +162,7 @@ export const askAtlas = action({
       title: string;
       snippet: string;
       relevance: number;
+      evidenceType: string;
     }
     const evidence: Evidence[] = [];
     const docCache = new Map<string, string>();
@@ -180,6 +182,7 @@ export const askAtlas = action({
         title: docTitle,
         snippet: truncate(hit.content, 320),
         relevance: hit.score,
+        evidenceType: hit.score >= 0.5 ? "FACT" : "INFERENCE",
       });
     }
     for (const e of entityHits) {
@@ -189,6 +192,7 @@ export const askAtlas = action({
         title: e.name,
         snippet: `${e.entityTypeKey.replace(/_/g, " ")} · confidence ${Math.round(e.confidence * 100)}%`,
         relevance: 0.7,
+        evidenceType: "OBSERVATION",
       });
     }
     for (const item of intelHits) {
@@ -201,6 +205,7 @@ export const askAtlas = action({
         title: item.title,
         snippet: `${item.summary ?? ""} ${contentStr}`.slice(0, 240),
         relevance: 0.75,
+        evidenceType: "RULE",
       });
     }
 
@@ -220,10 +225,10 @@ export const askAtlas = action({
         "I don't have enough coverage in your knowledge base to answer that yet. " +
         "Your knowledge graph currently contains no documents or entities matching this question. " +
         "Upload relevant documents (SOPs, invoices, estimates, spreadsheets) and I'll be able to ground an answer in evidence.";
-      classification = "FACT";
+      classification = "INFERENCE";
       confidence = 0.1;
       limitations =
-        "No matching evidence found in the workspace knowledge base.";
+        "No matching evidence found in the workspace knowledge base — this is an UNKNOWN until sources are added.";
       suggestedActions = ["Upload documents", "Connect a file source"];
     } else if (aiAvailable()) {
       const grounded = await aiAnswer(q, evidence);
@@ -273,6 +278,7 @@ export const askAtlas = action({
         title: ev.title,
         snippet: ev.snippet,
         relevance: ev.relevance,
+        evidenceType: ev.evidenceType,
       });
     }
     await ctx.runMutation(internal.internal.logAudit, {

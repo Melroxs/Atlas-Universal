@@ -42,45 +42,59 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
-/* CHANGE VALUES FOR THEME */
+/* ---------------------------------------------------------------------------
+   ATLAS DESIGN TOKENS
+   One token system, two themes. Light and dark speak the same language:
+   cool ink neutrals, teal signal accent, restrained contrast.
+--------------------------------------------------------------------------- */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+
+  --background: oklch(0.984 0.004 258);
+  --foreground: oklch(0.22 0.018 258);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.22 0.018 258);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.22 0.018 258);
+  --primary: oklch(0.24 0.02 258);
+  --primary-foreground: oklch(0.985 0.004 258);
+  --secondary: oklch(0.955 0.005 258);
+  --secondary-foreground: oklch(0.24 0.02 258);
+  --muted: oklch(0.955 0.005 258);
+  --muted-foreground: oklch(0.5 0.015 258);
+  --accent: oklch(0.945 0.02 190);
+  --accent-foreground: oklch(0.24 0.02 258);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --border: oklch(0.905 0.006 258);
+  --input: oklch(0.905 0.006 258);
+  --ring: oklch(0.55 0.1 178);
+  --chart-1: oklch(0.55 0.12 178);
+  --chart-2: oklch(0.55 0.12 250);
+  --chart-3: oklch(0.6 0.13 70);
+  --chart-4: oklch(0.6 0.14 25);
+  --chart-5: oklch(0.58 0.12 300);
+  --sidebar: oklch(0.972 0.004 258);
+  --sidebar-foreground: oklch(0.22 0.018 258);
+  --sidebar-primary: oklch(0.24 0.02 258);
+  --sidebar-primary-foreground: oklch(0.985 0.004 258);
+  --sidebar-accent: oklch(0.945 0.02 190);
+  --sidebar-accent-foreground: oklch(0.24 0.02 258);
+  --sidebar-border: oklch(0.905 0.006 258);
+  --sidebar-ring: oklch(0.55 0.1 178);
+
+  --atlas-grid-line: oklch(0.3 0.01 258 / 9%);
+  --atlas-grid-fine-line: oklch(0.3 0.01 258 / 7%);
+  --atlas-scroll-thumb: oklch(0.3 0.01 258 / 24%);
+  --atlas-body-glow: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    oklch(0.55 0.09 178 / 0.09),
+    transparent 70%
+  );
 }
 
 /* ---------------------------------------------------------------------------
    ATLAS "MISSION CONTROL" DARK THEME
-   Deep ink + signal teal. The app runs dark by default (see index.html).
+   Deep ink + signal teal. Premium, calm, command-center.
 --------------------------------------------------------------------------- */
 .dark {
   --background: oklch(0.157 0.016 258);
@@ -114,6 +128,17 @@
   --sidebar-accent-foreground: oklch(0.95 0.008 258);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.68 0.1 178);
+
+  --atlas-grid-line: oklch(1 0 0 / 5%);
+  --atlas-grid-fine-line: oklch(1 0 0 / 4%);
+  --atlas-scroll-thumb: oklch(1 0 0 / 14%);
+  --atlas-body-glow: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    oklch(0.752 0.132 178 / 0.07),
+    transparent 70%
+  );
+
+  color-scheme: dark;
 }
 
 @layer base {
@@ -121,12 +146,11 @@
     @apply border-border outline-ring/50;
   }
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
     @apply bg-background text-foreground;
-    background-image:
-      radial-gradient(ellipse 80% 50% at 50% -10%, oklch(0.752 0.132 178 / 0.07), transparent 70%);
+    background-image: var(--atlas-body-glow);
     background-attachment: fixed;
   }
   button:not([disabled]),
@@ -136,28 +160,28 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Atlas utilities
+   Atlas utilities (theme-aware via CSS variables)
 --------------------------------------------------------------------------- */
 
 /* Faint radar grid used on the landing page and empty states. */
 .atlas-grid {
   background-image:
-    linear-gradient(to right, oklch(1 0 0 / 5%) 1px, transparent 1px),
-    linear-gradient(to bottom, oklch(1 0 0 / 5%) 1px, transparent 1px);
+    linear-gradient(to right, var(--atlas-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--atlas-grid-line) 1px, transparent 1px);
   background-size: 44px 44px;
 }
 
 .atlas-grid-fine {
   background-image:
-    linear-gradient(to right, oklch(1 0 0 / 4%) 1px, transparent 1px),
-    linear-gradient(to bottom, oklch(1 0 0 / 4%) 1px, transparent 1px);
+    linear-gradient(to right, var(--atlas-grid-fine-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--atlas-grid-fine-line) 1px, transparent 1px);
   background-size: 26px 26px;
 }
 
 /* Teal signal glow for hero / cards. */
 .atlas-glow-teal {
   background:
-    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.752 0.132 178 / 0.16), transparent 72%);
+    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.752 0.132 178 / 0.14), transparent 72%);
 }
 
 .atlas-glow-amber {
@@ -171,7 +195,7 @@
   height: 6px;
 }
 .atlas-scroll::-webkit-scrollbar-thumb {
-  background: oklch(1 0 0 / 14%);
+  background: var(--atlas-scroll-thumb);
   border-radius: 9999px;
 }
 .atlas-scroll::-webkit-scrollbar-track {
@@ -180,5 +204,5 @@
 
 /* Monospace eyebrow label. */
 .atlas-eyebrow {
-  @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-teal-400/90;
+  @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400/90;
 }

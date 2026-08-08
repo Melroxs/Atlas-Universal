@@ -57,6 +57,25 @@ export const isManager = async (
     : false;
 };
 
+export const EDITOR_ROLES = ["owner", "admin", "manager", "analyst"] as const;
+
+/** Analysts and above can upload documents and run syncs; viewers are read-only. */
+export const isEditor = async (
+  ctx: QueryCtx | MutationCtx,
+  userId: Id<"users">,
+  tenantId: Id<"tenants">,
+): Promise<boolean> => {
+  const membership = await ctx.db
+    .query("memberships")
+    .withIndex("by_tenant_user", (q) =>
+      q.eq("tenantId", tenantId).eq("userId", userId),
+    )
+    .first();
+  return membership
+    ? (EDITOR_ROLES as readonly string[]).includes(membership.role)
+    : false;
+};
+
 export const slugify = (s: string) =>
   s
     .toLowerCase()

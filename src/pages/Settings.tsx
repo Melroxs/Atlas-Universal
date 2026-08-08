@@ -155,7 +155,7 @@ export default function Settings() {
       {/* Company profile */}
       <section className="rounded-xl border border-border/70 bg-card/60 p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <Building2 className="size-4 text-teal-300" />
+          <Building2 className="size-4 text-teal-600 dark:text-teal-300" />
           Company profile
         </h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -241,7 +241,7 @@ export default function Settings() {
       {/* Systems */}
       <section className="rounded-xl border border-border/70 bg-card/60 p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
-          <ServerCog className="size-4 text-cyan-300" />
+          <ServerCog className="size-4 text-cyan-600 dark:text-cyan-300" />
           Operating systems
         </h2>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
@@ -265,8 +265,8 @@ export default function Settings() {
                 variant="outline"
                 className={
                   s.status === "active"
-                    ? "border-emerald-400/30 bg-emerald-400/10 font-mono text-[10px] text-emerald-300"
-                    : "border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-300"
+                    ? "border-emerald-400/30 bg-emerald-400/10 font-mono text-[10px] text-emerald-600 dark:text-emerald-300"
+                    : "border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300"
                 }
               >
                 {s.status}

@@ -1,4 +1,5 @@
 import '@vly-ai/integrations';
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/app-shell";
@@ -134,8 +135,9 @@ createRoot(document.getElementById("root")!).render(
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
-      <ConvexAuthProvider client={convex}>
-        <BrowserRouter>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="atlas-theme">
+        <ConvexAuthProvider client={convex}>
+          <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
             <Routes>
@@ -236,8 +238,9 @@ createRoot(document.getElementById("root")!).render(
             </Routes>
           </Suspense>
         </BrowserRouter>
-        <Toaster />
-      </ConvexAuthProvider>
+          <Toaster />
+        </ConvexAuthProvider>
+      </ThemeProvider>
     </RootErrorBoundary>
   </StrictMode>,
 );

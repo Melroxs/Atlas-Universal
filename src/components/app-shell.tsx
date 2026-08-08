@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,7 +28,7 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import type { LucideIcon } from "lucide-react";
 import {
   Cable,
@@ -57,26 +58,38 @@ const NAV_SECTIONS: Array<{
   }>;
 }> = [
   {
-    label: "Intelligence",
+    label: "Operate",
     items: [
       { to: "/dashboard", label: "Atlas Home", icon: LayoutGrid },
       { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
-      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
-      { to: "/dashboard/intelligence", label: "Intelligence", icon: Layers },
-      { to: "/dashboard/recommendations", label: "Recommendations", icon: Target, badge: "open" },
     ],
   },
   {
-    label: "Systems",
+    label: "Company knowledge",
     items: [
+      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
       { to: "/dashboard/connections", label: "Connections", icon: Cable },
-      { to: "/dashboard/team", label: "Team", icon: Users },
-      { to: "/dashboard/audit", label: "Audit Log", icon: ScrollText },
+      { to: "/dashboard/intelligence", label: "Intelligence", icon: Layers },
+    ],
+  },
+  {
+    label: "Signals & audit",
+    items: [
+      {
+        to: "/dashboard/recommendations",
+        label: "Recommendations",
+        icon: Target,
+        badge: "open",
+      },
+      { to: "/dashboard/audit", label: "Activity / Audit", icon: ScrollText },
     ],
   },
   {
     label: "Workspace",
-    items: [{ to: "/dashboard/settings", label: "Settings", icon: Settings2 }],
+    items: [
+      { to: "/dashboard/team", label: "Team", icon: Users },
+      { to: "/dashboard/settings", label: "Settings", icon: Settings2 },
+    ],
   },
 ];
 
@@ -88,7 +101,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/recommendations": "Recommendation Center",
   "/dashboard/connections": "Connections",
   "/dashboard/team": "Team",
-  "/dashboard/audit": "Audit Log",
+  "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",
 };
 
@@ -112,18 +125,23 @@ export function AppShell({ children }: { children: ReactNode }) {
   const recCounts = useQuery(api.recommendations.recommendationCounts);
   const seedIntelligence = useMutation(api.intelligence.seedIntelligence);
   const claimInvites = useMutation(api.tenants.claimInvites);
+  const runDueSyncs = useAction(api.connectionsSync.runDueSyncs);
 
-  // Idempotent: make sure the global pack catalog exists and claim any invites.
+  // Idempotent: ensure the pack catalog exists, claim any invites, and let
+  // background syncs pick up connected sources that are due for a refresh.
   useEffect(() => {
     void seedIntelligence();
     void claimInvites();
-  }, [seedIntelligence, claimInvites]);
+    void runDueSyncs().catch(() => {
+      // background sync is best-effort
+    });
+  }, [seedIntelligence, claimInvites, runDueSyncs]);
 
   if (workspace === undefined) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
         <div className="flex items-center gap-3 text-muted-foreground">
-          <Radar className="size-5 animate-pulse text-teal-300" />
+          <Radar className="size-5 animate-pulse text-teal-600 dark:text-teal-300" />
           <span className="text-sm">Loading workspace…</span>
         </div>
       </main>
@@ -160,7 +178,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 className="group/data-[slot=sidebar-menu-button]:h-12"
               >
                 <NavLink to="/dashboard">
-                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-teal-400/15 text-teal-300 ring-1 ring-teal-400/30">
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
                     <Radar className="size-4" />
                   </div>
                   <div className="grid flex-1 text-left leading-tight">
@@ -223,7 +241,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                   >
                     <Avatar className="size-8 rounded-lg">
                       {user?.image && <AvatarImage src={user.image} alt="" />}
-                      <AvatarFallback className="rounded-lg bg-teal-400/15 text-xs text-teal-300">
+                      <AvatarFallback className="rounded-lg bg-teal-400/15 text-xs text-teal-600 dark:text-teal-300">
                         {initials(user?.name, user?.email)}
                       </AvatarFallback>
                     </Avatar>
@@ -278,7 +296,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {openRecs > 0 && (
               <Badge
                 variant="outline"
-                className="hidden gap-1 border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-300 sm:inline-flex"
+                className="hidden gap-1 border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300 sm:inline-flex"
               >
                 <Sparkles className="size-3" />
                 {openRecs} open signal{openRecs === 1 ? "" : "s"}
@@ -286,21 +304,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <Button
-              variant="outline"
               size="sm"
               className="hidden gap-2 md:inline-flex"
               onClick={() => navigate("/dashboard/ask")}
             >
-              <MessageSquareText className="size-3.5 text-teal-300" />
+              <MessageSquareText className="size-3.5" />
               Ask Atlas
             </Button>
             <Button
+              variant="outline"
               size="sm"
               className="hidden gap-2 md:inline-flex"
               onClick={() => navigate("/dashboard/knowledge")}
             >
-              <Database className="size-3.5" />
+              <Database className="size-3.5 text-teal-600 dark:text-teal-300" />
               Upload
             </Button>
           </div>

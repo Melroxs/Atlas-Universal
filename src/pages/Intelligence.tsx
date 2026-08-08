@@ -29,11 +29,11 @@ import { toast } from "sonner";
 const PACK_TYPES = ["all", "core", "industry", "geographic", "regulatory", "benchmark"];
 
 const TYPE_META: Record<string, { icon: typeof Layers; tone: string }> = {
-  core: { icon: Zap, tone: "border-teal-400/30 bg-teal-400/10 text-teal-300" },
-  industry: { icon: Workflow, tone: "border-violet-400/30 bg-violet-400/10 text-violet-300" },
-  geographic: { icon: Globe2, tone: "border-sky-400/30 bg-sky-400/10 text-sky-300" },
-  regulatory: { icon: Scale, tone: "border-amber-400/30 bg-amber-400/10 text-amber-300" },
-  benchmark: { icon: TrendingUp, tone: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300" },
+  core: { icon: Zap, tone: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300" },
+  industry: { icon: Workflow, tone: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300" },
+  geographic: { icon: Globe2, tone: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300" },
+  regulatory: { icon: Scale, tone: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300" },
+  benchmark: { icon: TrendingUp, tone: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300" },
 };
 
 const ITEM_TYPE_LABEL: Record<string, string> = {
@@ -96,8 +96,8 @@ export default function Intelligence() {
             className={cn(
               "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
               filter === t
-                ? "border-teal-400/50 bg-teal-400/15 text-teal-200"
-                : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-200",
+                ? "border-teal-400/50 bg-teal-400/15 text-teal-700 dark:text-teal-200"
+                : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-700 dark:hover:text-teal-200",
             )}
           >
             {t === "all" ? "All" : titleCase(t)}
@@ -166,7 +166,7 @@ export default function Intelligence() {
                     View contents
                   </Button>
                   {p.activated && (
-                    <span className="flex items-center gap-1 font-mono text-[10px] text-teal-300">
+                    <span className="flex items-center gap-1 font-mono text-[10px] text-teal-600 dark:text-teal-300">
                       <Sparkles className="size-3" />
                       active
                     </span>
@@ -185,7 +185,7 @@ export default function Intelligence() {
             <>
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
-                  <Layers className="size-4 text-teal-300" />
+                  <Layers className="size-4 text-teal-600 dark:text-teal-300" />
                   {selected.name}
                   <Badge
                     variant="outline"

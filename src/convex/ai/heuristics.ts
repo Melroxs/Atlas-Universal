@@ -131,3 +131,35 @@ export function extractDates(text: string): string[] {
 
 export const normalizeEntityName = (s: string) =>
   s.trim().replace(/\s+/g, " ").replace(/\s*[#№:]\s*$/, "");
+
+const LEGAL_SUFFIXES =
+  /\b(llc|ltd|inc|corp|corporation|company|co\.?|group|pllc|llp|gmbh|holdings?|international|partners?)\b\.?$/gi;
+
+/**
+ * Canonical identity key: lowercase, legal suffixes + punctuation stripped.
+ * "ABC Roofing LLC" and "ABC Roofing" both normalize to "abc roofing", which
+ * lets cross-source entity resolution recognize them as the same organization.
+ */
+export function normalizeEntityKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(LEGAL_SUFFIXES, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Token-set similarity (Jaccard over normalized identity tokens), 0..1.
+ * Used as a conservative fuzzy-resolver for same-type entities.
+ */
+export function tokenSimilarity(a: string, b: string): number {
+  const ta = normalizeEntityKey(a).split(" ").filter(Boolean);
+  const tb = normalizeEntityKey(b).split(" ").filter(Boolean);
+  if (!ta.length || !tb.length) return 0;
+  const setA = new Set(ta);
+  const setB = new Set(tb);
+  const inter = [...setA].filter((t) => setB.has(t)).length;
+  const union = new Set([...setA, ...setB]).size;
+  return inter / union;
+}

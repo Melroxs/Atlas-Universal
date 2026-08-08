@@ -112,8 +112,8 @@ export default function Recommendations() {
               className={cn(
                 "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                 tab === s
-                  ? "border-teal-400/50 bg-teal-400/15 text-teal-200"
-                  : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-200",
+                  ? "border-teal-400/50 bg-teal-400/15 text-teal-700 dark:text-teal-200"
+                  : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-700 dark:hover:text-teal-200",
               )}
             >
               {s}
@@ -123,7 +123,7 @@ export default function Recommendations() {
         })}
         {!isManager && (
           <span className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <ShieldCheck className="size-3.5 text-teal-300" />
+            <ShieldCheck className="size-3.5 text-teal-600 dark:text-teal-300" />
             Approve / reject requires manager role
           </span>
         )}
@@ -183,13 +183,13 @@ export default function Recommendations() {
                   </span>
                   {r.expectedImpact && (
                     <span className="flex items-center gap-1.5">
-                      <Zap className="size-3.5 text-emerald-300" />
+                      <Zap className="size-3.5 text-emerald-600 dark:text-emerald-300" />
                       {r.expectedImpact}
                     </span>
                   )}
                   {r.risk && (
                     <span className="flex items-center gap-1.5">
-                      <AlertTriangle className="size-3.5 text-amber-300" />
+                      <AlertTriangle className="size-3.5 text-amber-600 dark:text-amber-300" />
                       {r.risk}
                     </span>
                   )}
@@ -198,7 +198,7 @@ export default function Recommendations() {
                 {r.evidence.length > 0 && (
                   <details className="mt-3 rounded-lg border border-border/60 bg-muted/20">
                     <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-xs font-medium text-muted-foreground">
-                      <FileText className="size-3.5 text-teal-300" />
+                      <FileText className="size-3.5 text-teal-600 dark:text-teal-300" />
                       Evidence · {r.evidence.length} source{r.evidence.length === 1 ? "" : "s"}
                     </summary>
                     <div className="space-y-1.5 px-3 pb-3">
@@ -206,9 +206,9 @@ export default function Recommendations() {
                         <div key={i} className="rounded-md border border-border/50 bg-background/40 p-2">
                           <p className="flex items-center gap-2 text-[11px] font-medium">
                             {e.kind === "entity" ? (
-                              <Network className="size-3 text-teal-300" />
+                              <Network className="size-3 text-teal-600 dark:text-teal-300" />
                             ) : (
-                              <FileText className="size-3 text-cyan-300" />
+                              <FileText className="size-3 text-cyan-600 dark:text-cyan-300" />
                             )}
                             {e.title ?? e.kind}
                             <span className="ml-auto font-mono text-[10px] text-muted-foreground/60">
@@ -262,7 +262,7 @@ export default function Recommendations() {
                               "Recommendation rejected")
                             }
                           >
-                            <XCircle className="size-3.5 text-rose-300" />
+                            <XCircle className="size-3.5 text-rose-600 dark:text-rose-300" />
                             Reject
                           </Button>
                         </span>
@@ -283,7 +283,7 @@ export default function Recommendations() {
                               "Marked as executed")
                             }
                           >
-                            <Zap className="size-3.5 text-indigo-300" />
+                            <Zap className="size-3.5 text-indigo-600 dark:text-indigo-300" />
                             Mark executed
                           </Button>
                         </span>
@@ -304,7 +304,7 @@ export default function Recommendations() {
                       <ArrowDownCircle className="size-3.5" />
                       Dismiss
                     </Button>
-                    {deciding && <Loader2 className="size-4 animate-spin text-teal-300" />}
+                    {deciding && <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />}
                   </div>
                 )}
               </div>

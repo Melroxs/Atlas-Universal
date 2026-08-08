@@ -1,12 +1,16 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 import { mutation, query } from "./_generated/server";
-import { requireTenant, requireUser } from "./helpers";
+import { isEditor, isManager, requireTenant, requireUser } from "./helpers";
 
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    await requireUser(ctx);
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isEditor(ctx, userId, tenantId))) {
+      throw new Error("Viewers can read the knowledge base but not upload files.");
+    }
     return await ctx.storage.generateUploadUrl();
   },
 });
@@ -93,6 +97,9 @@ export const deleteDocument = mutation({
   handler: async (ctx, { documentId }) => {
     const userId = await requireUser(ctx);
     const tenantId = await requireTenant(ctx, userId);
+    if (!(await isManager(ctx, userId, tenantId))) {
+      throw new Error("Only managers and above can delete documents.");
+    }
     const doc = await ctx.db.get(documentId);
     if (!doc || doc.tenantId !== tenantId) {
       throw new Error("Document not found.");

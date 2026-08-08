@@ -259,8 +259,8 @@ export default function Setup() {
             onClick={() => navigate("/")}
             className="flex items-center gap-2.5 text-foreground transition-opacity hover:opacity-80"
           >
-            <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/15 text-teal-300 ring-1 ring-teal-400/30">
-              <Radar className="size-4.5" />
+            <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 dark:text-teal-300 ring-1 ring-teal-400/30">
+              <Radar className="size-5" />
             </div>
             <span className="text-lg font-semibold tracking-tight">Atlas</span>
           </button>
@@ -281,8 +281,8 @@ export default function Setup() {
                 <div
                   className={cn(
                     "flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
-                    active && "border-teal-400/40 bg-teal-400/10 text-teal-200",
-                    done && "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
+                    active && "border-teal-400/40 bg-teal-400/10 text-teal-700 dark:text-teal-200",
+                    done && "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
                     !active && !done && "border-border/70 text-muted-foreground",
                   )}
                 >
@@ -308,8 +308,8 @@ export default function Setup() {
             {step === 1 && (
               <div className="space-y-4">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Atlas is the intelligence layer above your documents, systems and workflows.
-                  Name the company workspace Atlas will learn about.
+                  Name the company workspace Atlas will learn about. Atlas reads the systems and
+                  files you already use — you'll never have to migrate your business into it.
                 </p>
                 <div className="space-y-1.5">
                   <Label htmlFor="ws-name" className="text-xs font-medium text-muted-foreground">
@@ -323,8 +323,8 @@ export default function Setup() {
                     autoFocus
                   />
                 </div>
-                <div className="flex items-start gap-2 rounded-lg border border-teal-400/20 bg-teal-400/5 p-3 text-xs leading-5 text-teal-100/80">
-                  <Sparkles className="mt-0.5 size-3.5 shrink-0 text-teal-300" />
+                <div className="flex items-start gap-2 rounded-lg border border-teal-400/20 bg-teal-400/5 p-3 text-xs leading-5 text-teal-800/80 dark:text-teal-800 dark:text-teal-100/80">
+                  <Sparkles className="mt-0.5 size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
                   <span>
                     You become the workspace <strong>owner</strong>. You can invite your team at any
                     time and Atlas will role-lock sensitive actions.
@@ -434,8 +434,8 @@ export default function Setup() {
                               className={cn(
                                 "rounded-full border px-3 py-1 text-xs transition-colors",
                                 branchAnswers[`q${i}`] === opt
-                                  ? "border-teal-400/50 bg-teal-400/15 text-teal-200"
-                                  : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-200",
+                                  ? "border-teal-400/50 bg-teal-400/15 text-teal-700 dark:text-teal-200"
+                                  : "border-border/70 text-muted-foreground hover:border-teal-400/30 hover:text-teal-700 dark:hover:text-teal-200",
                               )}
                             >
                               {opt}
@@ -453,7 +453,8 @@ export default function Setup() {
               <div className="space-y-4">
                 <p className="text-sm leading-6 text-muted-foreground">
                   Which systems does your company actually operate with? Atlas uses this to plan
-                  connections and set expectations about your data footprint.
+                  connections and set expectations about your data footprint. Choosing "None" is
+                  fine — file uploads work on their own.
                 </p>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {SYSTEM_PRESETS.map((sys) => (
@@ -496,8 +497,8 @@ export default function Setup() {
 
             {step === 4 && (
               <div className="space-y-4">
-                <div className="flex items-start gap-2 rounded-lg border border-teal-400/20 bg-teal-400/5 p-3 text-xs leading-5 text-teal-100/80">
-                  <Layers className="mt-0.5 size-3.5 shrink-0 text-teal-300" />
+                <div className="flex items-start gap-2 rounded-lg border border-teal-400/20 bg-teal-400/5 p-3 text-xs leading-5 text-teal-800/80 dark:text-teal-800 dark:text-teal-100/80">
+                  <Layers className="mt-0.5 size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
                   <span>
                     Atlas will activate the <strong>Atlas Core</strong> and{" "}
                     <strong>General Business</strong> packs, plus{" "}
@@ -532,7 +533,7 @@ export default function Setup() {
             )}
 
             {error && (
-              <p className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">
+              <p className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-600 dark:text-rose-300">
                 {error}
               </p>
             )}

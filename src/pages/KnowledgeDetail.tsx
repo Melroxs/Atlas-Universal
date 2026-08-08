@@ -21,16 +21,16 @@ import {
 import { useNavigate, useParams } from "react-router";
 
 const ENTITY_TONE: Record<string, string> = {
-  claim: "border-rose-400/30 bg-rose-400/10 text-rose-300",
-  carrier: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  adjuster: "border-violet-400/30 bg-violet-400/10 text-violet-300",
-  policyholder: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  property: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  financial: "border-teal-400/30 bg-teal-400/10 text-teal-300",
-  organization: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
-  person: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  system: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300",
-  document: "border-slate-400/30 bg-slate-400/10 text-slate-300",
+  claim: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  carrier: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  adjuster: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
+  policyholder: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  property: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  financial: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300",
+  organization: "border-cyan-400/30 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300",
+  person: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  system: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
+  document: "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-300",
 };
 
 export default function KnowledgeDetail() {
@@ -120,7 +120,7 @@ export default function KnowledgeDetail() {
         {/* Chunks */}
         <div className="lg:col-span-3">
           <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-            <Hash className="size-4 text-cyan-300" />
+            <Hash className="size-4 text-cyan-600 dark:text-cyan-300" />
             Semantic chunks
           </h2>
           {chunks.length === 0 ? (
@@ -157,7 +157,7 @@ export default function KnowledgeDetail() {
         <div className="flex flex-col gap-6 lg:col-span-2">
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-              <Network className="size-4 text-teal-300" />
+              <Network className="size-4 text-teal-600 dark:text-teal-300" />
               Extracted entities
             </h2>
             {entities.length === 0 ? (
@@ -184,7 +184,7 @@ export default function KnowledgeDetail() {
 
           <div>
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold">
-              <BookOpen className="size-4 text-violet-300" />
+              <BookOpen className="size-4 text-violet-600 dark:text-violet-300" />
               Knowledge assertions
             </h2>
             {assertions.length === 0 ? (
@@ -205,7 +205,7 @@ export default function KnowledgeDetail() {
           </div>
 
           {doc.status === "failed" && (
-            <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-xs text-rose-300">
+            <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-xs text-rose-600 dark:text-rose-300">
               <p className="font-semibold">Processing failed</p>
               <p className="mt-1">{doc.error ?? "Unknown error"}</p>
             </div>

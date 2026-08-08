@@ -16,6 +16,7 @@ import {
   FlaskConical,
   Loader2,
   Radar,
+  ShieldCheck,
 } from "lucide-react";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -23,6 +24,7 @@ import { toast } from "sonner";
 
 export default function Knowledge() {
   const navigate = useNavigate();
+  const workspace = useQuery(api.tenants.getMyWorkspace);
   const docs = useQuery(api.documents.listDocuments);
   const stats = useQuery(api.documents.documentStats);
   const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
@@ -33,6 +35,7 @@ export default function Knowledge() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const isViewer = workspace?.membership?.role === "viewer";
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -108,63 +111,70 @@ export default function Knowledge() {
         title="Everything Atlas knows"
         description="Upload the documents that describe how your company works — SOPs, policies, invoices, estimates, spreadsheets."
         actions={
-          <>
-            <Button
-              variant="outline"
-              onClick={handleSeed}
-              disabled={seeding || uploading}
-              className="gap-2"
-            >
-              {seeding ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <FlaskConical className="size-4 text-teal-300" />
-              )}
-              Load demo
-            </Button>
-            <Button
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="gap-2"
-            >
-              {uploading ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <FileUp className="size-4" />
-              )}
-              {uploading ? "Uploading…" : "Upload documents"}
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.md,.html"
-              className="hidden"
-              onChange={(e) => void handleFiles(e.target.files)}
-            />
-          </>
+          !isViewer ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleSeed}
+                disabled={seeding || uploading}
+                className="gap-2"
+              >
+                {seeding ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <FlaskConical className="size-4 text-teal-600 dark:text-teal-600 dark:text-teal-300" />
+                )}
+                Load demo
+              </Button>
+              <Button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="gap-2"
+              >
+                {uploading ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <FileUp className="size-4" />
+                )}
+                {uploading ? "Uploading…" : "Upload documents"}
+              </Button>
+              <input
+                ref={fileRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.md,.html"
+                className="hidden"
+                onChange={(e) => void handleFiles(e.target.files)}
+              />
+            </>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="size-3.5 text-teal-600 dark:text-teal-600 dark:text-teal-300" />
+              Viewers have read-only access
+            </span>
+          )
         }
       />
 
       {/* Pipeline status */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="flex items-center gap-1.5 font-mono uppercase tracking-wider text-muted-foreground">
-          <Radar className="size-3.5 text-teal-300" />
+          <Radar className="size-3.5 text-teal-600 dark:text-teal-300" />
           Pipeline
         </span>
         <span className="rounded-full border border-border/70 bg-card/60 px-2.5 py-1 text-muted-foreground">
           {total} total
         </span>
-        <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-300">
+        <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-600 dark:text-emerald-300">
           {stats?.ready ?? 0} ready
         </span>
         {(stats?.processing ?? 0) > 0 && (
-          <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-amber-300">
+          <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-amber-600 dark:text-amber-300">
             {stats?.processing ?? 0} processing
           </span>
         )}
         {(stats?.failed ?? 0) > 0 && (
-          <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2.5 py-1 text-rose-300">
+          <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2.5 py-1 text-rose-600 dark:text-rose-300">
             {stats?.failed ?? 0} failed
           </span>
         )}
@@ -178,16 +188,22 @@ export default function Knowledge() {
           title="No documents yet"
           description="Atlas can parse PDFs, Word docs, plain text, CSV and spreadsheet files. Documents become the evidence behind every answer and recommendation."
           action={
-            <div className="flex gap-2">
-              <Button onClick={() => fileRef.current?.click()}>
-                <FileUp className="mr-2 size-4" />
-                Upload your first documents
-              </Button>
-              <Button variant="outline" onClick={handleSeed} disabled={seeding}>
-                <FlaskConical className="mr-2 size-4" />
-                {seeding ? "Loading…" : "Load demo knowledge"}
-              </Button>
-            </div>
+            !isViewer ? (
+              <div className="flex gap-2">
+                <Button onClick={() => fileRef.current?.click()}>
+                  <FileUp className="mr-2 size-4" />
+                  Upload your first documents
+                </Button>
+                <Button variant="outline" onClick={handleSeed} disabled={seeding}>
+                  <FlaskConical className="mr-2 size-4" />
+                  {seeding ? "Loading…" : "Load demo knowledge"}
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Ask a manager or analyst to upload documents for this workspace.
+              </p>
+            )
           }
         />
       ) : (
@@ -200,7 +216,7 @@ export default function Knowledge() {
                 onClick={() => navigate(`/dashboard/knowledge/${d._id}`)}
                 className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/40"
               >
-                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-400/10 text-teal-300 ring-1 ring-teal-400/20">
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 dark:text-teal-300 ring-1 ring-teal-400/20">
                   <FileText className="size-4" />
                 </div>
                 <div className="min-w-0 flex-1">

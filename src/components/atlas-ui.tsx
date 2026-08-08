@@ -1,8 +1,19 @@
+import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { LucideIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { Laptop, Moon, Sun } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -33,13 +44,51 @@ export function titleCase(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Badges
+// Theme toggle — Light / Dark / System, persisted by next-themes.
+// ---------------------------------------------------------------------------
+
+export function ThemeToggle() {
+  const { setTheme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const Icon = resolvedTheme === "dark" ? Moon : Sun;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="icon"
+          className="size-8"
+          aria-label="Switch theme"
+        >
+          {mounted ? <Icon className="size-4" /> : <Sun className="size-4" />}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuLabel className="text-xs font-medium">Theme</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => setTheme("light")} className="gap-2">
+          <Sun className="size-3.5" /> Light
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("dark")} className="gap-2">
+          <Moon className="size-3.5" /> Dark
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("system")} className="gap-2">
+          <Laptop className="size-3.5" /> System
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Badges — every accent is theme-aware (reads in light AND dark).
 // ---------------------------------------------------------------------------
 
 const PRIORITY_STYLES: Record<string, string> = {
-  high: "border-rose-400/30 bg-rose-400/10 text-rose-300",
-  medium: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  low: "border-sky-400/30 bg-sky-400/10 text-sky-300",
+  high: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  medium: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  low: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
 };
 
 export function PriorityBadge({ priority }: { priority: string }) {
@@ -54,11 +103,11 @@ export function PriorityBadge({ priority }: { priority: string }) {
 }
 
 const REC_STATUS_STYLES: Record<string, string> = {
-  open: "border-teal-400/30 bg-teal-400/10 text-teal-300",
-  approved: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  rejected: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+  open: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300",
+  approved: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  rejected: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
   dismissed: "border-muted-foreground/30 bg-muted text-muted-foreground",
-  executed: "border-indigo-400/30 bg-indigo-400/10 text-indigo-300",
+  executed: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
 };
 
 export function RecStatusBadge({ status }: { status: string }) {
@@ -73,10 +122,10 @@ export function RecStatusBadge({ status }: { status: string }) {
 }
 
 const DOC_STATUS_STYLES: Record<string, string> = {
-  ready: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  processing: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  uploaded: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  failed: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+  ready: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  processing: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  uploaded: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
 };
 
 export function DocStatusBadge({ status }: { status: string }) {
@@ -91,12 +140,12 @@ export function DocStatusBadge({ status }: { status: string }) {
 }
 
 const CLASS_STYLES: Record<string, string> = {
-  SOP: "border-violet-400/30 bg-violet-400/10 text-violet-300",
-  Policy: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
-  Invoice: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  Estimate: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  Spreadsheet: "border-sky-400/30 bg-sky-400/10 text-sky-300",
-  Report: "border-teal-400/30 bg-teal-400/10 text-teal-300",
+  SOP: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
+  Policy: "border-cyan-400/30 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300",
+  Invoice: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  Estimate: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  Spreadsheet: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  Report: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300",
 };
 
 export function ClassificationBadge({ classification }: { classification: string }) {
@@ -112,11 +161,12 @@ export function ClassificationBadge({ classification }: { classification: string
 }
 
 const KNOWLEDGE_STYLES: Record<string, string> = {
-  FACT: "border-emerald-400/40 bg-emerald-400/10 text-emerald-300",
-  RULE: "border-cyan-400/40 bg-cyan-400/10 text-cyan-300",
-  OBSERVATION: "border-sky-400/40 bg-sky-400/10 text-sky-300",
-  INFERENCE: "border-amber-400/40 bg-amber-400/10 text-amber-300",
-  RECOMMENDATION: "border-violet-400/40 bg-violet-400/10 text-violet-300",
+  FACT: "border-emerald-400/40 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  RULE: "border-cyan-400/40 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300",
+  OBSERVATION: "border-sky-400/40 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  INFERENCE: "border-amber-400/40 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  RECOMMENDATION: "border-violet-400/40 bg-violet-400/10 text-violet-600 dark:text-violet-300",
+  UNKNOWN: "border-muted-foreground/30 bg-muted text-muted-foreground",
 };
 
 export function KnowledgeBadge({ classification }: { classification: string }) {
@@ -131,9 +181,9 @@ export function KnowledgeBadge({ classification }: { classification: string }) {
 }
 
 const CONN_STATUS_STYLES: Record<string, string> = {
-  connected: "border-emerald-400/30 bg-emerald-400/10 text-emerald-300",
-  syncing: "border-amber-400/30 bg-amber-400/10 text-amber-300",
-  error: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+  connected: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  syncing: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  error: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
   disconnected: "border-muted-foreground/30 bg-muted text-muted-foreground",
 };
 
@@ -200,7 +250,7 @@ export function StatCard({
   label,
   value,
   hint,
-  accent = "text-teal-300",
+  accent = "text-teal-600 dark:text-teal-300",
 }: {
   icon: LucideIcon;
   label: string;
@@ -239,7 +289,7 @@ export function EmptyPanel({
 }) {
   return (
     <div className="atlas-grid-fine relative flex flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-card/40 px-6 py-14 text-center">
-      <div className="flex size-12 items-center justify-center rounded-xl border border-border/60 bg-muted/40 text-teal-300">
+      <div className="flex size-12 items-center justify-center rounded-xl border border-border/60 bg-muted/40 text-teal-600 dark:text-teal-300">
         <Icon className="size-6" />
       </div>
       <h3 className="mt-4 text-sm font-semibold text-foreground">{title}</h3>

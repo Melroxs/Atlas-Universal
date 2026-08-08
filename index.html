@@ -1,15 +1,26 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Atlas — the universal AI operating system for business. Reads your documents, systems and workflows, then tells you what matters." />
+  <meta name="description" content="Atlas — the AI operating system for business. Connect your company. Ask Atlas anything." />
   <title>Atlas — AI Operating System for Business</title>
+  <script>
+    // Theme boot: apply the saved (or system) theme before first paint so the
+    // app never flashes the wrong theme. Key matches the ThemeProvider storageKey.
+    (function () {
+      try {
+        var stored = localStorage.getItem("atlas-theme");
+        var dark = stored === "dark" ||
+          (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    })();
+  </script>
 </head>
-
 
 <body>
   <div id="root"></div>

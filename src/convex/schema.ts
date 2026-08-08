@@ -225,9 +225,14 @@ const schema = defineSchema(
       chunkCount: v.optional(v.number()),
       entityCount: v.optional(v.number()),
       processedAt: v.optional(v.number()),
+      /** External source identity (e.g. Google Drive file id) for dedupe. */
+      sourceId: v.optional(v.string()),
+      /** External source last-modified time (ms) for change detection. */
+      sourceModifiedAt: v.optional(v.number()),
     })
       .index("by_tenant", ["tenantId"])
-      .index("by_tenant_status", ["tenantId", "status"]),
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_tenant_source", ["tenantId", "sourceId"]),
 
     /** Semantic chunks of a document, with embeddings for retrieval. */
     documentChunks: defineTable({
@@ -340,6 +345,8 @@ const schema = defineSchema(
       title: v.optional(v.string()),
       snippet: v.optional(v.string()),
       relevance: v.number(),
+      /** FACT | OBSERVATION | INFERENCE | RULE — the nature of this evidence. */
+      evidenceType: v.optional(v.string()),
     }).index("by_session", ["sessionId"]),
 
     // ------------------------------------------------------------------

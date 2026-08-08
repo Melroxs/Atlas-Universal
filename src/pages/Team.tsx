@@ -150,7 +150,7 @@ export default function Team() {
                 <div key={m.userId} className="flex flex-wrap items-center gap-4 px-5 py-4">
                   <Avatar className="size-9 rounded-lg">
                     {m.user?.image && <AvatarImage src={m.user.image} alt="" />}
-                    <AvatarFallback className="rounded-lg bg-teal-400/15 text-xs text-teal-300">
+                    <AvatarFallback className="rounded-lg bg-teal-400/15 text-xs text-teal-600 dark:text-teal-300">
                       {initials(m.user?.name, m.user?.email)}
                     </AvatarFallback>
                   </Avatar>
@@ -165,7 +165,7 @@ export default function Team() {
                           you
                         </Badge>
                       )}
-                      {isOwner && <Crown className="size-3.5 text-amber-300" />}
+                      {isOwner && <Crown className="size-3.5 text-amber-600 dark:text-amber-300" />}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       {m.user?.email ?? "—"} · joined {formatDate(m.joinedAt)}
@@ -211,7 +211,7 @@ export default function Team() {
       {/* Role legend */}
       <div className="rounded-xl border border-border/60 bg-card/40 p-4">
         <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          <ShieldCheck className="size-3.5 text-teal-300" />
+          <ShieldCheck className="size-3.5 text-teal-600 dark:text-teal-300" />
           Role permissions
         </p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -239,7 +239,7 @@ export default function Team() {
                   <p className="flex-1 text-sm">{i.email}</p>
                   <Badge
                     variant="outline"
-                    className="border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-300"
+                    className="border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300"
                   >
                     {i.role}
                   </Badge>
@@ -254,7 +254,7 @@ export default function Team() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <UserPlus className="size-4 text-teal-300" />
+              <UserPlus className="size-4 text-teal-600 dark:text-teal-300" />
               Invite a member
             </DialogTitle>
             <DialogDescription>

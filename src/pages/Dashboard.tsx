@@ -174,7 +174,7 @@ export default function Dashboard() {
             onClick={handleRunDetectors}
             disabled={detecting}
           >
-            <Radar className={`size-4 text-teal-300 ${detecting ? "animate-spin" : ""}`} />
+            <Radar className={`size-4 text-teal-600 dark:text-teal-300 ${detecting ? "animate-spin" : ""}`} />
             {detecting ? "Comparing…" : "Run comparison"}
           </Button>
         }
@@ -202,10 +202,10 @@ export default function Dashboard() {
 
       {/* Stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard icon={Database} label="Documents" value={docStats?.total ?? "—"} hint={`${docStats?.ready ?? 0} ready · ${docStats?.chunks ?? 0} chunks`} accent="text-cyan-300" />
-        <StatCard icon={Network} label="Entities" value={entityStats?.entities ?? "—"} hint={`${entityStats?.relationships ?? 0} relationships`} accent="text-teal-300" />
-        <StatCard icon={Sparkles} label="Assertions" value={entityStats?.assertions ?? "—"} hint="labeled knowledge statements" accent="text-violet-300" />
-        <StatCard icon={Target} label="Open signals" value={recCounts?.open ?? "—"} hint={`${recCounts?.executed ?? 0} executed · ${recCounts?.approved ?? 0} approved`} accent="text-amber-300" />
+        <StatCard icon={Database} label="Documents" value={docStats?.total ?? "—"} hint={`${docStats?.ready ?? 0} ready · ${docStats?.chunks ?? 0} chunks`} accent="text-cyan-600 dark:text-cyan-300" />
+        <StatCard icon={Network} label="Entities" value={entityStats?.entities ?? "—"} hint={`${entityStats?.relationships ?? 0} relationships`} accent="text-teal-600 dark:text-teal-300" />
+        <StatCard icon={Sparkles} label="Assertions" value={entityStats?.assertions ?? "—"} hint="labeled knowledge statements" accent="text-violet-600 dark:text-violet-300" />
+        <StatCard icon={Target} label="Open signals" value={recCounts?.open ?? "—"} hint={`${recCounts?.executed ?? 0} executed · ${recCounts?.approved ?? 0} approved`} accent="text-amber-600 dark:text-amber-300" />
       </div>
 
       {/* Knowledge graph + recommendations */}
@@ -213,13 +213,13 @@ export default function Dashboard() {
         <Panel className="lg:col-span-3">
           <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Network className="size-4 text-teal-300" />
+              <Network className="size-4 text-teal-600 dark:text-teal-300" />
               Knowledge graph
             </h2>
             <button
               type="button"
               onClick={() => navigate("/dashboard/knowledge")}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-200"
+              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
             >
               Open knowledge base <ArrowRight className="size-3" />
             </button>
@@ -270,13 +270,13 @@ export default function Dashboard() {
         <Panel className="lg:col-span-2">
           <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Target className="size-4 text-amber-300" />
+              <Target className="size-4 text-amber-600 dark:text-amber-300" />
               Priority signals
             </h2>
             <button
               type="button"
               onClick={() => navigate("/dashboard/recommendations")}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-200"
+              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
             >
               All signals <ArrowRight className="size-3" />
             </button>
@@ -284,7 +284,7 @@ export default function Dashboard() {
           <div className="divide-y divide-border/50">
             {openRecs.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-5 py-8 text-center">
-                <Sparkles className="size-6 text-emerald-300/70" />
+                <Sparkles className="size-6 text-emerald-700/70 dark:text-emerald-600 dark:text-emerald-300/70" />
                 <p className="text-sm text-muted-foreground">
                   No open signals. Run the comparison engine to scan for gaps and risks.
                 </p>
@@ -324,13 +324,13 @@ export default function Dashboard() {
       <Panel>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Activity className="size-4 text-cyan-300" />
+            <Activity className="size-4 text-cyan-600 dark:text-cyan-300" />
             Recent activity
           </h2>
           <button
             type="button"
             onClick={() => navigate("/dashboard/audit")}
-            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-200"
+            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
           >
             Audit log <ArrowRight className="size-3" />
           </button>
@@ -373,16 +373,16 @@ export default function Dashboard() {
       {!empty && docStats && docStats.total > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono uppercase tracking-wider">Pipeline</span>
-          <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-300">
+          <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-emerald-600 dark:text-emerald-300">
             {docStats.ready} ready
           </span>
           {docStats.processing > 0 && (
-            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-amber-300">
+            <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2.5 py-1 text-amber-600 dark:text-amber-300">
               {docStats.processing} processing
             </span>
           )}
           {docStats.failed > 0 && (
-            <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2.5 py-1 text-rose-300">
+            <span className="rounded-full border border-rose-400/30 bg-rose-400/10 px-2.5 py-1 text-rose-600 dark:text-rose-300">
               {docStats.failed} failed
             </span>
           )}

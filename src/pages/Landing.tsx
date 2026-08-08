@@ -1,514 +1,1727 @@
-import { motion } from "framer-motion";
+import { motion, MotionConfig, type Variants } from "framer-motion";
+import { useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import {
   ArrowRight,
+  Banknote,
   BrainCircuit,
+  Briefcase,
+  Building2,
   Cable,
   Check,
+  ClipboardCheck,
   Database,
+  Eye,
+  EyeOff,
+  Factory,
+  FileCheck2,
+  FileSpreadsheet,
   FileText,
+  FileType,
+  Fingerprint,
+  FolderOpen,
+  Gauge,
+  GitBranch,
+  Globe,
+  HardHat,
+  History,
+  Home,
+  Landmark,
+  Layers,
+  Lightbulb,
+  ListChecks,
+  Lock,
+  Mail,
   MessageSquareText,
+  Mic2,
+  Network,
+  Play,
+  Quote,
   Radar,
+  RefreshCw,
+  Repeat,
+  Scale,
+  ScrollText,
+  Search,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Stethoscope,
+  Table2,
+  Target,
+  TrendingUp,
+  Truck,
   Upload,
+  Users,
+  Waves,
   Workflow,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 
-const fadeUp = {
-  initial: { opacity: 0, y: 24 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: "-80px" },
-  transition: { duration: 0.6, ease: "easeOut" as const },
+const EASE: [number, number, number, number] = [0.22, 1, 0.36, 1];
+
+const container: Variants = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.08 } },
 };
 
-const PILLARS = [
-  {
-    icon: Cable,
-    name: "Connect",
-    tag: "Sources",
-    description:
-      "Your files, spreadsheets, PDFs, Word docs and cloud drives converge into one ingestion pipeline.",
-    points: ["Real Google Drive OAuth", "PDF · DOCX · XLSX · CSV", "No migration required"],
-  },
-  {
-    icon: BrainCircuit,
-    name: "Understand",
-    tag: "Extraction",
-    description:
-      "Parsing, classification, entity extraction and cross-source resolution build your company model.",
-    points: ["Entity & relationship extraction", "Cross-source identity resolution", "Policy & fact extraction"],
-  },
-  {
-    icon: Database,
-    name: "Know",
-    tag: "Knowledge",
-    description:
-      "One queryable knowledge graph — every fact carries provenance back to its source document.",
-    points: ["Knowledge provenance", "Confidence on everything", "Searchable & queryable"],
-  },
-  {
-    icon: MessageSquareText,
-    name: "Ask",
-    tag: "Query",
-    description:
-      "Natural-language questions answered with cited evidence — across every connected source at once.",
-    points: ["Evidence-backed answers", "FACT / RULE / INFERENCE labels", "Cross-source reasoning"],
-  },
-];
+const fadeUp: Variants = {
+  hidden: { opacity: 0, y: 24 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } },
+};
 
-const PIPELINE = [
-  { icon: Cable, label: "Connect", text: "Uploads and cloud drives — the systems and files you already use." },
-  { icon: Upload, label: "Ingest", text: "PDFs, Word, Excel, CSV and text parsed and normalized." },
-  { icon: BrainCircuit, label: "Extract", text: "Entities, policies and facts become labeled knowledge." },
-  { icon: Database, label: "Unify", text: "One knowledge graph with provenance on everything." },
-  { icon: MessageSquareText, label: "Ask", text: "Ask anything — get evidence-backed answers." },
-];
+// ---------------------------------------------------------------------------
+// Shared primitives
+// ---------------------------------------------------------------------------
 
-function GraphVisual() {
-  const nodes = [
-    { id: "customer", x: 120, y: 130, r: 26, label: "Customer", tone: "text-rose-300" },
-    { id: "sop", x: 300, y: 70, r: 24, label: "SOP", tone: "text-violet-300" },
-    { id: "invoice", x: 430, y: 190, r: 22, label: "Invoice", tone: "text-emerald-300" },
-    { id: "drive", x: 300, y: 250, r: 24, label: "Drive", tone: "text-sky-300" },
-    { id: "project", x: 90, y: 260, r: 20, label: "Project", tone: "text-cyan-300" },
-    { id: "answer", x: 480, y: 80, r: 20, label: "Answer", tone: "text-amber-300" },
-  ];
-  const edges = [
-    ["customer", "sop"],
-    ["customer", "drive"],
-    ["customer", "invoice"],
-    ["sop", "answer"],
-    ["drive", "project"],
-    ["invoice", "answer"],
-    ["project", "answer"],
-  ];
-  const pos = (id: string) => nodes.find((n) => n.id === id)!;
+function Reveal({
+  children,
+  className,
+  delay = 0,
+}: {
+  children: ReactNode;
+  className?: string;
+  delay?: number;
+}) {
   return (
-    <svg viewBox="0 0 560 320" className="w-full">
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 26 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-70px" }}
+      transition={{ duration: 0.6, delay, ease: EASE }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+function SectionHead({
+  eyebrow,
+  title,
+  lead,
+  center = true,
+}: {
+  eyebrow: string;
+  title: ReactNode;
+  lead?: ReactNode;
+  center?: boolean;
+}) {
+  return (
+    <Reveal className={cn("max-w-2xl", center && "mx-auto text-center")}>
+      <p className="atlas-eyebrow mb-3">{eyebrow}</p>
+      <h2 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">{title}</h2>
+      {lead && (
+        <p className="mt-4 text-sm leading-7 text-muted-foreground sm:text-base">{lead}</p>
+      )}
+    </Reveal>
+  );
+}
+
+function PrimaryCta({
+  children,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "group inline-flex items-center justify-center gap-2 rounded-lg bg-teal-400 px-5 py-2.5 text-sm font-semibold text-teal-950 shadow-[0_0_24px_rgba(45,212,191,0.25)] transition-all hover:bg-teal-300 hover:shadow-[0_0_36px_rgba(45,212,191,0.4)]",
+        className,
+      )}
+    >
+      {children}
+      <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+    </button>
+  );
+}
+
+function SecondaryCta({
+  children,
+  href,
+  onClick,
+  className,
+}: {
+  children: ReactNode;
+  href?: string;
+  onClick?: () => void;
+  className?: string;
+}) {
+  const cls = cn(
+    "inline-flex items-center justify-center gap-2 rounded-lg border border-border/70 px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-teal-400/40 hover:text-teal-700 dark:hover:text-teal-200",
+    className,
+  );
+  if (href) {
+    return (
+      <a href={href} className={cls}>
+        {children}
+      </a>
+    );
+  }
+  return (
+    <button type="button" onClick={onClick} className={cls}>
+      {children}
+    </button>
+  );
+}
+
+function StatusChip({
+  tone,
+  children,
+}: {
+  tone: "live" | "native" | "soon";
+  children: ReactNode;
+}) {
+  const styles = {
+    live: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+    native: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300",
+    soon: "border-muted-foreground/25 bg-muted text-muted-foreground",
+  } as const;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.14em]",
+        styles[tone],
+      )}
+    >
+      {tone === "soon" && <Lock className="size-2.5" />}
+      {children}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hero visual — the command layer
+// ---------------------------------------------------------------------------
+
+const HERO_SYSTEMS = [
+  { icon: Building2, label: "CRM" },
+  { icon: Banknote, label: "Accounting" },
+  { icon: FolderOpen, label: "Drive" },
+  { icon: Mail, label: "Email" },
+  { icon: ListChecks, label: "Projects" },
+  { icon: FileText, label: "Documents" },
+  { icon: Users, label: "HR" },
+  { icon: Briefcase, label: "Industry SW" },
+];
+
+function FlowDots({ vertical = false }: { vertical?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-center gap-1.5",
+        vertical ? "flex-col" : "flex-row",
+      )}
+      aria-hidden
+    >
+      {[0, 1, 2].map((i) => (
+        <motion.span
+          key={i}
+          className="size-1.5 rounded-full bg-teal-500/80 dark:bg-teal-300/80"
+          animate={{ opacity: [0.15, 1, 0.15], scale: [0.7, 1.2, 0.7] }}
+          transition={{ duration: 1.8, repeat: Infinity, delay: i * 0.35, ease: "easeInOut" }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function AtlasCoreNode() {
+  return (
+    <div className="flex flex-col items-center">
+      <div className="relative flex size-20 items-center justify-center rounded-2xl border border-teal-400/40 bg-card shadow-[0_0_44px_rgba(45,212,191,0.16)]">
+        <Radar className="size-8 text-teal-600 dark:text-teal-300" />
+        <motion.span
+          className="absolute inset-0 rounded-2xl border border-teal-400/40"
+          animate={{ opacity: [0.6, 0], scale: [1, 1.35] }}
+          transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut" }}
+        />
+      </div>
+      <span className="mt-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.24em] text-foreground">
+        Atlas
+      </span>
+      <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+        command layer
+      </span>
+    </div>
+  );
+}
+
+function HeroVisual() {
+  return (
+    <div className="atlas-grid-fine relative overflow-hidden rounded-2xl border border-border/70 bg-card/70 p-5 shadow-2xl shadow-black/10 backdrop-blur dark:shadow-black/40">
+      <div className="mb-4 flex items-center justify-between px-1">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          Systems → Atlas → Intelligence
+        </span>
+        <span className="flex items-center gap-1.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+          <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
+          continuously updated
+        </span>
+      </div>
+
+      <div className="flex flex-col items-center gap-5 lg:flex-row lg:items-center lg:justify-between">
+        {/* your systems */}
+        <div className="grid w-full grid-cols-2 gap-2 lg:w-40">
+          {HERO_SYSTEMS.map((s) => (
+            <div
+              key={s.label}
+              className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/60 px-2 py-1.5 transition-colors hover:border-teal-400/30"
+            >
+              <s.icon className="size-3 shrink-0 text-muted-foreground" />
+              <span className="truncate text-[10px] font-medium text-foreground/90">{s.label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* mobile connector (down) */}
+        <div className="lg:hidden">
+          <FlowDots vertical />
+        </div>
+        {/* desktop connector (right) */}
+        <div className="hidden lg:block">
+          <FlowDots />
+        </div>
+
+        <AtlasCoreNode />
+
+        {/* desktop connector */}
+        <div className="hidden lg:block">
+          <FlowDots />
+        </div>
+
+        {/* intelligence + query */}
+        <div className="flex w-full flex-col gap-3 lg:max-w-xs">
+          <div className="rounded-xl border border-teal-400/20 bg-teal-400/[0.05] p-3">
+            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-teal-600 dark:text-teal-300">
+              Company intelligence layer
+            </p>
+            <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+              People · projects · customers · policies · workflows · financials — one continuously
+              updated model.
+            </p>
+          </div>
+          <div className="rounded-xl border border-border/70 bg-background/60 p-3">
+            <div className="flex items-center gap-2">
+              <MessageSquareText className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+              <p className="text-[11px] font-medium text-foreground/90">
+                “What changed across the company this week?”
+              </p>
+            </div>
+            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+              Two projects entered invoicing, one carrier approval is pending, and cash-flow
+              forecast updated.{" "}
+              <span className="text-emerald-600 dark:text-emerald-300">3 sources · high confidence</span>
+            </p>
+          </div>
+          <div className="rounded-xl border border-border/70 bg-background/60 p-3">
+            <div className="flex items-center gap-2">
+              <Mic2 className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+              <p className="text-[11px] font-medium text-foreground/90">
+                Voice · “What does our policy require?”
+              </p>
+            </div>
+            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
+              Per your Payment Policy §3, net-30 invoices require a signed authorization on file…{" "}
+              <span className="text-violet-600 dark:text-violet-300">[1] Payment Policy</span>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fragmentation visual
+// ---------------------------------------------------------------------------
+
+const FRAGMENT_SYSTEMS = [
+  "CRM",
+  "Accounting",
+  "Spreadsheets",
+  "Documents",
+  "Email",
+  "Project Management",
+  "Industry Software",
+  "Human Knowledge",
+];
+
+function FragmentationVisual() {
+  return (
+    <Reveal className="rounded-2xl border border-border/70 bg-card/60 p-6">
+      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+        The company exists across disconnected systems
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        {FRAGMENT_SYSTEMS.map((s, i) => (
+          <span key={s} className="flex items-center gap-2">
+            <span className="rounded-lg border border-border/80 bg-background/60 px-3 py-1.5 text-xs font-medium text-foreground/85">
+              {s}
+            </span>
+            {i < FRAGMENT_SYSTEMS.length - 1 && (
+              <span className="text-xs text-muted-foreground/60">+</span>
+            )}
+          </span>
+        ))}
+        <span className="text-sm font-medium text-muted-foreground/80">=</span>
+        <span className="rounded-lg border border-rose-400/30 bg-rose-400/10 px-3 py-1.5 text-xs font-semibold text-rose-600 dark:text-rose-300">
+          Fragmented company reality
+        </span>
+      </div>
+      <p className="mt-5 border-t border-border/60 pt-4 text-center text-sm italic text-muted-foreground">
+        “The result: information is everywhere, but understanding is nowhere.”
+      </p>
+    </Reveal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Company model graph
+// ---------------------------------------------------------------------------
+
+const MODEL_NODES = [
+  { id: "People", x: 280, y: 58 },
+  { id: "Projects", x: 452, y: 128 },
+  { id: "Customers", x: 452, y: 260 },
+  { id: "Documents", x: 280, y: 330 },
+  { id: "Policies", x: 108, y: 260 },
+  { id: "Workflows", x: 108, y: 128 },
+  { id: "Financials", x: 190, y: 62 },
+  { id: "Systems", x: 370, y: 326 },
+];
+
+function CompanyGraph() {
+  return (
+    <svg viewBox="0 0 560 390" className="w-full">
       <defs>
-        <radialGradient id="graphGlow" cx="50%" cy="40%" r="60%">
-          <stop offset="0%" stopColor="oklch(0.752 0.132 178 / 0.18)" />
+        <radialGradient id="modelGlow" cx="50%" cy="50%" r="55%">
+          <stop offset="0%" stopColor="oklch(0.752 0.132 178 / 0.2)" />
           <stop offset="100%" stopColor="oklch(0.752 0.132 178 / 0)" />
         </radialGradient>
       </defs>
-      <rect width="560" height="320" fill="url(#graphGlow)" rx="16" />
-      {edges.map(([a, b]) => (
-        <line
-          key={`${a}-${b}`}
-          x1={pos(a).x}
-          y1={pos(a).y}
-          x2={pos(b).x}
-          y2={pos(b).y}
-          stroke="oklch(1 0 0 / 0.14)"
+      <rect width="560" height="390" fill="url(#modelGlow)" rx="18" />
+      {MODEL_NODES.map((n) => (
+        <motion.line
+          key={n.id}
+          x1={280}
+          y1={195}
+          x2={n.x}
+          y2={n.y}
+          stroke="oklch(0.752 0.132 178 / 0.35)"
           strokeWidth="1"
+          initial={{ pathLength: 0, opacity: 0 }}
+          whileInView={{ pathLength: 1, opacity: 1 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.7, ease: "easeOut" }}
         />
       ))}
-      {nodes.map((n) => (
-        <g key={n.id}>
-          <circle cx={n.x} cy={n.y} r={n.r + 8} fill="oklch(0.157 0.016 258 / 0.6)" />
-          <circle cx={n.x} cy={n.y} r={n.r} fill="oklch(0.752 0.132 178 / 0.12)" stroke="oklch(0.752 0.132 178 / 0.45)" strokeWidth="1" />
-          <text x={n.x} y={n.y + 4} textAnchor="middle" fill="oklch(0.95 0.008 258)" fontSize="11" fontFamily="ui-monospace, monospace">
-            {n.label}
+      {MODEL_NODES.map((n, i) => (
+        <motion.g
+          key={`n-${n.id}`}
+          initial={{ opacity: 0, scale: 0.6 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true, margin: "-80px" }}
+          transition={{ duration: 0.5, delay: 0.15 + i * 0.06, ease: EASE }}
+          style={{ transformOrigin: `${n.x}px ${n.y}px` }}
+        >
+          <circle cx={n.x} cy={n.y} r={26} fill="oklch(0.157 0.016 258 / 0.72)" />
+          <circle
+            cx={n.x}
+            cy={n.y}
+            r={26}
+            fill="none"
+            stroke="oklch(0.752 0.132 178 / 0.4)"
+            strokeWidth="1"
+          />
+          <text
+            x={n.x}
+            y={n.y + 3}
+            textAnchor="middle"
+            fill="oklch(0.95 0.008 258)"
+            fontSize="11"
+            fontFamily="ui-monospace, monospace"
+          >
+            {n.id}
           </text>
-        </g>
+        </motion.g>
       ))}
-      {/* pulsing radar sweeps */}
+      <motion.g
+        initial={{ scale: 0.5, opacity: 0 }}
+        whileInView={{ scale: 1, opacity: 1 }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: EASE }}
+        style={{ transformOrigin: "280px 195px" }}
+      >
+        <circle cx={280} cy={195} r={34} fill="oklch(0.752 0.132 178 / 0.16)" />
+        <circle cx={280} cy={195} r={34} fill="none" stroke="oklch(0.752 0.132 178 / 0.6)" strokeWidth="1.5" />
+        <text
+          x={280}
+          y={199}
+          textAnchor="middle"
+          fill="oklch(0.95 0.008 258)"
+          fontSize="12"
+          fontWeight="600"
+          fontFamily="ui-monospace, monospace"
+        >
+          ATLAS
+        </text>
+      </motion.g>
       <motion.circle
-        cx={pos("customer").x}
-        cy={pos("customer").y}
+        cx={280}
+        cy={195}
         fill="none"
-        stroke="oklch(0.752 0.132 178 / 0.5)"
-        initial={{ r: 26, opacity: 0.7 }}
-        animate={{ r: 60, opacity: 0 }}
-        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut" }}
-      />
-      <motion.circle
-        cx={pos("answer").x}
-        cy={pos("answer").y}
-        fill="none"
-        stroke="oklch(0.802 0.14 80 / 0.55)"
-        initial={{ r: 20, opacity: 0.7 }}
-        animate={{ r: 52, opacity: 0 }}
-        transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut", delay: 1.2 }}
+        stroke="oklch(0.752 0.132 178 / 0.45)"
+        initial={{ r: 34, opacity: 0.7 }}
+        animate={{ r: 70, opacity: 0 }}
+        transition={{ duration: 2.6, repeat: Infinity, ease: "easeOut" }}
       />
     </svg>
   );
 }
 
-export default function Landing() {
-  const navigate = useNavigate();
+// ---------------------------------------------------------------------------
+// Ask Atlas demo
+// ---------------------------------------------------------------------------
 
+function AskExchange({
+  question,
+  answer,
+  sources,
+  confidence,
+  badge,
+  citation,
+}: {
+  question: string;
+  answer: string;
+  sources: string[];
+  confidence: string;
+  badge?: string;
+  citation?: string;
+}) {
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground">
-      {/* ambient background */}
-      <div className="atlas-glow-teal pointer-events-none absolute inset-x-0 top-0 h-[560px]" />
-      <div className="atlas-grid pointer-events-none absolute inset-0 opacity-50 [mask-image:linear-gradient(to_bottom,black,transparent_70%)]" />
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Nav */}
-      {/* ------------------------------------------------------------------ */}
-      <header className="relative z-10 mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5">
-        <button
-          type="button"
-          onClick={() => navigate("/auth")}
-          className="flex items-center gap-2.5 transition-opacity hover:opacity-85"
-        >
-          <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
-            <Radar className="size-5" />
-          </div>
-          <span className="text-lg font-semibold tracking-tight">Atlas</span>
-        </button>
-        <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
-          <a href="#pillars" className="transition-colors hover:text-foreground">What it does</a>
-          <a href="#pipeline" className="transition-colors hover:text-foreground">How it works</a>
-          <a href="#evidence" className="transition-colors hover:text-foreground">Evidence-first</a>
-        </nav>
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
-          <button
-            type="button"
-            onClick={() => navigate("/auth")}
-            className="rounded-lg px-3.5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/auth")}
-            className="group flex items-center gap-2 rounded-lg bg-teal-400 px-4 py-2 text-sm font-semibold text-teal-950 shadow-[0_0_24px_rgba(45,212,191,0.25)] transition-all hover:bg-teal-300 hover:shadow-[0_0_32px_rgba(45,212,191,0.4)]"
-          >
-            Open Atlas
-            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-          </button>
+    <div>
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background/70">
+          <Users className="size-3 text-muted-foreground" />
         </div>
-      </header>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Hero */}
-      {/* ------------------------------------------------------------------ */}
-      <section className="relative z-10 mx-auto grid w-full max-w-6xl items-center gap-12 px-5 pb-24 pt-16 lg:grid-cols-2 lg:pt-24">
-        <motion.div
-          initial={{ opacity: 0, y: 28 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: "easeOut" }}
-        >
-          <p className="atlas-eyebrow mb-4 flex items-center gap-2">
-            <Sparkles className="size-3.5" />
-            The AI operating system for business
-          </p>
-          <h1 className="text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.4rem]">
-            Connect your company.
-            <br />
-            Ask Atlas{" "}
-            <span className="bg-gradient-to-r from-teal-600 via-cyan-600 to-teal-600 bg-clip-text text-transparent dark:from-teal-300 dark:via-cyan-300 dark:to-teal-300">
-              anything.
-            </span>
-          </h1>
-          <p className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-            Atlas connects the tools, documents and information your business already uses — and
-            turns them into one queryable company intelligence layer. Every answer is grounded in
-            your actual data, with citations and confidence.
-          </p>
-          <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-            <ShieldCheck className="size-3.5 text-teal-600 dark:text-teal-300" />
-            Launching with insurance restoration. Built for every business.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate("/auth")}
-              className="group flex items-center gap-2 rounded-lg bg-teal-400 px-5 py-2.5 text-sm font-semibold text-teal-950 shadow-[0_0_28px_rgba(45,212,191,0.3)] transition-all hover:bg-teal-300 hover:shadow-[0_0_40px_rgba(45,212,191,0.45)]"
-            >
-              Launch Atlas
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-            </button>
-            <a
-              href="#pillars"
-              className="rounded-lg border border-border/70 px-5 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-teal-400/40 hover:text-teal-700 dark:hover:text-teal-200"
-            >
-              See how it works
-            </a>
+        <p className="text-sm text-muted-foreground">{question}</p>
+      </div>
+      <div className="mt-3 flex items-start gap-3">
+        <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
+          <Radar className="size-3" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium text-foreground">{answer}</p>
+            {badge && (
+              <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                {badge}
+              </span>
+            )}
           </div>
-          <div className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
-            {["Evidence-backed answers", "Connects your existing files & drives", "Ask across every source"].map((f) => (
-              <span key={f} className="flex items-center gap-1.5">
-                <Check className="size-3.5 text-teal-600 dark:text-teal-300" />
-                {f}
+          {citation && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <span className="rounded-md border border-teal-400/25 bg-teal-400/5 px-2 py-0.5 font-mono text-[10px] text-teal-700 dark:text-teal-200">
+                {citation}
+              </span>
+            </div>
+          )}
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+            <span className="font-mono uppercase tracking-wide text-muted-foreground/70">Sources</span>
+            {sources.map((s) => (
+              <span key={s} className="flex items-center gap-1">
+                <Check className="size-3 text-teal-600 dark:text-teal-300" />
+                {s}
               </span>
             ))}
+            <span className="ml-auto font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+              Confidence: {confidence}
+            </span>
           </div>
-        </motion.div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8, delay: 0.15, ease: "easeOut" }}
-          className="relative"
-        >
-          <div className="atlas-grid-fine rounded-2xl border border-border/70 bg-card/60 p-5 shadow-2xl shadow-black/20 backdrop-blur dark:shadow-black/40">
-            <div className="mb-3 flex items-center justify-between px-1">
-              <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-                Company knowledge · live
-              </span>
-              <span className="flex items-center gap-1.5 font-mono text-[11px] text-emerald-600 dark:text-emerald-300">
-                <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
-                demo workspace
-              </span>
+// ---------------------------------------------------------------------------
+// Closed-loop ring
+// ---------------------------------------------------------------------------
+
+const LOOP_STEPS = [
+  { label: "CONNECT", icon: Cable },
+  { label: "UNDERSTAND", icon: BrainCircuit },
+  { label: "QUERY", icon: MessageSquareText },
+  { label: "DETECT", icon: Radar },
+  { label: "DECIDE", icon: Scale },
+  { label: "ACT", icon: Play },
+  { label: "MEASURE", icon: Gauge },
+  { label: "LEARN", icon: RefreshCw },
+];
+
+function ringPos(i: number, total: number, radius: number) {
+  const angle = (i / total) * Math.PI * 2 - Math.PI / 2;
+  return {
+    left: `${50 + radius * Math.cos(angle)}%`,
+    top: `${50 + radius * Math.sin(angle)}%`,
+  };
+}
+
+function ClosedLoopRing() {
+  return (
+    <Reveal className="relative mx-auto hidden aspect-square w-full max-w-[540px] sm:block">
+      {/* rotating dashed ring */}
+      <motion.div
+        className="absolute inset-[9%] rounded-full border border-dashed border-teal-400/25"
+        animate={{ rotate: 360 }}
+        transition={{ duration: 90, repeat: Infinity, ease: "linear" }}
+      />
+      <div className="absolute inset-[18%] rounded-full border border-border/50" />
+      <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl border border-teal-400/40 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+          <RefreshCw className="size-6" />
+        </div>
+        <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.2em] text-foreground">
+          The operating loop
+        </p>
+      </div>
+      {LOOP_STEPS.map((s, i) => {
+        const Icon = s.icon;
+        const pos = ringPos(i, LOOP_STEPS.length, 42);
+        return (
+          <motion.div
+            key={s.label}
+            initial={{ opacity: 0, scale: 0.7 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true, margin: "-60px" }}
+            transition={{ duration: 0.4, delay: i * 0.07, ease: EASE }}
+            className="absolute z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center"
+            style={pos}
+          >
+            <div className="flex size-10 items-center justify-center rounded-xl border border-border/80 bg-card shadow-lg shadow-black/10 dark:shadow-black/30">
+              <Icon className="size-4 text-teal-600 dark:text-teal-300" />
             </div>
-            <GraphVisual />
-            <div className="mt-3 rounded-xl border border-teal-400/20 bg-teal-400/5 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <p className="flex items-center gap-2 text-xs font-medium text-teal-700 dark:text-teal-100">
-                  <MessageSquareText className="size-3.5 text-teal-600 dark:text-teal-300" />
-                  "Which customers have active projects and unpaid invoices?"
-                </p>
+            <span className="mt-1.5 font-mono text-[9px] tracking-[0.14em] text-muted-foreground">
+              {s.label}
+            </span>
+          </motion.div>
+        );
+      })}
+    </Reveal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+const NAV_LINKS = [
+  { label: "Product", href: "#product" },
+  { label: "How It Works", href: "#how" },
+  { label: "Industries", href: "#industries" },
+  { label: "Security", href: "#security" },
+  { label: "Company", href: "#company" },
+];
+
+export default function Landing() {
+  const navigate = useNavigate();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const toAuth = () => navigate("/auth");
+
+  return (
+    <MotionConfig reducedMotion="user">
+      <div className="relative min-h-screen overflow-x-hidden bg-background text-foreground">
+        {/* ambient background */}
+        <div className="atlas-glow-teal pointer-events-none absolute inset-x-0 top-0 h-[620px]" />
+        <div className="atlas-grid pointer-events-none absolute inset-0 opacity-50 [mask-image:linear-gradient(to_bottom,black,transparent_70%)]" />
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Nav */}
+        {/* ------------------------------------------------------------------ */}
+        <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3.5">
+            <a href="#top" className="flex items-center gap-2.5 transition-opacity hover:opacity-85">
+              <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
+                <Radar className="size-5" />
               </div>
-              <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-                Joined across Customers.csv, Projects.csv and Invoices.csv · 3 sources cited · 92%
-                confidence
-              </p>
+              <span className="text-lg font-semibold tracking-tight text-foreground">Atlas</span>
+            </a>
+            <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
+              {NAV_LINKS.map((l) => (
+                <a key={l.label} href={l.href} className="transition-colors hover:text-foreground">
+                  {l.label}
+                </a>
+              ))}
+            </nav>
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <button
+                type="button"
+                onClick={toAuth}
+                className="hidden rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground sm:block"
+              >
+                Sign in
+              </button>
+              <PrimaryCta onClick={toAuth} className="hidden sm:inline-flex">
+                Connect Your Company
+              </PrimaryCta>
+              <button
+                type="button"
+                aria-label="Toggle menu"
+                onClick={() => setMenuOpen((o) => !o)}
+                className="flex size-9 items-center justify-center rounded-lg border border-border/70 text-muted-foreground md:hidden"
+              >
+                <ListChecks className="size-4" />
+              </button>
             </div>
           </div>
-        </motion.div>
-      </section>
+          {menuOpen && (
+            <div className="border-t border-border/60 bg-background/95 px-5 py-4 md:hidden">
+              <nav className="flex flex-col gap-1">
+                {NAV_LINKS.map((l) => (
+                  <a
+                    key={l.label}
+                    href={l.href}
+                    onClick={() => setMenuOpen(false)}
+                    className="rounded-lg px-2 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  >
+                    {l.label}
+                  </a>
+                ))}
+                <button
+                  type="button"
+                  onClick={toAuth}
+                  className="mt-2 rounded-lg px-2 py-2 text-left text-sm font-medium text-foreground"
+                >
+                  Sign in
+                </button>
+                <PrimaryCta onClick={toAuth} className="mt-1 w-full">
+                  Connect Your Company
+                </PrimaryCta>
+              </nav>
+            </div>
+          )}
+        </header>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Pillars */}
-      {/* ------------------------------------------------------------------ */}
-      <section id="pillars" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
-        <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
-          <p className="atlas-eyebrow mb-3">What Atlas does</p>
-          <h2 className="text-3xl font-semibold tracking-tight">
-            One intelligence layer above everything you already use
-          </h2>
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            V1 is about knowing: connect a company's scattered information, understand it as one
-            knowledge layer, and answer anything with evidence. Later versions advise, act and
-            learn.
-          </p>
-        </motion.div>
-        <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {PILLARS.map((pillar, i) => {
-            const Icon = pillar.icon;
-            return (
-              <motion.div
-                key={pillar.name}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: "-60px" }}
-                transition={{ duration: 0.5, delay: i * 0.08 }}
-                className="group rounded-xl border border-border/70 bg-card/60 p-5 transition-colors hover:border-teal-400/30"
+        {/* ------------------------------------------------------------------ */}
+        {/* Hero */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="top" className="relative z-10 mx-auto w-full max-w-6xl px-5 pb-16 pt-16 lg:pt-24">
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <motion.div
+              variants={container}
+              initial="hidden"
+              animate="show"
+              className="relative z-10"
+            >
+              <motion.p variants={fadeUp} className="atlas-eyebrow mb-4 flex items-center gap-2">
+                <Sparkles className="size-3.5" />
+                The AI operating layer for business
+              </motion.p>
+              <motion.h1
+                variants={fadeUp}
+                className="text-4xl font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.4rem]"
               >
-                <div className="flex items-center justify-between">
-                  <div className="flex size-10 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 transition-transform group-hover:scale-105 dark:text-teal-300">
-                    <Icon className="size-5" />
-                  </div>
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground/70">
-                    {pillar.tag}
+                Your company, finally{" "}
+                <span className="bg-gradient-to-r from-teal-600 via-cyan-600 to-teal-600 bg-clip-text text-transparent dark:from-teal-300 dark:via-cyan-300 dark:to-teal-300">
+                  understandable to AI.
+                </span>
+              </motion.h1>
+              <motion.p variants={fadeUp} className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
+                Atlas connects the systems, documents, workflows, and knowledge your business
+                already uses — then turns them into one continuously queryable intelligence layer.
+              </motion.p>
+              <motion.p variants={fadeUp} className="mt-2 flex items-center gap-2 text-xs text-muted-foreground/80">
+                <span className="font-mono uppercase tracking-[0.14em]">Connect your data. Ask Atlas anything.</span>
+              </motion.p>
+              <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3">
+                <PrimaryCta onClick={toAuth}>Connect Your Company</PrimaryCta>
+                <SecondaryCta href="#product">See How Atlas Works</SecondaryCta>
+              </motion.div>
+              <motion.div
+                variants={fadeUp}
+                className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground"
+              >
+                {[
+                  "Evidence-backed answers",
+                  "Provenance on every fact",
+                  "Tenant-isolated by default",
+                ].map((f) => (
+                  <span key={f} className="flex items-center gap-1.5">
+                    <Check className="size-3.5 text-teal-600 dark:text-teal-300" />
+                    {f}
                   </span>
+                ))}
+              </motion.div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.8, delay: 0.15, ease: EASE }}
+            >
+              <HeroVisual />
+            </motion.div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Positioning strip — what Atlas is not */}
+        {/* ------------------------------------------------------------------ */}
+        <section className="relative z-10 border-y border-border/60 bg-card/30 py-8">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-center gap-3 px-5 text-center">
+            <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-2 text-[11px] text-muted-foreground">
+              <span className="font-mono uppercase tracking-[0.16em] text-muted-foreground/70">
+                Atlas is not
+              </span>
+              {["another CRM", "another ERP", "another project tool", "a document system", "a chatbot"].map(
+                (t, i, arr) => (
+                  <span key={t} className="flex items-center gap-2">
+                    <span className="rounded-md border border-border/70 bg-background/50 px-2 py-1">
+                      {t}
+                    </span>
+                    {i < arr.length - 1 && <span className="text-muted-foreground/40">·</span>}
+                  </span>
+                ),
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground/80">
+              Atlas is the intelligence layer that sits above the software stack you already run.
+            </p>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Problem */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="problem" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <SectionHead
+            eyebrow="The problem"
+            title="Your business runs on dozens of systems. Your intelligence shouldn't."
+            lead="Businesses have accumulated software over time. Each tool contains part of the truth — but no single system understands the entire company."
+          />
+          <div className="mt-12 grid items-start gap-8 lg:grid-cols-[1.15fr_1fr]">
+            <FragmentationVisual />
+            <Reveal delay={0.1}>
+              <h3 className="text-lg font-semibold tracking-tight">The cost of fragmentation</h3>
+              <ul className="mt-5 space-y-3.5">
+                {[
+                  [Search, "People spend time searching for information."],
+                  [Repeat, "Teams duplicate work that already exists somewhere."],
+                  [FileText, "Important context stays trapped inside documents."],
+                  [Users, "Decisions depend on individual employees and their memory."],
+                  [EyeOff, "Management lacks a unified operational picture."],
+                  [ShieldAlert, "Regulatory obligations are difficult to monitor."],
+                  [Database, "Valuable information disappears into disconnected systems."],
+                ].map(([Icon, text]) => {
+                  const I = Icon as typeof Search;
+                  return (
+                    <li key={text as string} className="flex items-start gap-3">
+                      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-background/50 text-teal-600 dark:text-teal-300">
+                        <I className="size-3.5" />
+                      </div>
+                      <p className="text-sm leading-6 text-foreground/90">{text as string}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Introduce Atlas */}
+        {/* ------------------------------------------------------------------ */}
+        <section
+          id="product"
+          className="relative z-10 border-y border-border/60 bg-card/30 py-20"
+        >
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="Introducing Atlas"
+              title="Atlas connects the company — not just the software."
+              lead="Atlas sits above your existing technology stack. It connects the systems and information your business already uses, understands what that information means, and creates a continuously updated model of your company."
+            />
+            <div className="mt-14 grid items-start gap-12 lg:grid-cols-2">
+              <motion.div
+                variants={container}
+                initial="hidden"
+                whileInView="show"
+                viewport={{ once: true, margin: "-70px" }}
+                className="relative"
+              >
+                {[
+                  [Building2, "YOUR EXISTING BUSINESS", "CRMs, accounting, drives, spreadsheets, email, industry software — everything you already run."],
+                  [Cable, "CONNECT", "Sources link to Atlas through uploads and real connectors. Nothing requires a migration."],
+                  [Upload, "INGEST", "PDFs, Word, Excel, CSV and drive files are parsed and normalized into one pipeline."],
+                  [BrainCircuit, "UNDERSTAND", "Entities, policies, facts and relationships are extracted from what the business actually has."],
+                  [Network, "CONNECT THE CONTEXT", "Cross-source identity resolution joins the same customer, project or vendor across files."],
+                  [Layers, "ATLAS COMPANY INTELLIGENCE", "A living knowledge layer with provenance on every assertion."],
+                  [MessageSquareText, "QUERY", "Ask anything in natural language or by voice — across every source at once."],
+                  [Scale, "DECIDE", "Compare reality against policy, industry standards and regulatory expectations."],
+                  [Play, "ACT", "Recommendations surface with evidence, awaiting human approval."],
+                ].map(([Icon, label, text], i, arr) => {
+                  const I = Icon as typeof Cable;
+                  return (
+                    <motion.div key={label as string} variants={fadeUp} className="relative flex gap-4">
+                      <div className="flex flex-col items-center">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-teal-400/25 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                          <I className="size-4" />
+                        </div>
+                        {i < arr.length - 1 && (
+                          <div className="my-1 w-px flex-1 bg-gradient-to-b from-teal-400/40 to-transparent" />
+                        )}
+                      </div>
+                      <div className="pb-7">
+                        <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-teal-600 dark:text-teal-300/90">
+                          {label as string}
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-foreground/90">{text as string}</p>
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </motion.div>
+
+              <Reveal delay={0.15} className="lg:sticky lg:top-24">
+                <div className="atlas-grid-fine rounded-2xl border border-border/70 bg-card/70 p-6 shadow-xl shadow-black/10 dark:shadow-black/30">
+                  <Quote className="size-5 text-teal-600/60 dark:text-teal-300/60" />
+                  <p className="mt-3 text-lg leading-8 text-foreground">
+                    “Your company already has the data.{" "}
+                    <span className="text-teal-600 dark:text-teal-300">Atlas makes the company
+                    understandable.</span>”
+                  </p>
+                  <p className="mt-4 text-sm leading-6 text-muted-foreground">
+                    You don't move your business into Atlas. Atlas learns your business from the
+                    information it already has — and keeps learning as new information arrives.
+                  </p>
+                  <div className="mt-6 grid grid-cols-2 gap-3">
+                    {[
+                      ["9", "pipeline stages, one path for every source"],
+                      ["1", "knowledge layer for the whole company"],
+                      ["0", "systems you have to replace"],
+                      ["100%", "of answers traceable to sources"],
+                    ].map(([k, v]) => (
+                      <div key={k} className="rounded-xl border border-border/70 bg-background/50 p-3">
+                        <p className="text-xl font-semibold tabular-nums tracking-tight text-teal-600 dark:text-teal-300">
+                          {k}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{v}</p>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <h3 className="mt-4 text-sm font-semibold">{pillar.name}</h3>
-                <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{pillar.description}</p>
-                <ul className="mt-3 space-y-1">
-                  {pillar.points.map((p) => (
-                    <li key={p} className="flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
-                      <Check className="size-3 text-teal-600/70 dark:text-teal-300/70" />
-                      {p}
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Keep your stack */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="how" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <SectionHead
+            eyebrow="Keep your software. Add intelligence."
+            title="You don't have to replace your stack"
+            lead="Atlas works with the systems your business already uses. Files upload directly; cloud systems connect through real connectors as they ship. Nothing here claims to be connected unless it actually is."
+          />
+          <Reveal className="mt-12">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {[
+                [FolderOpen, "Google Drive", "live", "Live connector · OAuth"],
+                [FileSpreadsheet, "Excel", "native", ".xlsx · .xls"],
+                [Table2, "CSV", "native", "spreadsheets & tables"],
+                [FileText, "PDF", "native", "text + scanned detection"],
+                [FileType, "Word", "native", ".docx"],
+                [Upload, "Uploads", "native", "drag & drop any time"],
+                [Building2, "Microsoft 365", "soon", "OneDrive / SharePoint"],
+                [Users, "CRM", "soon", "accounts & contacts"],
+                [Banknote, "Accounting", "soon", "invoices & ledgers"],
+                [ListChecks, "Project Mgmt", "soon", "jobs & tasks"],
+                [Mail, "Email", "soon", "communications"],
+                [Briefcase, "Industry Software", "soon", "vertical systems"],
+              ].map(([Icon, name, tone, note]) => {
+                const I = Icon as typeof FolderOpen;
+                return (
+                  <div
+                    key={name as string}
+                    className="group rounded-xl border border-border/70 bg-card/60 p-4 transition-colors hover:border-teal-400/30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 transition-transform group-hover:scale-105 dark:text-teal-300">
+                        <I className="size-4" />
+                      </div>
+                      <StatusChip tone={tone as "live" | "native" | "soon"}>
+                        {tone === "live" ? "Live" : tone === "native" ? "Native" : "Coming soon"}
+                      </StatusChip>
+                    </div>
+                    <p className="mt-3 text-sm font-medium text-foreground">{name as string}</p>
+                    <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{note as string}</p>
+                  </div>
+                );
+              })}
+            </div>
+          </Reveal>
+          <p className="mt-8 text-center font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/60">
+            Connector states reflect reality — “live” means connected, “coming soon” means not yet shipped
+          </p>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Intelligence model + company model */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="model" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="The Atlas intelligence model"
+              title="Atlas doesn't just ingest data. It learns the context around it."
+              lead="Answers change with context. Atlas builds its model of your company from what your company is, how your industry works, and what applies where you operate."
+            />
+            <Reveal className="mt-12">
+              <div className="rounded-2xl border border-border/70 bg-card/60 p-6">
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  {[
+                    [Building2, "Company"],
+                    [Briefcase, "Industry"],
+                    [Globe, "Geography"],
+                    [Scale, "Regulations"],
+                    [FileCheck2, "Company policies"],
+                    [History, "Historical behavior"],
+                    [Workflow, "Workflows"],
+                    [TrendingUp, "KPIs"],
+                  ].map(([Icon, label]) => {
+                    const I = Icon as typeof Building2;
+                    return (
+                      <span
+                        key={label as string}
+                        className="flex items-center gap-2 rounded-lg border border-border/80 bg-background/60 px-3 py-2 text-xs font-medium text-foreground/90"
+                      >
+                        <I className="size-3.5 text-teal-600 dark:text-teal-300" />
+                        {label as string}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="my-4 flex items-center justify-center gap-2">
+                  <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-400/40 to-teal-400/60" />
+                  <motion.span
+                    className="size-1.5 rounded-full bg-teal-500 dark:bg-teal-300"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                  <div className="h-px flex-1 bg-gradient-to-l from-transparent via-teal-400/40 to-teal-400/60" />
+                </div>
+                <div className="mx-auto max-w-md rounded-xl border border-teal-400/25 bg-teal-400/[0.06] p-4 text-center">
+                  <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-teal-600 dark:text-teal-300">
+                    Company intelligence model
+                  </p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    The reference context Atlas reasons against — not a document chatbot.
+                  </p>
+                </div>
+              </div>
+            </Reveal>
+
+            <div className="mt-20 grid items-center gap-12 lg:grid-cols-2">
+              <Reveal>
+                <p className="atlas-eyebrow mb-3">The company model</p>
+                <h3 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  Atlas builds a living model of your company.
+                </h3>
+                <p className="mt-4 text-sm leading-7 text-muted-foreground">
+                  Every document, system, workflow, person, project, customer, policy, transaction,
+                  and decision contributes context to the company model. New information updates
+                  the model — it isn't rebuilt from scratch.
+                </p>
+                <ul className="mt-6 space-y-3">
+                  {[
+                    ["Sources stay sources", "Documents and systems keep their identity — nothing is copied into a walled garden."],
+                    ["Entities resolve across sources", "The same customer, project, or vendor is recognized across files and drives."],
+                    ["Relationships form a graph", "People, projects, policies and financials connect through the knowledge graph."],
+                  ].map(([k, v]) => (
+                    <li key={k} className="flex gap-3">
+                      <Workflow className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{k}</p>
+                        <p className="text-xs leading-5 text-muted-foreground">{v}</p>
+                      </div>
                     </li>
                   ))}
                 </ul>
-              </motion.div>
-            );
-          })}
-        </div>
-      </section>
+              </Reveal>
+              <Reveal delay={0.1}>
+                <div className="atlas-grid-fine rounded-2xl border border-border/70 bg-card/70 p-4 shadow-xl shadow-black/10 dark:shadow-black/30">
+                  <CompanyGraph />
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Pipeline */}
-      {/* ------------------------------------------------------------------ */}
-      <section id="pipeline" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
-        <div className="mx-auto w-full max-w-6xl px-5">
-          <motion.div {...fadeUp} className="mx-auto max-w-2xl text-center">
-            <p className="atlas-eyebrow mb-3">How it works</p>
-            <h2 className="text-3xl font-semibold tracking-tight">From scattered files to answers</h2>
-            <p className="mt-3 text-sm leading-6 text-muted-foreground">
-              Every source — upload or cloud drive — flows through the same pipeline and produces
-              the same normalized Atlas knowledge objects.
-            </p>
-          </motion.div>
-          <div className="mt-12 grid gap-3 md:grid-cols-5">
-            {PIPELINE.map((p, i) => {
-              const Icon = p.icon;
-              return (
-                <motion.div
-                  key={p.label}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-60px" }}
-                  transition={{ duration: 0.5, delay: i * 0.1 }}
-                  className="relative rounded-xl border border-border/70 bg-card/70 p-4"
-                >
-                  <div className="flex items-center gap-2">
-                    <Icon className="size-4 text-teal-600 dark:text-teal-300" />
-                    <span className="font-mono text-[10px] text-muted-foreground/70">
-                      0{i + 1}
-                    </span>
+        {/* ------------------------------------------------------------------ */}
+        {/* Ask Atlas */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="ask" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <SectionHead
+            eyebrow="Ask Atlas"
+            title="Ask your company anything."
+            lead="No dashboards to build. No database queries. No hunting through folders. Just ask — Atlas searches across every connected and uploaded source and answers with evidence."
+          />
+          <Reveal className="mt-12">
+            <div className="mx-auto max-w-3xl rounded-2xl border border-border/70 bg-card/70 p-6 shadow-xl shadow-black/10 dark:shadow-black/30">
+              <div className="flex items-center gap-2 border-b border-border/60 pb-4">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
+                  <Radar className="size-4" />
+                </div>
+                <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Atlas · company intelligence
+                </span>
+                <span className="ml-auto flex items-center gap-1.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
+                  grounded
+                </span>
+              </div>
+              <div className="mt-6 space-y-7">
+                <AskExchange
+                  question="“Which customers have active projects and unpaid invoices?”"
+                  answer="I found 7 customers with active projects and outstanding invoices totaling $184,200 — all amounts drawn from your customer, project, and invoice records."
+                  sources={["Customer database", "Invoice records", "Project records"]}
+                  confidence="High · 94%"
+                />
+                <div className="border-t border-border/60 pt-7">
+                  <AskExchange
+                    question="“What does our SOP require when a project reaches this stage?”"
+                    answer="Per your Project Completion SOP §4, the project must have a signed authorization, dated completion photos, and a final drying log before invoicing."
+                    badge="FACT"
+                    citation="[1] Project Completion SOP §4"
+                    sources={["Project Completion SOP"]}
+                    confidence="High · 91%"
+                  />
+                </div>
+              </div>
+              <div className="mt-6 rounded-xl border border-border/60 bg-background/50 p-3 text-[11px] leading-5 text-muted-foreground">
+                <span className="font-semibold text-foreground">Why this matters:</span> the answer
+                required joining three different spreadsheets plus a policy document. You never
+                needed to know which system held the answer.
+              </div>
+            </div>
+          </Reveal>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Voice */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="voice" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto grid w-full max-w-6xl items-center gap-12 px-5 lg:grid-cols-2">
+            <Reveal>
+              <p className="atlas-eyebrow mb-3">Voice</p>
+              <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                Talk to your company.
+              </h2>
+              <p className="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
+                Atlas isn't limited to a chat window. Ask questions naturally by voice and get
+                answers grounded in your company's actual information — an operating assistant for
+                the business, not a consumer toy.
+              </p>
+              <div className="mt-7 space-y-3">
+                {[
+                  [Mic2, "“Atlas, what's happening across the business today?”"],
+                  [Radar, "“Three projects require attention, two invoices are overdue, and one compliance deadline is approaching…”"],
+                ].map(([Icon, text], i) => {
+                  const I = Icon as typeof Mic2;
+                  return (
+                    <div
+                      key={i}
+                      className="flex items-start gap-3 rounded-xl border border-border/70 bg-background/50 p-3.5"
+                    >
+                      <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 dark:text-teal-300">
+                        <I className="size-3.5" />
+                      </div>
+                      <p className="text-sm leading-6 text-muted-foreground">{text as string}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </Reveal>
+            <Reveal delay={0.1}>
+              <div className="atlas-grid-fine rounded-2xl border border-border/70 bg-card/70 p-6 shadow-xl shadow-black/10 dark:shadow-black/30">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Voice channel · live
+                  </span>
+                  <span className="flex items-center gap-1.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
+                    listening
+                  </span>
+                </div>
+                <div className="mt-8 flex h-24 items-center justify-center gap-1.5">
+                  {[10, 18, 26, 14, 30, 20, 34, 16, 26, 12, 22, 30, 16, 24, 12, 20].map((h, i) => (
+                    <motion.span
+                      key={i}
+                      className="w-1.5 rounded-full bg-teal-500/80 dark:bg-teal-300/80"
+                      animate={{ height: [h * 0.4, h, h * 0.45] }}
+                      transition={{
+                        duration: 1.4,
+                        repeat: Infinity,
+                        delay: i * 0.09,
+                        ease: "easeInOut",
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="mt-8 flex items-center justify-center gap-3">
+                  <div className="relative">
+                    <div className="flex size-14 items-center justify-center rounded-full border border-teal-400/40 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                      <Play className="size-5 fill-current" />
+                    </div>
+                    <motion.span
+                      className="absolute inset-0 rounded-full border border-teal-400/40"
+                      animate={{ opacity: [0.7, 0], scale: [1, 1.45] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+                    />
                   </div>
-                  <h3 className="mt-3 text-sm font-semibold">{p.label}</h3>
-                  <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{p.text}</p>
-                  {i < PIPELINE.length - 1 && (
-                    <ArrowRight className="absolute -right-3 top-1/2 hidden size-4 -translate-y-1/2 text-teal-400/50 md:block" />
-                  )}
-                </motion.div>
+                  <div className="text-left">
+                    <p className="text-sm font-medium text-foreground">Ask aloud</p>
+                    <p className="text-xs text-muted-foreground">
+                      “What does our refund policy say?” · “Where are we losing revenue?”
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Evolution */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="evolution" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <SectionHead
+            eyebrow="The roadmap"
+            title="From knowing what happened to knowing what to do next."
+            lead="The first Atlas experience centers on knowledge and querying. The platform architecture is designed to evolve into decision-making, execution, and closed-loop learning."
+          />
+          <div className="mt-12 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {[
+              [Eye, "KNOW", "“What happened?”"],
+              [BrainCircuit, "UNDERSTAND", "“Why did it happen?”"],
+              [Scale, "COMPARE", "“Is this how it should happen?”"],
+              [Lightbulb, "ADVISE", "“What should we do?”"],
+              [Play, "ACT", "“Do it.”"],
+              [RefreshCw, "LEARN", "“Did it work?”"],
+            ].map(([Icon, label, q], i) => {
+              const I = Icon as typeof Eye;
+              const live = i <= 2;
+              return (
+                <Reveal key={label as string} delay={i * 0.06}>
+                  <div
+                    className={cn(
+                      "relative h-full rounded-xl border p-4",
+                      live
+                        ? "border-teal-400/30 bg-teal-400/[0.05]"
+                        : "border-border/70 bg-card/50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div
+                        className={cn(
+                          "flex size-8 items-center justify-center rounded-lg",
+                          live
+                            ? "bg-teal-400/15 text-teal-600 dark:text-teal-300"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        <I className="size-4" />
+                      </div>
+                      <span className="font-mono text-[9px] uppercase tracking-widest text-muted-foreground/60">
+                        V{i + 1}
+                      </span>
+                    </div>
+                    <p className="mt-3 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground/80">
+                      {label as string}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{q as string}</p>
+                    {i < 5 && (
+                      <ArrowRight className="absolute -right-2.5 top-1/2 hidden size-4 -translate-y-1/2 text-teal-400/40 lg:block" />
+                    )}
+                  </div>
+                </Reveal>
               );
             })}
           </div>
-          <p className="mt-8 text-center font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/60">
-            V1 know · V2 understand · V3 advise · V4 act · V5 learn
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            V1 ships the KNOW → UNDERSTAND → COMPARE foundation. Advisory, execution, and learning
+            build on the same architecture — they aren't promised today.
           </p>
-        </div>
-      </section>
+        </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Evidence-first */}
-      {/* ------------------------------------------------------------------ */}
-      <section id="evidence" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
-        <div className="grid items-center gap-12 lg:grid-cols-2">
-          <motion.div {...fadeUp}>
-            <p className="atlas-eyebrow mb-3">Evidence-first</p>
-            <h2 className="text-3xl font-semibold tracking-tight">
-              Atlas never guesses. It cites.
-            </h2>
-            <p className="mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-              Every answer is labeled FACT, RULE, OBSERVATION, INFERENCE or UNKNOWN — with a
-              confidence score and links to the exact documents it came from. If the evidence
-              doesn't support an answer, Atlas says so instead of inventing it.
-            </p>
-            <ul className="mt-6 space-y-3">
-              {[
-                ["Ground truth only", "Answers are built from your connected sources — never from model memory."],
-                ["Provenance on everything", "Entities and assertions remember which document they came from."],
-                ["Cross-source reasoning", "Customers, projects and invoices are joined across files and drives."],
-              ].map(([k, v]) => (
-                <li key={k} className="flex gap-3">
-                  <Workflow className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
-                  <div>
-                    <p className="text-sm font-medium">{k}</p>
-                    <p className="text-xs text-muted-foreground">{v}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 24 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true, margin: "-80px" }}
-            transition={{ duration: 0.6, ease: "easeOut" }}
-            className="rounded-2xl border border-border/70 bg-card/70 p-5 shadow-xl shadow-black/10 dark:shadow-black/30"
-          >
-            <div className="flex items-center gap-2 border-b border-border/60 pb-3">
-              <div className="flex size-7 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 dark:text-teal-300">
-                <Radar className="size-4" />
-              </div>
-              <span className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-                Ask Atlas
-              </span>
-              <span className="ml-auto rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
-                FACT
-              </span>
-            </div>
-            <p className="mt-4 text-sm text-muted-foreground">
-              "What documentation is required before we can invoice?"
-            </p>
-            <p className="mt-3 text-sm leading-6 text-foreground">
-              Per the company SOP, every invoice requires a signed authorization, dated photographs,
-              and — for water losses — a drying log with readings every 12 hours [1]. Northbrook
-              additionally requires net-30 submission within 30 days of completion [2].
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {["[1] Restoration SOP §2", "[2] Carrier requirements brief"].map((c) => (
-                <span
-                  key={c}
-                  className="rounded-md border border-teal-400/25 bg-teal-400/5 px-2 py-1 font-mono text-[11px] text-teal-700 dark:text-teal-200"
-                >
-                  {c}
+        {/* ------------------------------------------------------------------ */}
+        {/* Context */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="context" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="Regulatory + industry intelligence"
+              title="Context changes the answer."
+              lead="A business doesn't operate in a vacuum. Atlas combines your company's reality with its policies, industry standards, and the regulations that apply where you operate."
+            />
+            <Reveal className="mt-10">
+              <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
+                {["Company reality", "Company policies", "Industry standards", "Regulatory requirements", "Geographic requirements"].map(
+                  (c, i, arr) => (
+                    <span key={c} className="flex items-center gap-2">
+                      <span className="rounded-lg border border-border/80 bg-background/60 px-3 py-2 font-medium text-foreground/90">
+                        {c}
+                      </span>
+                      {i < arr.length - 1 && <span className="text-teal-500/70">+</span>}
+                    </span>
+                  ),
+                )}
+                <span className="text-teal-500/70">=</span>
+                <span className="rounded-lg border border-teal-400/30 bg-teal-400/10 px-3 py-2 font-semibold text-teal-700 dark:text-teal-200">
+                  What applies to this company
                 </span>
-              ))}
+              </div>
+            </Reveal>
+            <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                [Eye, "What happened?", "The reality captured from your connected sources."],
+                [Scale, "What should have happened?", "Industry standards and benchmarks as reference."],
+                [FileCheck2, "What does our company require?", "Your own policies, SOPs, and procedures."],
+                [Landmark, "What does the regulation require?", "Jurisdictional and regulatory obligations."],
+              ].map(([Icon, k, v], i) => {
+                const I = Icon as typeof Eye;
+                return (
+                  <Reveal key={k as string} delay={i * 0.06}>
+                    <div className="h-full rounded-xl border border-border/70 bg-card/60 p-4 transition-colors hover:border-teal-400/30">
+                      <I className="size-4 text-teal-600 dark:text-teal-300" />
+                      <p className="mt-3 text-sm font-semibold text-foreground">{k as string}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{v as string}</p>
+                    </div>
+                  </Reveal>
+                );
+              })}
             </div>
-            <div className="mt-4 flex items-center justify-between border-t border-border/60 pt-3 text-xs text-muted-foreground">
-              <span>Confidence</span>
-              <div className="flex items-center gap-2">
-                <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full w-[88%] rounded-full bg-emerald-400" />
+            <p className="mt-8 text-center text-xs text-muted-foreground">
+              The long-term goal: Atlas surfaces gaps between reality, policy, industry expectations,
+              and regulatory requirements — flagged as signals, not mandates.
+            </p>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Industries */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="industries" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <Reveal>
+              <p className="atlas-eyebrow mb-3">Industries</p>
+              <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                Starting where operational complexity is expensive.
+              </h2>
+              <p className="mt-4 text-sm leading-7 text-muted-foreground">
+                Atlas is launching first in insurance restoration — an industry where critical
+                information is spread across estimates, claims, project systems, documents, photos,
+                communications, carrier requirements, SOPs, and spreadsheets.
+              </p>
+              <p className="mt-3 text-sm leading-7 text-muted-foreground">
+                The same architecture extends to other operationally complex industries. Industry
+                intelligence packs are added incrementally — what you see here is the roadmap, and
+                each vertical is activated as its pack ships.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-2">
+                {[
+                  [HardHat, "Insurance Restoration", true],
+                  [Home, "Construction", false],
+                  [HardHat, "Roofing", false],
+                  [Stethoscope, "Healthcare", false],
+                  [Scale, "Legal", false],
+                  [Landmark, "Financial Services", false],
+                  [Truck, "Logistics", false],
+                  [Briefcase, "Professional Services", false],
+                  [Factory, "Other operational businesses", false],
+                ].map(([Icon, name, active]) => {
+                  const I = Icon as typeof HardHat;
+                  return (
+                    <span
+                      key={name as string}
+                      className={cn(
+                        "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium",
+                        active
+                          ? "border-teal-400/40 bg-teal-400/10 text-teal-700 dark:text-teal-200"
+                          : "border-border/70 bg-background/50 text-muted-foreground",
+                      )}
+                    >
+                      <I className="size-3.5" />
+                      {name as string}
+                      {active && (
+                        <span className="font-mono text-[9px] uppercase tracking-wide text-teal-600 dark:text-teal-300">
+                          live
+                        </span>
+                      )}
+                    </span>
+                  );
+                })}
+              </div>
+            </Reveal>
+
+            {/* ------------------------------------------------------------------ */}
+            {/* Universal architecture */}
+            {/* ------------------------------------------------------------------ */}
+            <Reveal delay={0.1}>
+              <div id="architecture" className="rounded-2xl border border-border/70 bg-card/60 p-6">
+                <p className="atlas-eyebrow mb-2">The universal architecture</p>
+                <h3 className="text-xl font-semibold tracking-tight">One intelligence layer. Any business.</h3>
+                <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                  The core Atlas architecture is industry-agnostic. Industry-specific intelligence
+                  sits above it — so Atlas expands vertical by vertical without rebuilding the
+                  operating layer.
+                </p>
+                <div className="mt-5 rounded-xl border border-teal-400/30 bg-teal-400/[0.06] p-4">
+                  <p className="text-center font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-teal-700 dark:text-teal-200">
+                    Atlas · universal AI layer
+                  </p>
+                  <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+                    {[
+                      "identity", "connections", "ingestion", "normalization", "knowledge",
+                      "relationships", "search", "reasoning", "permissions", "provenance",
+                      "audit", "natural language",
+                    ].map((c) => (
+                      <span
+                        key={c}
+                        className="rounded-md border border-teal-400/20 bg-background/50 px-2 py-0.5 font-mono text-[9px] text-foreground/80"
+                      >
+                        {c}
+                      </span>
+                    ))}
+                  </div>
                 </div>
-                <span className="font-mono text-[11px]">88%</span>
+                <div className="my-4 flex items-center justify-center gap-2">
+                  <motion.span
+                    className="size-1.5 rounded-full bg-teal-500 dark:bg-teal-300"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                  />
+                  <div className="h-px w-24 bg-gradient-to-r from-teal-400/50 to-transparent" />
+                  <motion.span
+                    className="size-1.5 rounded-full bg-teal-500 dark:bg-teal-300"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.6, repeat: Infinity, delay: 0.4, ease: "easeInOut" }}
+                  />
+                  <div className="h-px w-24 bg-gradient-to-l from-teal-400/50 to-transparent" />
+                  <motion.span
+                    className="size-1.5 rounded-full bg-teal-500 dark:bg-teal-300"
+                    animate={{ opacity: [0.3, 1, 0.3] }}
+                    transition={{ duration: 1.6, repeat: Infinity, delay: 0.8, ease: "easeInOut" }}
+                  />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["Restoration", "industry intelligence"],
+                    ["Healthcare", "industry intelligence"],
+                    ["Legal", "industry intelligence"],
+                  ].map(([name, sub]) => (
+                    <div
+                      key={name}
+                      className="rounded-lg border border-border/70 bg-background/50 p-3 text-center"
+                    >
+                      <p className="text-xs font-semibold text-foreground">{name}</p>
+                      <p className="mt-0.5 font-mono text-[9px] uppercase tracking-widest text-muted-foreground">
+                        {sub}
+                      </p>
+                      <p className="mt-2 text-[9px] text-muted-foreground/80">
+                        terminology · workflows · regulations · benchmarks · KPIs · risks
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Security / trust */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="security" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="Security & trust"
+              title="AI you can trace."
+              lead="Atlas should not be a black box. Every answer should be grounded in what Atlas actually knows — with the evidence to prove it."
+            />
+            <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                [ScrollText, "Source citations", "Every answer links back to the documents and systems it came from."],
+                [GitBranch, "Provenance", "Entities and assertions remember their source, connector, and extraction event."],
+                [Gauge, "Confidence", "Answers carry a confidence score — and Atlas says UNKNOWN when evidence is missing."],
+                [ClipboardCheck, "Audit trails", "What Atlas and your team did, recorded as a first-class activity log."],
+                [Lock, "Permissions", "Viewers see and ask within what their role allows — AI never reveals more."],
+                [ShieldCheck, "Tenant isolation", "Every workspace is isolated; no company's knowledge leaks into another."],
+                [Fingerprint, "Source-level evidence", "FACT, RULE, OBSERVATION, and INFERENCE are distinguished explicitly."],
+                [Database, "No fabrication", "If the evidence doesn't support an answer, Atlas says so instead of inventing it."],
+              ].map(([Icon, k, v], i) => {
+                const I = Icon as typeof ScrollText;
+                return (
+                  <Reveal key={k as string} delay={i * 0.05}>
+                    <div className="h-full rounded-xl border border-border/70 bg-card/60 p-4 transition-colors hover:border-teal-400/30">
+                      <I className="size-4 text-teal-600 dark:text-teal-300" />
+                      <p className="mt-3 text-sm font-semibold text-foreground">{k as string}</p>
+                      <p className="mt-1 text-xs leading-5 text-muted-foreground">{v as string}</p>
+                    </div>
+                  </Reveal>
+                );
+              })}
+            </div>
+            <p className="mt-8 text-center text-xs text-muted-foreground">
+              Atlas reports its capabilities honestly. Compliance certifications will be listed here
+              only when they are actually implemented and verified.
+            </p>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Closed loop */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="loop" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
+          <div className="grid items-center gap-12 lg:grid-cols-2">
+            <Reveal>
+              <p className="atlas-eyebrow mb-3">The operating loop</p>
+              <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+                A continuous intelligence loop around the business.
+              </h2>
+              <p className="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
+                The long-term vision for Atlas isn't simply to answer questions. It's to keep the
+                company model current — detecting what changed, comparing it against expectations,
+                and closing the loop from decision to outcome to learning.
+              </p>
+              <ul className="mt-6 space-y-2.5">
+                {[
+                  "V1 focus: connect, understand, query — a rock-solid knowledge layer.",
+                  "Later: detection and decisions with human approval at every step.",
+                  "Eventually: measured outcomes feed back into how Atlas reasons.",
+                ].map((t) => (
+                  <li key={t} className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                    <Check className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+                    {t}
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+            <ClosedLoopRing />
+            {/* mobile fallback list */}
+            <div className="sm:hidden">
+              <Reveal>
+                <div className="grid grid-cols-2 gap-2">
+                  {LOOP_STEPS.map((s) => {
+                    const Icon = s.icon;
+                    return (
+                      <div
+                        key={s.label}
+                        className="flex items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-3 py-2"
+                      >
+                        <Icon className="size-3.5 text-teal-600 dark:text-teal-300" />
+                        <span className="font-mono text-[9px] tracking-[0.14em] text-muted-foreground">
+                          {s.label}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Reveal>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Who it's for + value props */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="for" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="Who it's for"
+              title="Built for businesses where information is already everywhere."
+              lead="Operationally complex companies run on dozens of systems. Atlas is built for them — from small and mid-sized operators to larger organizations."
+            />
+            <div className="mt-12 grid gap-4 md:grid-cols-2">
+              <Reveal>
+                <div className="h-full rounded-2xl border border-border/70 bg-card/60 p-6">
+                  <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    <Target className="size-3.5 text-teal-600 dark:text-teal-300" />
+                    The companies
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[
+                      "Restoration", "Construction", "Roofing", "Healthcare", "Legal",
+                      "Logistics", "Professional services", "Field services",
+                      "Financial operations", "Other multi-system businesses",
+                    ].map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-lg border border-border/80 bg-background/50 px-3 py-1.5 text-xs text-foreground/85"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+              <Reveal delay={0.08}>
+                <div className="h-full rounded-2xl border border-border/70 bg-card/60 p-6">
+                  <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    <Users className="size-3.5 text-teal-600 dark:text-teal-300" />
+                    The people
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {[
+                      "Founders", "CEOs", "COOs", "Operations leaders", "Finance leaders",
+                      "Managers", "Employees",
+                    ].map((t) => (
+                      <span
+                        key={t}
+                        className="rounded-lg border border-border/80 bg-background/50 px-3 py-1.5 text-xs text-foreground/85"
+                      >
+                        {t}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="mt-5 text-xs leading-5 text-muted-foreground">
+                    Atlas starts accessible for small and mid-sized operations and scales with the
+                    architecture — not with a sales team and a contract.
+                  </p>
+                </div>
+              </Reveal>
+            </div>
+
+            <div className="mt-12 grid gap-4 md:grid-cols-3">
+              {[
+                [Search, "Stop searching", "Atlas finds the information.", "Ask across every connected source — no folder archaeology."],
+                [EyeOff, "Stop guessing", "Atlas shows the evidence.", "Facts, citations, and confidence behind every answer."],
+                [Lightbulb, "Start understanding", "Atlas connects the context.", "People, projects, policies, and financials — joined into one picture."],
+              ].map(([Icon, k, tag, v], i) => {
+                const I = Icon as typeof Search;
+                return (
+                  <Reveal key={k as string} delay={i * 0.06}>
+                    <div className="group h-full rounded-2xl border border-border/70 bg-card/60 p-6 transition-colors hover:border-teal-400/30">
+                      <div className="flex size-10 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 transition-transform group-hover:scale-105 dark:text-teal-300">
+                        <I className="size-5" />
+                      </div>
+                      <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-foreground/70">
+                        {k as string}
+                      </p>
+                      <p className="mt-1.5 text-lg font-semibold tracking-tight text-foreground">
+                        {tag as string}
+                      </p>
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">{v as string}</p>
+                    </div>
+                  </Reveal>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Final CTA */}
+        {/* ------------------------------------------------------------------ */}
+        <section id="cta" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-24">
+          <Reveal>
+            <div className="atlas-glow-teal relative overflow-hidden rounded-2xl border border-teal-400/20 px-6 py-16 text-center">
+              <div className="atlas-grid-fine pointer-events-none absolute inset-0 opacity-40" />
+              <div className="relative">
+                <p className="atlas-eyebrow mb-3">Connect your company</p>
+                <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
+                  Your company already contains the answers.
+                </h2>
+                <p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
+                  Atlas connects the information, understands the context, and gives your entire
+                  organization a way to ask.
+                </p>
+                <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+                  <PrimaryCta onClick={toAuth}>Connect Your Company</PrimaryCta>
+                  <SecondaryCta href="#ask">See Atlas in Action</SecondaryCta>
+                </div>
+                <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground/70">
+                  The AI operating layer for business
+                </p>
               </div>
             </div>
-          </motion.div>
-        </div>
-      </section>
+          </Reveal>
+        </section>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* CTA */}
-      {/* ------------------------------------------------------------------ */}
-      <section className="relative z-10 mx-auto w-full max-w-6xl px-5 pb-24">
-        <motion.div
-          initial={{ opacity: 0, y: 24 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true, margin: "-80px" }}
-          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-          className="atlas-glow-teal relative overflow-hidden rounded-2xl border border-teal-400/20 px-6 py-14 text-center"
-        >
-          <div className="atlas-grid-fine pointer-events-none absolute inset-0 opacity-40" />
-          <div className="relative">
-            <p className="atlas-eyebrow mb-3">Get started in minutes</p>
-            <h2 className="mx-auto max-w-xl text-3xl font-semibold tracking-tight">
-              Connect your company. Ask Atlas anything.
-            </h2>
-            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-muted-foreground">
-              Create a workspace, tell Atlas what kind of company you are, upload a few documents —
-              and ask questions across everything you already have.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate("/auth")}
-              className="group mt-8 inline-flex items-center gap-2 rounded-lg bg-teal-400 px-6 py-3 text-sm font-semibold text-teal-950 shadow-[0_0_32px_rgba(45,212,191,0.3)] transition-all hover:bg-teal-300 hover:shadow-[0_0_48px_rgba(45,212,191,0.45)]"
-            >
-              <FileText className="size-4" />
-              Start with Atlas
-              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-            </button>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Footer */}
-      {/* ------------------------------------------------------------------ */}
-      <footer className="relative z-10 border-t border-border/60">
-        <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-4 px-5 py-8 sm:flex-row">
-          <div className="flex items-center gap-2.5">
-            <div className="flex size-7 items-center justify-center rounded-md bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
-              <Radar className="size-3.5" />
+        {/* ------------------------------------------------------------------ */}
+        {/* Footer */}
+        {/* ------------------------------------------------------------------ */}
+        <footer id="company" className="relative z-10 border-t border-border/60">
+          <div className="mx-auto w-full max-w-6xl px-5 py-12">
+            <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
+              <div>
+                <a href="#top" className="flex items-center gap-2.5">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
+                    <Radar className="size-4" />
+                  </div>
+                  <span className="text-base font-semibold tracking-tight">Atlas</span>
+                </a>
+                <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">
+                  The AI operating layer for business. Connect the information your company already
+                  has — and ask one AI anything about your business, with answers grounded in your
+                  actual data.
+                </p>
+                <div className="mt-4 flex items-center gap-2">
+                  <ThemeToggle />
+                  <button
+                    type="button"
+                    onClick={toAuth}
+                    className="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Sign in →
+                  </button>
+                </div>
+              </div>
+              {[
+                ["Product", [["Ask Atlas", "#ask"], ["Company model", "#model"], ["Connections", "#how"], ["Security", "#security"]]],
+                ["How it works", [["The problem", "#problem"], ["The pipeline", "#product"], ["Industries", "#industries"], ["The roadmap", "#evolution"]]],
+                ["Company", [["About", "#product"], ["Industries", "#industries"], ["Trust", "#security"], ["Contact", "#cta"]]],
+              ].map(([head, links]) => (
+                <div key={head as string}>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    {head as string}
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {(links as [string, string][]).map(([label, href]) => (
+                      <li key={label}>
+                        <a
+                          href={href}
+                          className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {label}
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
-            <span className="text-sm font-semibold">Atlas</span>
+            <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-6 sm:flex-row">
+              <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/60">
+                connect · understand · query · decide · act · learn
+              </p>
+              <p className="text-[11px] text-muted-foreground/60">
+                © {new Date().getFullYear()} Atlas. Launching with insurance restoration. Built for
+                every business.
+              </p>
+            </div>
           </div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground/60">
-            connect · ingest · understand · ask
-          </p>
-          <button
-            type="button"
-            onClick={() => navigate("/auth")}
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            Sign in →
-          </button>
-        </div>
-      </footer>
-    </div>
+        </footer>
+      </div>
+    </MotionConfig>
   );
 }

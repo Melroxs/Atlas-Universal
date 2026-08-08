@@ -341,6 +341,19 @@ regenerates it (`convex dev` locally, `convex deploy` on Vercel).
 | `GOOGLE_CLIENT_ID`           | `src/convex/http.ts`, `connections.ts`, `connectionsSync.ts` | Google OAuth client ID for the Google Drive connector. |
 | `GOOGLE_CLIENT_SECRET`       | same as above              | Google OAuth client secret (server-side only). |
 
+Additional connector credentials are defined centrally in `src/convex/connectors/registry.ts`. The Connections page shows **"Not configured"** until the relevant variables exist, and **"Authorization required"** once they do — status is never faked. Roadmap connectors below are fully documented (real APIs, scopes, auth endpoints) but have no client yet:
+
+| Variable | Connector | Purpose |
+|---|---|---|
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` / `MICROSOFT_TENANT_ID` | Microsoft 365 (roadmap) | Entra app credentials for OneDrive/SharePoint via Graph. |
+| `SLACK_CLIENT_ID` / `SLACK_CLIENT_SECRET` | Slack (roadmap) | Slack OAuth app credentials. |
+| `HUBSPOT_CLIENT_ID` / `HUBSPOT_CLIENT_SECRET` | HubSpot (roadmap) | HubSpot OAuth app credentials (CRM). |
+| `QUICKBOOKS_CLIENT_ID` / `QUICKBOOKS_CLIENT_SECRET` | QuickBooks (roadmap) | Intuit OAuth app credentials (accounting). |
+| `STRIPE_SECRET_KEY` | Stripe (roadmap) | Stripe secret API key — server-side only, never a publishable key. |
+| `DROPBOX_CLIENT_ID` / `DROPBOX_CLIENT_SECRET` | Dropbox (roadmap) | Dropbox OAuth app credentials. |
+| `NOTION_CLIENT_ID` / `NOTION_CLIENT_SECRET` | Notion (roadmap) | Notion OAuth integration credentials. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub (roadmap) | GitHub OAuth app credentials. |
+
 ## Google OAuth setup
 
 1. Create an OAuth 2.0 Client ID in Google Cloud Console (Desktop/Web app).

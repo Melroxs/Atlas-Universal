@@ -406,6 +406,21 @@ const schema = defineSchema(
       ),
       lastSyncAt: v.optional(v.number()),
       lastError: v.optional(v.string()),
+      /** Verified against the live API (testConnection). Never set by config alone. */
+      healthStatus: v.optional(
+        v.union(
+          v.literal("healthy"),
+          v.literal("degraded"),
+          v.literal("untested"),
+          v.literal("error"),
+        ),
+      ),
+      lastTestedAt: v.optional(v.number()),
+      /** Human-readable identity of the connected account (e.g. Gmail address). */
+      accountName: v.optional(v.string()),
+      accountEmail: v.optional(v.string()),
+      /** Scopes actually granted during OAuth. */
+      scopes: v.optional(v.array(v.string())),
       notes: v.optional(v.string()),
       settings: v.optional(v.any()),
     }).index("by_tenant", ["tenantId"]),

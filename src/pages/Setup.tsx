@@ -54,12 +54,19 @@ const SIZES = ["1–10", "11–50", "51–200", "201–500", "501–2000", "2000
 const INDUSTRIES = [
   "Insurance restoration",
   "Construction",
-  "Legal services",
-  "Healthcare services",
   "Roofing",
   "Mitigation & water damage",
   "Property services",
+  "Property management",
+  "Real estate",
+  "Solar & renewables",
+  "Manufacturing",
+  "Logistics & supply chain",
+  "Software / SaaS",
   "Financial services",
+  "Professional services",
+  "Legal services",
+  "Healthcare services",
   "Other",
 ];
 

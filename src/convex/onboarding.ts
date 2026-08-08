@@ -118,7 +118,11 @@ export const completeOnboarding = mutation({
       { packKey: "general-business" },
     ];
     const industry = (profile.industry ?? "").toLowerCase();
-    if (
+    // Order matters: "property management" must be checked before the generic
+    // "property" match used by insurance restoration.
+    if (industry.includes("property management")) {
+      activation.push({ packKey: "property-management" });
+    } else if (
       industry.includes("restoration") ||
       industry.includes("construction") ||
       industry.includes("mitigation") ||
@@ -130,6 +134,27 @@ export const completeOnboarding = mutation({
       activation.push({ packKey: "legal" });
     } else if (industry.includes("health")) {
       activation.push({ packKey: "healthcare" });
+    } else if (
+      industry.includes("software") ||
+      industry.includes("saas") ||
+      industry.includes("technology")
+    ) {
+      activation.push({ packKey: "saas" });
+    } else if (industry.includes("real estate")) {
+      activation.push({ packKey: "real-estate" });
+    } else if (industry.includes("solar")) {
+      activation.push({ packKey: "solar" });
+    } else if (industry.includes("manufacturing")) {
+      activation.push({ packKey: "manufacturing" });
+    } else if (industry.includes("logistic") || industry.includes("supply chain")) {
+      activation.push({ packKey: "logistics" });
+    } else if (industry.includes("financial")) {
+      activation.push({ packKey: "financial-services" });
+    } else if (
+      industry.includes("professional services") ||
+      industry.includes("consulting")
+    ) {
+      activation.push({ packKey: "professional-services" });
     }
     if ((profile.country ?? "").toLowerCase().includes("united")) {
       activation.push({ packKey: "us-federal" });

@@ -378,3 +378,186 @@ export const runDueSyncs = action({
     return { ran };
   },
 });
+
+/**
+ * Verify a connection against the provider's REAL API. Stored state is never
+ * trusted on its own: the connection is only marked healthy when the live
+ * call succeeds. Secrets never leave the backend; errors are sanitized.
+ */
+export const testConnection = action({
+  args: { connectionId: v.id("connections") },
+  handler: async (
+    ctx,
+    { connectionId },
+  ): Promise<
+    | { ok: true; provider: string; accountName?: string; accountEmail?: string }
+    | { ok: false; provider: string; reason: string }
+  > => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) {
+      return { ok: false, provider: "unknown", reason: "You must be signed in." };
+    }
+    const membership = await ctx.runQuery(internal.internal.getMembershipByUser, {
+      userId,
+    });
+    if (!membership) {
+      return {
+        ok: false,
+        provider: "unknown",
+        reason: "You don't belong to a workspace yet.",
+      };
+    }
+    const member = await ctx.runQuery(internal.internal.getMembershipByUserTenant, {
+      userId,
+      tenantId: membership.tenantId,
+    });
+    if (!member || !(MANAGER_ROLES as readonly string[]).includes(member.role)) {
+      return {
+        ok: false,
+        provider: "unknown",
+        reason: "Only managers and above can test connections.",
+      };
+    }
+    const conn = await ctx.runQuery(internal.internal.getConnectionById, {
+      connectionId,
+    });
+    if (!conn || conn.tenantId !== membership.tenantId) {
+      return { ok: false, provider: "unknown", reason: "Connection not found." };
+    }
+    const provider = conn.provider;
+
+    if (provider === "google_drive") {
+      const tokens = (conn.settings?.tokens ?? {}) as DriveTokens;
+      if (!tokens.refreshToken) {
+        await ctx.runMutation(internal.internal.patchConnection, {
+          id: conn._id,
+          patch: {
+            status: "disconnected",
+            healthStatus: "error",
+            lastTestedAt: Date.now(),
+          },
+        });
+        return {
+          ok: false,
+          provider,
+          reason: "No stored credentials — reconnect Google Drive.",
+        };
+      }
+      const { clientId, clientSecret } = envCreds();
+      if (!clientId || !clientSecret) {
+        return {
+          ok: false,
+          provider,
+          reason: "Google OAuth keys are missing (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET).",
+        };
+      }
+
+      // Refresh the access token when missing/expired (same flow as syncDrive).
+      let accessToken = tokens.accessToken;
+      if (
+        !accessToken ||
+        !tokens.tokenExpiresAt ||
+        tokens.tokenExpiresAt < Date.now() + 60_000
+      ) {
+        const res = await fetch(GOOGLE_OAUTH_TOKEN, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: clientId,
+            client_secret: clientSecret,
+            refresh_token: tokens.refreshToken,
+            grant_type: "refresh_token",
+          }),
+        });
+        const data = (await res.json().catch(() => ({}))) as {
+          access_token?: string;
+          expires_in?: number;
+        };
+        if (!res.ok || !data.access_token) {
+          await ctx.runMutation(internal.internal.patchConnection, {
+            id: conn._id,
+            patch: {
+              status: "disconnected",
+              healthStatus: "error",
+              lastTestedAt: Date.now(),
+              lastError: "Google rejected the saved connection — reconnect it.",
+            },
+          });
+          return {
+            ok: false,
+            provider,
+            reason: "Google rejected the saved connection — reconnect it.",
+          };
+        }
+        accessToken = data.access_token;
+        await ctx.runMutation(internal.internal.patchConnection, {
+          id: conn._id,
+          patch: {
+            settings: {
+              ...conn.settings,
+              tokens: {
+                accessToken,
+                refreshToken: tokens.refreshToken,
+                tokenExpiresAt:
+                  Date.now() + (Number(data.expires_in) || 3600) * 1000,
+              },
+            },
+          },
+        });
+      }
+
+      // The live API call — the only thing that can mark a connection healthy.
+      const res = await fetch(
+        `${DRIVE_API}/about?fields=${encodeURIComponent("user(displayName,emailAddress)")}`,
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        user?: { displayName?: string; emailAddress?: string };
+      };
+      if (!res.ok) {
+        await ctx.runMutation(internal.internal.patchConnection, {
+          id: conn._id,
+          patch: {
+            healthStatus: "error",
+            lastTestedAt: Date.now(),
+            lastError: `Google Drive API error ${res.status}`,
+          },
+        });
+        return { ok: false, provider, reason: `Google Drive API error ${res.status}` };
+      }
+
+      await ctx.runMutation(internal.internal.patchConnection, {
+        id: conn._id,
+        patch: {
+          status: "connected",
+          healthStatus: "healthy",
+          lastTestedAt: Date.now(),
+          lastError: undefined,
+          accountName: data.user?.displayName,
+          accountEmail: data.user?.emailAddress,
+        },
+      });
+      await ctx.runMutation(internal.internal.logAudit, {
+        tenantId: membership.tenantId,
+        actorType: "user",
+        actorId: userId,
+        actionType: "connection_tested",
+        targetType: "connection",
+        targetId: String(conn._id),
+        metadata: { provider, result: "healthy" },
+      });
+      return {
+        ok: true,
+        provider,
+        accountName: data.user?.displayName,
+        accountEmail: data.user?.emailAddress,
+      };
+    }
+
+    return {
+      ok: false,
+      provider,
+      reason: "Connection testing isn't implemented for this provider yet.",
+    };
+  },
+});

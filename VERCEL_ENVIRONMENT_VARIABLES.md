@@ -22,6 +22,7 @@ codebase, where each one must be configured, and where to obtain the value.
 | `CONVEX_DEPLOY_URL` | Vercel / CI (optional) | Optional | No | Override URL used by the deploy integration | Auto-set by the Convex Vercel integration |
 | `VLY_INTEGRATION_KEY` | Convex **and** Vercel (build) | ✅ Required for AI | **Yes** | Freebuff/VLY gateway key for AI completions, embeddings and usage billing; also read by the Vite plugin at build | Freebuff platform / integration settings |
 | `VLY_INTEGRATION_BASE_URL` | Convex | Optional | No | VLY gateway base URL override (default `https://integrations.freebuff.com/`) | Freebuff platform (rarely needed) |
+| `VLY_EMAIL_API_KEY` | Convex | ✅ Required for email OTP | **Yes** | API key for the Freebuff email OTP service (`auth.freebuff.app/send_otp`) | Freebuff platform — obtain from your Freebuff dashboard or API settings |
 | `VLY_APP_NAME` | Convex | Optional | No | App name shown in one-time-code emails (default `"a freebuff.com application"`) | Your choice |
 | `VLY_CONVEX_AUTH_ISSUER` | Convex | Optional | No | Issuer for the custom-JWT auth provider (default `https://freebuff.com`) | Only if you issue your own federated tokens |
 | `GOOGLE_CLIENT_ID` | Convex | Optional | Yes* | Google Drive OAuth client ID | Google Cloud Console → APIs & Services → Credentials |
@@ -41,6 +42,7 @@ values as secrets and never expose them to the browser.
 | `CONVEX_DEPLOY_URL` | Vercel (auto by integration) |
 | `VLY_INTEGRATION_KEY` | **Both** Vercel (build) and Convex |
 | `VLY_INTEGRATION_BASE_URL` | Convex |
+| `VLY_EMAIL_API_KEY` | Convex |
 | `VLY_APP_NAME` | Convex |
 | `VLY_CONVEX_AUTH_ISSUER` | Convex (only if changed) |
 | `GOOGLE_CLIENT_ID` | Convex |
@@ -62,6 +64,9 @@ Same set, plus locally:
 ## Notes
 
 - **Never** put secrets in `.env.example` (it is committed to GitHub).
+- `VLY_EMAIL_API_KEY` was formerly hardcoded in `src/convex/auth/emailOtp.ts`.
+  It has been moved to an environment variable for security. It must be set in
+  the **Convex** environment (not Vercel) since email sending runs server-side.
 - The Google OAuth callback route lives on Convex
   (`/google/oauth/callback`), so the **redirect URI** to register in Google
   Cloud Console is the **`*.convex.site`** URL

@@ -56,6 +56,7 @@ Variables** → **Production** environment, set:
 |---|---|
 | `VLY_INTEGRATION_KEY` | Your Freebuff/VLY key |
 | `VLY_INTEGRATION_BASE_URL` | Optional override (default set by provider) |
+| `VLY_EMAIL_API_KEY` | Your Freebuff email OTP API key |
 | `VLY_APP_NAME` | e.g. `Atlas` |
 | `VLY_CONVEX_AUTH_ISSUER` | Only if you use a custom federated JWT issuer |
 | `GOOGLE_CLIENT_ID` | Only when enabling Google Drive |
@@ -128,6 +129,7 @@ automatically — do not set it.
   wrong (e.g. dev) deployment; fix and redeploy.
 - **Google Drive shows error on connect** → verify redirect URI matches the
   `*.convex.site` URL exactly and Drive API is enabled.
-- **Emails not sending** → confirm the Freebuff email endpoint key in
-  `src/convex/auth/emailOtp.ts` is still valid (see audit note) and
-  `VLY_APP_NAME` if customized.
+- **Emails not sending** → confirm `VLY_EMAIL_API_KEY` is set in the Convex
+  environment (Production/Preview/Dev) and `VLY_APP_NAME` if customized.
+  The key is no longer hardcoded in source — it must be provided via the
+  Convex dashboard.

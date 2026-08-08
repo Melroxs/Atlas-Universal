@@ -316,9 +316,11 @@ regenerates it (`convex dev` locally, `convex deploy` on Vercel).
 
 ### Frontend / public (safe in the browser)
 
-| Variable          | Used by          | Notes                                       |
-| ----------------- | ---------------- | ------------------------------------------- |
-| `VITE_CONVEX_URL` | `src/main.tsx`   | Convex deployment URL baked into the build. |
+| Variable                   | Used by                        | Notes                                       |
+| -------------------------- | ------------------------------ | ------------------------------------------- |
+| `VITE_CONVEX_URL`          | `src/main.tsx`, `src/pages/Connections.tsx` | Convex deployment URL baked into the build. |
+| `VITE_VLY_APP_ID`          | `src/instrumentation.tsx`      | Freebuff app id for instrumentation (public). |
+| `VITE_VLY_MONITORING_URL`  | `src/instrumentation.tsx`      | Freebuff monitoring endpoint (public).       |
 
 ### Convex CLI / deployment tooling
 
@@ -333,8 +335,8 @@ regenerates it (`convex dev` locally, `convex deploy` on Vercel).
 | ---------------------------- | -------------------------- | ------------------------------------------------------------ |
 | `CONVEX_SITE_URL`            | `src/convex/auth.config.ts`| Origin this app runs at (Convex Auth JWT issuer). Local: `http://localhost:5173`; production: the Vercel URL. |
 | `VLY_CONVEX_AUTH_ISSUER`     | `src/convex/auth.config.ts`| Optional. Freebuff federated-auth issuer (defaults to `https://freebuff.com`). |
-| `VLY_APP_NAME`               | `src/convex/auth/emailOtp.ts` | Optional. App name shown in emailed one-time passcodes. |
-| `VLY_INTEGRATION_KEY`        | `src/convex/ai/provider.ts` | Freebuff AI gateway key (auto-injected). Absent ⇒ Ask Atlas and extraction fall back to deterministic heuristics. |
+| `VLY_APP_NAME`               | `src/convex/auth/emailOtp.ts` | Optional. App name shown in emailed one-time passcodes. || `VLY_EMAIL_API_KEY`        | `src/convex/auth/emailOtp.ts` | **Required.** Freebuff email-relay key used to send OTP codes. Server-side only — never in `VITE_` form. |
+| `VLY_INTEGRATION_KEY`      | `src/convex/ai/provider.ts`   | Freebuff AI gateway key (auto-injected). Absent ⇒ Ask Atlas and extraction fall back to deterministic heuristics. |
 | `VLY_INTEGRATION_BASE_URL`   | `src/lib/vly-integrations.ts` | Optional gateway base URL override. |
 | `GOOGLE_CLIENT_ID`           | `src/convex/http.ts`, `connections.ts`, `connectionsSync.ts` | Google OAuth client ID for the Google Drive connector. |
 | `GOOGLE_CLIENT_SECRET`       | same as above              | Google OAuth client secret (server-side only). |

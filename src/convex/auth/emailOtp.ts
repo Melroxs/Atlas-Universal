@@ -31,7 +31,13 @@ export const emailOtp = Email({
         },
       );
     } catch (error) {
-      throw new Error(JSON.stringify(error));
+      // Never serialize the raw error: axios errors embed the request config,
+      // which includes the x-api-key header value. Surface a sanitized failure
+      // so the credential can never reach logs or function error output.
+      const detail = axios.isAxiosError(error)
+        ? ` (status ${error.response?.status ?? "unknown"})`
+        : "";
+      throw new Error(`Failed to send verification email${detail}`);
     }
   },
 });

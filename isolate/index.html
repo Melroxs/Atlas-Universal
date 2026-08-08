@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Atlas — the AI operating system for business. Connect your company. Ask Atlas anything." />
+  <title>Atlas — AI Operating System for Business</title>
+  <script>
+    // Theme boot: apply the saved (or system) theme before first paint so the
+    // app never flashes the wrong theme. Key matches the ThemeProvider storageKey.
+    (function () {
+      try {
+        var stored = localStorage.getItem("atlas-theme");
+        var dark = stored === "dark" ||
+          (!stored && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    })();
+  </script>
+  <script type="module" crossorigin src="/assets/index-irbxytm9.js"></script>
+  <link rel="modulepreload" crossorigin href="/assets/react-vendor-DIgW9L7y.js">
+  <link rel="modulepreload" crossorigin href="/assets/radix-ui-BmewEtms.js">
+  <link rel="modulepreload" crossorigin href="/assets/charts-BHxAlbT2.js">
+  <link rel="modulepreload" crossorigin href="/assets/framer-motion-7u8X1f9l.js">
+  <link rel="stylesheet" crossorigin href="/assets/index-CbRho5Gt.css">
+</head>
+
+<body>
+  <div id="root"></div>
+</body>
+
+</html>

@@ -44,6 +44,7 @@ import {
   Sparkles,
   Target,
   Users,
+  Zap,
 } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
@@ -62,6 +63,7 @@ const NAV_SECTIONS: Array<{
     items: [
       { to: "/dashboard", label: "Atlas Home", icon: LayoutGrid },
       { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
+      { to: "/dashboard/actions", label: "Actions", icon: Zap },
     ],
   },
   {
@@ -100,6 +102,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/intelligence": "Intelligence Model",
   "/dashboard/recommendations": "Recommendation Center",
   "/dashboard/connections": "Connections",
+  "/dashboard/actions": "Actions & Tools",
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",

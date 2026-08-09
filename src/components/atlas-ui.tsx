@@ -198,6 +198,86 @@ export function ConnStatusBadge({ status }: { status: string }) {
   );
 }
 
+// Tool & Action runtime badges ------------------------------------------------
+
+const ACTION_STATUS_STYLES: Record<string, string> = {
+  proposed: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  awaiting_confirmation:
+    "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  approved: "border-cyan-400/30 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300",
+  executing: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
+  succeeded: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  verified: "border-teal-400/30 bg-teal-400/10 text-teal-600 dark:text-teal-300",
+  verification_failed:
+    "border-orange-400/30 bg-orange-400/10 text-orange-600 dark:text-orange-300",
+  cancelled: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function ActionStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono uppercase tracking-wide", ACTION_STATUS_STYLES[status])}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const VERIFICATION_STYLES: Record<string, string> = {
+  pending: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  verified: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  verification_failed:
+    "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  skipped: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function VerificationBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px] uppercase tracking-wide", VERIFICATION_STYLES[status])}
+    >
+      {status === "skipped" ? "no verify" : status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const RISK_STYLES: Record<string, string> = {
+  READ: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  LOW_WRITE: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  HIGH_WRITE: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  IRREVERSIBLE: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+};
+
+export function RiskBadge({ level }: { level: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px] uppercase tracking-wide", RISK_STYLES[level])}
+    >
+      {level.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const IMPL_STYLES: Record<string, string> = {
+  implemented: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  planned: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function ImplBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px] uppercase tracking-wide", IMPL_STYLES[status])}
+    >
+      {status}
+    </Badge>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Confidence / progress
 // ---------------------------------------------------------------------------

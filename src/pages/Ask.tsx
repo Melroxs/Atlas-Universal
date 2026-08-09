@@ -18,6 +18,7 @@ import {
   Lightbulb,
   Loader2,
   MessageSquareText,
+  Zap,
   Network,
   Radar,
   Send,
@@ -46,7 +47,19 @@ interface Turn {
   limitations?: string;
   suggestedActions?: string[];
   evidence?: Evidence[];
+  toolPlan?: ToolPlan | null;
   timestamp: number;
+}
+
+interface ToolPlan {
+  status: string;
+  toolId?: string;
+  toolName?: string;
+  arguments?: Record<string, unknown>;
+  confidence?: number;
+  expectedOutcome?: string;
+  verificationPlan?: string;
+  reason?: string;
 }
 
 const EVIDENCE_ICONS: Record<string, typeof FileText> = {
@@ -113,6 +126,7 @@ export default function Ask() {
           limitations: res.limitations,
           suggestedActions: res.suggestedActions,
           evidence: res.evidence as Evidence[],
+          toolPlan: res.toolPlan ?? null,
           timestamp: Date.now(),
         },
       ]);
@@ -145,6 +159,7 @@ export default function Ask() {
         limitations: s.limitations ?? undefined,
         suggestedActions: s.suggestedActions ?? undefined,
         evidence: s.evidence as Evidence[],
+        toolPlan: s.toolPlan ?? null,
         timestamp: s._creationTime,
       },
     ]);
@@ -217,6 +232,49 @@ export default function Ask() {
                     </div>
                     <div className="rounded-2xl rounded-tl-sm border border-border/70 bg-card px-4 py-3 text-sm leading-6 text-foreground">
                       <p className="whitespace-pre-wrap">{t.text}</p>
+                      {t.toolPlan?.status === "ready" && t.toolPlan.toolId && (
+                        <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-400/5 p-3">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-300">
+                            <Zap className="size-3" />
+                            Atlas can do this
+                          </p>
+                          <p className="mt-1.5 text-xs font-semibold text-foreground">
+                            {t.toolPlan.toolName ?? t.toolPlan.toolId}
+                          </p>
+                          {t.toolPlan.expectedOutcome && (
+                            <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                              {t.toolPlan.expectedOutcome}
+                            </p>
+                          )}
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            {typeof t.toolPlan.confidence === "number" && (
+                              <ConfidenceBar value={t.toolPlan.confidence} />
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="ml-auto h-7 gap-1.5 border-violet-400/30 text-[11px] text-violet-700 hover:bg-violet-400/10 dark:text-violet-200"
+                              onClick={() =>
+                                navigate(
+                                  `/dashboard/actions?tool=${encodeURIComponent(
+                                    t.toolPlan!.toolId!,
+                                  )}&args=${encodeURIComponent(
+                                    JSON.stringify(t.toolPlan!.arguments ?? {}),
+                                  )}`,
+                                )
+                              }
+                            >
+                              <Zap className="size-3" />
+                              Open in Actions
+                            </Button>
+                          </div>
+                          {t.toolPlan.verificationPlan && (
+                            <p className="mt-2 border-t border-violet-400/15 pt-2 text-[10px] italic leading-4 text-muted-foreground">
+                              Verify: {t.toolPlan.verificationPlan}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       {t.suggestedActions && t.suggestedActions.length > 0 && (
                         <div className="mt-3 border-t border-border/50 pt-2.5">
                           <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">

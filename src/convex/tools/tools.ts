@@ -85,13 +85,16 @@ export const listToolActions = query({
       .take(limit ?? 60);
     const enriched = await Promise.all(
       records.map(async (r) => {
-        const actor = await ctx.db.get(r.actorId);
+        const actor = r.actorId ? await ctx.db.get(r.actorId) : null;
         const confirmedBy = r.confirmedBy ? await ctx.db.get(r.confirmedBy) : null;
         const tool = TOOL_REGISTRY.find((t) => t.id === r.toolId);
         return {
           ...r,
           toolName: tool?.name ?? r.toolId,
-          actorName: actor?.name ?? actor?.email ?? "Unknown",
+          actorName:
+            r.trigger === "event"
+              ? "System (event-triggered)"
+              : (actor?.name ?? actor?.email ?? "Unknown"),
           confirmedByName: confirmedBy
             ? (confirmedBy.name ?? confirmedBy.email ?? "Unknown")
             : null,

@@ -23,6 +23,7 @@ const Intelligence = lazy(() => import("./pages/Intelligence.tsx"));
 const Recommendations = lazy(() => import("./pages/Recommendations.tsx"));
 const Connections = lazy(() => import("./pages/Connections.tsx"));
 const Actions = lazy(() => import("./pages/Actions.tsx"));
+const Events = lazy(() => import("./pages/Events.tsx"));
 const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
@@ -216,6 +217,14 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <ProtectedLayout>
                     <Actions />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/events"
+                element={
+                  <ProtectedLayout>
+                    <Events />
                   </ProtectedLayout>
                 }
               />

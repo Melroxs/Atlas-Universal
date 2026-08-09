@@ -67,6 +67,117 @@ async function fetchFileBytes(
   });
 }
 
+export interface DriveFileLike {
+  id: string;
+  name: string;
+  mimeType: string;
+  modifiedTime?: string;
+  size?: number;
+}
+
+export interface SyncDriveFileOpts {
+  tenantId: Id<"tenants">;
+  connId: Id<"connections">;
+  accessToken: string;
+  file: DriveFileLike;
+  existingDoc: { _id: Id<"documents"> } | null;
+  /** Optional — event-driven sync has no human actor. */
+  actorUserId?: Id<"users"> | null;
+}
+
+/**
+ * Ingest a SINGLE Drive file into Atlas (shared by the full sync sweep and
+ * the event processor). Change detection/dedupe is the CALLER's job — this
+ * function downloads the current content and re-ingests it, regenerating
+ * chunks and embeddings while preserving the document's provenance.
+ */
+export async function syncDriveFile(
+  ctx: ActionCtx,
+  opts: SyncDriveFileOpts,
+): Promise<{ ingested: boolean; skipped: boolean; reason?: string }> {
+  const { tenantId, accessToken, file, existingDoc, actorUserId } = opts;
+  const exportMime = GOOGLE_EXPORT[file.mimeType];
+  if (!exportMime && !SUPPORTED_MIME.has(file.mimeType)) {
+    return { ingested: false, skipped: true, reason: "Unsupported file type." };
+  }
+  const modifiedMs = file.modifiedTime ? Date.parse(file.modifiedTime) : NaN;
+
+  // Fetch content: export for Google-native formats, else download.
+  let bytes: ArrayBuffer;
+  let effectiveMime: string;
+  if (exportMime) {
+    const res = await fetchFileBytes(
+      `/files/${encodeURIComponent(file.id)}/export?mimeType=${encodeURIComponent(exportMime)}`,
+      accessToken,
+    );
+    if (!res.ok) {
+      return { ingested: false, skipped: false, reason: `export failed (${res.status})` };
+    }
+    bytes = await res.arrayBuffer();
+    effectiveMime = exportMime;
+  } else {
+    const res = await fetchFileBytes(
+      `/files/${encodeURIComponent(file.id)}?alt=media`,
+      accessToken,
+    );
+    if (!res.ok) {
+      return { ingested: false, skipped: false, reason: `download failed (${res.status})` };
+    }
+    bytes = await res.arrayBuffer();
+    effectiveMime = file.mimeType;
+  }
+
+  const { text } = await parseFile(effectiveMime, file.name, bytes);
+  if (!text.trim()) {
+    return { ingested: false, skipped: true, reason: "No extractable text." };
+  }
+
+  const title = file.name;
+  const modified = Number.isNaN(modifiedMs) ? undefined : modifiedMs;
+  if (existingDoc) {
+    await ctx.runMutation(internal.internal.deleteChunksByDoc, {
+      documentId: existingDoc._id,
+    });
+    await ctx.runMutation(internal.internal.patchDoc, {
+      id: existingDoc._id,
+      patch: { status: "processing", error: undefined },
+    });
+    await ingestText(ctx, tenantId, {
+      title,
+      mimeType: effectiveMime,
+      size: file.size,
+      sourceType: "drive",
+      sourceId: file.id,
+      sourceModifiedAt: modified,
+      text,
+      existingDocId: existingDoc._id,
+    });
+  } else {
+    const docId = await ctx.runMutation(internal.internal.createDoc, {
+      tenantId,
+      userId: actorUserId ?? undefined,
+      title,
+      mimeType: effectiveMime,
+      size: file.size ?? bytes.byteLength,
+      sourceType: "drive",
+      sourceId: file.id,
+      sourceModifiedAt: modified,
+      storageId: undefined,
+    });
+    await ingestText(ctx, tenantId, {
+      title,
+      mimeType: effectiveMime,
+      size: file.size,
+      sourceType: "drive",
+      sourceId: file.id,
+      sourceModifiedAt: modified,
+      text,
+      existingDocId: docId,
+    });
+  }
+  return { ingested: true, skipped: false };
+}
+
 /**
  * Sync a Google Drive connection: refresh the token, list supported files,
  * skip unchanged ones (dedupe by sourceId + modifiedTime), download/export the
@@ -184,11 +295,6 @@ async function syncDrive(
 
   for (const file of files) {
     try {
-      const exportMime = GOOGLE_EXPORT[file.mimeType];
-      if (!exportMime && !SUPPORTED_MIME.has(file.mimeType)) {
-        skipped++;
-        continue;
-      }
       const existing = await ctx.runQuery(internal.internal.getDocBySource, {
         tenantId,
         sourceId: file.id,
@@ -202,77 +308,22 @@ async function syncDrive(
         unchanged++;
         continue;
       }
-
-      // Fetch content: export for Google-native formats, else download.
-      let bytes: ArrayBuffer;
-      let effectiveMime: string;
-      if (exportMime) {
-        const res = await fetchFileBytes(
-          `/files/${encodeURIComponent(file.id)}/export?mimeType=${encodeURIComponent(exportMime)}`,
-          accessToken,
-        );
-        if (!res.ok) throw new Error(`export failed (${res.status})`);
-        bytes = await res.arrayBuffer();
-        effectiveMime = exportMime;
-      } else {
-        const res = await fetchFileBytes(
-          `/files/${encodeURIComponent(file.id)}?alt=media`,
-          accessToken,
-        );
-        if (!res.ok) throw new Error(`download failed (${res.status})`);
-        bytes = await res.arrayBuffer();
-        effectiveMime = file.mimeType;
-      }
-
-      const { text } = await parseFile(effectiveMime, file.name, bytes);
-      if (!text.trim()) {
+      const outcome = await syncDriveFile(ctx, {
+        tenantId,
+        connId,
+        accessToken,
+        file,
+        existingDoc: existing,
+        actorUserId,
+      });
+      if (outcome.ingested) {
+        ingested++;
+      } else if (outcome.skipped) {
         skipped++;
-        continue;
-      }
-
-      const title = file.name;
-      if (existing) {
-        await ctx.runMutation(internal.internal.deleteChunksByDoc, {
-          documentId: existing._id,
-        });
-        await ctx.runMutation(internal.internal.patchDoc, {
-          id: existing._id,
-          patch: { status: "processing", error: undefined },
-        });
-        await ingestText(ctx, tenantId, {
-          title,
-          mimeType: effectiveMime,
-          size: file.size,
-          sourceType: "drive",
-          sourceId: file.id,
-          sourceModifiedAt: modifiedMs,
-          text,
-          existingDocId: existing._id,
-        });
       } else {
-        const docId = await ctx.runMutation(internal.internal.createDoc, {
-          tenantId,
-          userId: actorUserId,
-          title,
-          mimeType: effectiveMime,
-          size: file.size ?? bytes.byteLength,
-          sourceType: "drive",
-          sourceId: file.id,
-          sourceModifiedAt: modifiedMs,
-          storageId: undefined,
-        });
-        await ingestText(ctx, tenantId, {
-          title,
-          mimeType: effectiveMime,
-          size: file.size,
-          sourceType: "drive",
-          sourceId: file.id,
-          sourceModifiedAt: modifiedMs,
-          text,
-          existingDocId: docId,
-        });
+        failed++;
+        errors.push(`${file.name}: ${outcome.reason ?? "sync failed"}`);
       }
-      ingested++;
     } catch (e) {
       failed++;
       errors.push(`${file.name}: ${e instanceof Error ? e.message : String(e)}`);

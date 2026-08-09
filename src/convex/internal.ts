@@ -221,7 +221,8 @@ export const logAudit = internalMutation({
 export const createDoc = internalMutation({
   args: {
     tenantId: v.id("tenants"),
-    userId: v.id("users"),
+    /** Optional — event/system ingestion has no human actor. */
+    userId: v.optional(v.id("users")),
     title: v.string(),
     mimeType: v.string(),
     size: v.number(),
@@ -631,7 +632,12 @@ export const patchConnection = internalMutation({
 export const insertToolAction = internalMutation({
   args: {
     tenantId: v.id("tenants"),
-    actorId: v.id("users"),
+    /** Optional — event/system-triggered actions have no human actor. */
+    actorId: v.optional(v.id("users")),
+    trigger: v.optional(
+      v.union(v.literal("user"), v.literal("event"), v.literal("system")),
+    ),
+    sourceEventId: v.optional(v.id("events")),
     toolId: v.string(),
     connectorId: v.optional(v.id("connections")),
     status: v.union(
@@ -679,5 +685,119 @@ export const listToolActionsByTenant = internalQuery({
       .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
       .order("desc")
       .take(80);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Event substrate internals
+// ---------------------------------------------------------------------------
+
+export const insertEvent = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    eventId: v.string(),
+    eventType: v.string(),
+    provider: v.string(),
+    connectorId: v.optional(v.id("connections")),
+    connectionId: v.optional(v.id("connections")),
+    sourceResourceId: v.string(),
+    occurredAt: v.number(),
+    receivedAt: v.number(),
+    payload: v.any(),
+    payloadVersion: v.string(),
+    correlationId: v.optional(v.string()),
+    idempotencyKey: v.string(),
+    dedupeKey: v.string(),
+    status: v.union(
+      v.literal("received"),
+      v.literal("processing"),
+      v.literal("processed"),
+      v.literal("ignored"),
+      v.literal("failed"),
+      v.literal("retrying"),
+    ),
+    attempts: v.number(),
+    maxAttempts: v.number(),
+    sourceMechanism: v.string(),
+    providerEventId: v.optional(v.string()),
+    createdBy: v.optional(v.string()),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("events", args);
+  },
+});
+
+export const patchEvent = internalMutation({
+  args: { id: v.id("events"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const getEventById = internalQuery({
+  args: { eventId: v.id("events") },
+  handler: async (ctx, { eventId }) => {
+    return await ctx.db.get(eventId);
+  },
+});
+
+export const getEventByDedupeKey = internalQuery({
+  args: { dedupeKey: v.string() },
+  handler: async (ctx, { dedupeKey }) => {
+    return await ctx.db
+      .query("events")
+      .withIndex("by_dedupeKey", (q) => q.eq("dedupeKey", dedupeKey))
+      .first();
+  },
+});
+
+export const insertNotification = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    recipientId: v.optional(v.id("users")),
+    severity: v.union(
+      v.literal("info"),
+      v.literal("low"),
+      v.literal("medium"),
+      v.literal("high"),
+      v.literal("critical"),
+    ),
+    title: v.string(),
+    description: v.optional(v.string()),
+    sourceEventId: v.optional(v.id("events")),
+    actionId: v.optional(v.id("toolActions")),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("notifications", { ...args, read: false });
+  },
+});
+
+export const patchNotification = internalMutation({
+  args: { id: v.id("notifications"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const listNotificationsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("notifications")
+      .withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const getEventPoliciesByTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    return await ctx.db
+      .query("eventPolicies")
+      .withIndex("by_tenant_type", (q) => q.eq("tenantId", tenantId))
+      .collect();
   },
 });

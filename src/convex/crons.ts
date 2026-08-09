@@ -15,4 +15,14 @@ crons.interval(
   {},
 );
 
+// Google Drive event source — honest change POLLING (not webhooks). The
+// Drive changes API is polled every 5 minutes; each change is normalized
+// into an event envelope and processed through the event substrate.
+crons.interval(
+  "drive-event-poll",
+  { minutes: 5 },
+  internal.events.api.pollDriveEvents,
+  {},
+);
+
 export default crons;

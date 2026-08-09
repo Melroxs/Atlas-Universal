@@ -540,6 +540,14 @@ export default function Actions() {
                   <FileSearch className="size-4 shrink-0 text-teal-600 dark:text-teal-300" />
                   <span className="text-sm font-medium">{r.toolName}</span>
                   <ActionStatusBadge status={r.status} />
+                  {r.trigger === "event" ? (
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[10px] uppercase tracking-wide border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300"
+                    >
+                      event-triggered
+                    </Badge>
+                  ) : null}
                   {r.verificationStatus ? (
                     <VerificationBadge status={r.verificationStatus} />
                   ) : null}

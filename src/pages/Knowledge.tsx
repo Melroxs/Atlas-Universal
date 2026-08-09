@@ -232,6 +232,11 @@ export default function Knowledge() {
                 <div className="hidden shrink-0 items-center gap-2 sm:flex">
                   <ClassificationBadge classification={d.classification} />
                   <DocStatusBadge status={d.status} />
+                  {d.externalDeletedAt ? (
+                    <span className="rounded-md border border-rose-400/30 bg-rose-400/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-rose-600 dark:text-rose-300">
+                      removed from source
+                    </span>
+                  ) : null}
                 </div>
                 <div className="hidden shrink-0 font-mono text-[11px] text-muted-foreground/60 md:block">
                   {formatDate(d.processedAt ?? d._creationTime)}

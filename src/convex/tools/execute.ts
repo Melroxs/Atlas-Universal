@@ -20,7 +20,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action, type ActionCtx } from "../_generated/server";
+import { action, internalAction, type ActionCtx } from "../_generated/server";
 import { TOOL_BY_ID, type ToolDefinition } from "./registry";
 import { buildConfirmation, evaluateRisk, type ConfirmationDetails } from "./policy";
 import { validateToolInput, type ValidatedInput } from "./schema";
@@ -160,12 +160,12 @@ function buildExplanation(
   };
 }
 
-/** The single execution path — used for auto tools and confirmed tools alike. */
+/** The single execution path — used for auto tools, confirmed tools and event-triggered tools alike. */
 async function runExecution(
   ctx: ActionCtx,
   recordId: Id<"toolActions">,
-  userId: Id<"users">,
   tenantId: Id<"tenants">,
+  actorId?: Id<"users"> | null,
 ): Promise<ExecutionResult> {
   const record = await ctx.runQuery(internal.internal.getToolActionById, { actionId: recordId });
   if (!record) throw new Error("Action record not found.");
@@ -226,7 +226,7 @@ async function runExecution(
     }
     const deps: HandlerDeps = {
       tenantId,
-      actorId: userId,
+      actorId: actorId ?? undefined,
       connection: connection ?? { _id: "" as Id<"connections">, settings: {}, scopes: [] },
       accessToken,
       input,
@@ -284,8 +284,8 @@ async function runExecution(
     });
     await ctx.runMutation(internal.internal.logAudit, {
       tenantId,
-      actorType: "user",
-      actorId: userId,
+      actorType: actorId ? "user" : "system",
+      actorId: actorId ?? undefined,
       actionType: "tool_executed",
       targetType: "tool_action",
       targetId: String(recordId),
@@ -318,8 +318,8 @@ async function runExecution(
     });
     await ctx.runMutation(internal.internal.logAudit, {
       tenantId,
-      actorType: "user",
-      actorId: userId,
+      actorType: actorId ? "user" : "system",
+      actorId: actorId ?? undefined,
       actionType: "tool_execution_failed",
       targetType: "tool_action",
       targetId: String(recordId),
@@ -439,7 +439,7 @@ export const executeTool = action({
       requestText,
       startedAt: Date.now(),
     });
-    return await runExecution(ctx, recordId, userId, tenantId);
+    return await runExecution(ctx, recordId, tenantId, userId);
   },
 });
 
@@ -475,7 +475,7 @@ export const confirmToolAction = action({
       targetId: String(actionId),
       metadata: { actionId: String(actionId) },
     });
-    return await runExecution(ctx, actionId, userId, tenantId);
+    return await runExecution(ctx, actionId, tenantId, userId);
   },
 });
 
@@ -504,5 +504,47 @@ export const cancelToolAction = action({
       metadata: { actionId: String(actionId) },
     });
     return { outcome: "cancelled", actionId };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// System / event execution path
+//
+// Events are processed by the event substrate. When the event policy decides
+// an action may run automatically, the record is created with trigger
+// "event" and executed HERE — through the exact same runtime (connector +
+// scope gate → schema validation → handler → verification → audit). There is
+// no second execution path.
+// ---------------------------------------------------------------------------
+
+export const executeEventAction = internalAction({
+  args: { actionId: v.id("toolActions"), tenantId: v.id("tenants") },
+  handler: async (ctx, { actionId, tenantId }): Promise<ExecutionResult> => {
+    const record = await ctx.runQuery(internal.internal.getToolActionById, {
+      actionId,
+    });
+    if (!record || record.tenantId !== tenantId) {
+      return { outcome: "denied", reason: "Action not found." };
+    }
+    const terminal = ["cancelled", "succeeded", "verified", "verification_failed"];
+    if (terminal.includes(record.status)) {
+      return {
+        outcome: "invalid_state",
+        reason: `This action is ${record.status} — nothing to execute.`,
+      };
+    }
+    await ctx.runMutation(internal.internal.logAudit, {
+      tenantId,
+      actorType: "system",
+      actionType: "event_action_authorized",
+      targetType: "tool_action",
+      targetId: String(actionId),
+      metadata: {
+        actionId: String(actionId),
+        trigger: record.trigger ?? "event",
+        sourceEventId: record.sourceEventId ? String(record.sourceEventId) : undefined,
+      },
+    });
+    return await runExecution(ctx, actionId, tenantId, undefined);
   },
 });

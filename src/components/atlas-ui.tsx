@@ -278,6 +278,50 @@ export function ImplBadge({ status }: { status: string }) {
   );
 }
 
+// Event substrate badges -----------------------------------------------------
+
+const EVENT_STATUS_STYLES: Record<string, string> = {
+  received: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  processing: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
+  processed: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  ignored: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  retrying: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+};
+
+export function EventStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wide",
+        EVENT_STATUS_STYLES[status],
+      )}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const SEVERITY_STYLES: Record<string, string> = {
+  info: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  low: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  medium: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  high: "border-orange-400/30 bg-orange-400/10 text-orange-600 dark:text-orange-300",
+  critical: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+};
+
+export function SeverityBadge({ severity }: { severity: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono text-[10px] uppercase tracking-wide", SEVERITY_STYLES[severity])}
+    >
+      {severity}
+    </Badge>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Confidence / progress
 // ---------------------------------------------------------------------------

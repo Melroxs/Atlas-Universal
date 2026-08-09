@@ -229,6 +229,12 @@ const schema = defineSchema(
       sourceId: v.optional(v.string()),
       /** External source last-modified time (ms) for change detection. */
       sourceModifiedAt: v.optional(v.number()),
+      /** Set when the external source reports the file was removed. The doc and its provenance are retained. */
+      externalDeletedAt: v.optional(v.number()),
+      /** Last known external folder ids (for event move detection). */
+      externalParents: v.optional(v.array(v.string())),
+      /** Last known external permission ids (for event permission detection). */
+      externalPermissionIds: v.optional(v.array(v.string())),
     })
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_status", ["tenantId", "status"])
@@ -437,7 +443,14 @@ const schema = defineSchema(
     /** One persisted execution attempt of a registered tool. */
     toolActions: defineTable({
       tenantId: v.id("tenants"),
-      actorId: v.id("users"),
+      /** User who requested it — undefined for system/event-triggered actions. */
+      actorId: v.optional(v.id("users")),
+      /** Where the action came from: a user, an event, or the system. */
+      trigger: v.optional(
+        v.union(v.literal("user"), v.literal("event"), v.literal("system")),
+      ),
+      /** The event that triggered this action, when applicable. */
+      sourceEventId: v.optional(v.id("events")),
       toolId: v.string(),
       connectorId: v.optional(v.id("connections")),
       status: v.union(
@@ -480,6 +493,101 @@ const schema = defineSchema(
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_status", ["tenantId", "status"])
       .index("by_actor", ["actorId"]),
+
+    // ------------------------------------------------------------------
+    // Events (universal event substrate)
+    // ------------------------------------------------------------------
+
+    /**
+     * One normalized, tenant-scoped event record. Every event that Atlas
+     * actually receives is persisted here with its idempotency identity,
+     * processing state, structured intelligence and any resulting action.
+     */
+    events: defineTable({
+      tenantId: v.id("tenants"),
+      /** Deterministic event id (hash of the idempotency key). */
+      eventId: v.string(),
+      eventType: v.string(),
+      provider: v.string(),
+      connectorId: v.optional(v.id("connections")),
+      connectionId: v.optional(v.id("connections")),
+      sourceResourceId: v.string(),
+      occurredAt: v.number(),
+      receivedAt: v.number(),
+      /** Sanitized payload — never raw provider bodies, never secrets. */
+      payload: v.any(),
+      payloadVersion: v.string(),
+      correlationId: v.optional(v.string()),
+      /** Provider idempotency key when supplied, else a stable hash. */
+      idempotencyKey: v.string(),
+      /** Index key used for deduplication. */
+      dedupeKey: v.string(),
+      status: v.union(
+        v.literal("received"),
+        v.literal("processing"),
+        v.literal("processed"),
+        v.literal("ignored"),
+        v.literal("failed"),
+        v.literal("retrying"),
+      ),
+      attempts: v.number(),
+      maxAttempts: v.number(),
+      lastError: v.optional(v.string()),
+      processedAt: v.optional(v.number()),
+      processingMs: v.optional(v.number()),
+      duplicateOf: v.optional(v.id("events")),
+      /** Structured Atlas interpretation (no hidden reasoning). */
+      intelligence: v.optional(v.any()),
+      /** The tool action this event triggered, if any. */
+      actionId: v.optional(v.id("toolActions")),
+      /** polling | webhook | manual — how the event actually arrived. */
+      sourceMechanism: v.string(),
+      /** Provider's own event identity (e.g. Drive changeId). */
+      providerEventId: v.optional(v.string()),
+      createdBy: v.optional(v.string()),
+      createdAt: v.number(),
+    })
+      .index("by_tenant_received", ["tenantId", "receivedAt"])
+      .index("by_dedupeKey", ["dedupeKey"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_tenant_type", ["tenantId", "eventType"]),
+
+    /** In-app notification abstraction (channels: email/slack/voice come later). */
+    notifications: defineTable({
+      tenantId: v.id("tenants"),
+      /** Undefined = workspace-wide. */
+      recipientId: v.optional(v.id("users")),
+      severity: v.union(
+        v.literal("info"),
+        v.literal("low"),
+        v.literal("medium"),
+        v.literal("high"),
+        v.literal("critical"),
+      ),
+      title: v.string(),
+      description: v.optional(v.string()),
+      sourceEventId: v.optional(v.id("events")),
+      actionId: v.optional(v.id("toolActions")),
+      read: v.boolean(),
+      createdAt: v.number(),
+    })
+      .index("by_tenant_created", ["tenantId", "createdAt"])
+      .index("by_tenant_unread", ["tenantId", "read"]),
+
+    /** Per-tenant event policy overrides (manager-configured). */
+    eventPolicies: defineTable({
+      tenantId: v.id("tenants"),
+      eventType: v.string(),
+      /** Whether this event type participates in action evaluation. */
+      enabled: v.boolean(),
+      /** Allow automatic LOW_WRITE tools for this event type. */
+      autoLowRiskWrite: v.boolean(),
+      allowedTools: v.optional(v.array(v.string())),
+      blockedTools: v.optional(v.array(v.string())),
+      riskOverrides: v.optional(v.any()),
+      confirmationOverride: v.optional(v.string()),
+      updatedAt: v.number(),
+    }).index("by_tenant_type", ["tenantId", "eventType"]),
 
     // ------------------------------------------------------------------
     // Audit

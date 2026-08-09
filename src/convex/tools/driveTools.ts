@@ -18,7 +18,8 @@ const FILE_FIELDS =
 
 export interface HandlerDeps {
   tenantId: Id<"tenants">;
-  actorId: Id<"users">;
+  /** Undefined for system/event-triggered execution. */
+  actorId?: Id<"users">;
   connection: {
     _id: Id<"connections">;
     settings?: Record<string, unknown> | null;

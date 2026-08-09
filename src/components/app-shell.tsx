@@ -31,6 +31,7 @@ import {
 import { useAction, useMutation, useQuery } from "convex/react";
 import type { LucideIcon } from "lucide-react";
 import {
+  Activity,
   Cable,
   Database,
   Landmark,
@@ -83,6 +84,7 @@ const NAV_SECTIONS: Array<{
         icon: Target,
         badge: "open",
       },
+      { to: "/dashboard/events", label: "Events", icon: Activity },
       { to: "/dashboard/audit", label: "Activity / Audit", icon: ScrollText },
     ],
   },
@@ -103,6 +105,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/recommendations": "Recommendation Center",
   "/dashboard/connections": "Connections",
   "/dashboard/actions": "Actions & Tools",
+  "/dashboard/events": "Events",
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",

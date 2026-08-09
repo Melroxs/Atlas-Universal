@@ -22,7 +22,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, type ActionCtx } from "../_generated/server";
 import { TOOL_BY_ID, type ToolDefinition } from "./registry";
-import { buildConfirmation, evaluateRisk } from "./policy";
+import { buildConfirmation, evaluateRisk, type ConfirmationDetails } from "./policy";
 import { validateToolInput, type ValidatedInput } from "./schema";
 import { TOOL_HANDLERS, type HandlerDeps } from "./driveTools";
 import { ensureDriveAccessToken, ToolError } from "./driveClient";
@@ -41,6 +41,34 @@ type ConnLike = {
 type Session =
   | { ok: true; userId: Id<"users">; tenantId: Id<"tenants">; role: string }
   | { ok: false; error: string };
+
+/**
+ * Structured result of a tool execution. Annotated explicitly so the action's
+ * return type never depends on the generated API types (avoids the TS7022
+ * circular-inference degradation with `v.any()` args).
+ */
+type ExecutionResult =
+  | {
+      outcome: "completed";
+      actionId: Id<"toolActions">;
+      status: string;
+      verificationStatus: string;
+      result: Record<string, unknown>;
+      explanation: Record<string, unknown>;
+    }
+  | { outcome: "failed"; actionId: Id<"toolActions">; error: string; code?: string }
+  | {
+      outcome: "awaiting_confirmation";
+      actionId: Id<"toolActions">;
+      toolId: string;
+      riskLevel: string;
+      confirmation: ConfirmationDetails;
+    }
+  | { outcome: "denied"; reason: string }
+  | { outcome: "unsupported"; reason: string }
+  | { outcome: "invalid_input"; errors: string[] }
+  | { outcome: "invalid_state"; reason: string }
+  | { outcome: "cancelled"; actionId: Id<"toolActions"> };
 
 async function resolveSession(ctx: ActionCtx): Promise<Session> {
   const userId = await getAuthUserId(ctx);
@@ -138,7 +166,7 @@ async function runExecution(
   recordId: Id<"toolActions">,
   userId: Id<"users">,
   tenantId: Id<"tenants">,
-): Promise<Record<string, unknown>> {
+): Promise<ExecutionResult> {
   const record = await ctx.runQuery(internal.internal.getToolActionById, { actionId: recordId });
   if (!record) throw new Error("Action record not found.");
   const tool = TOOL_BY_ID[record.toolId];
@@ -307,7 +335,7 @@ async function runExecution(
 
 export const executeTool = action({
   args: { toolId: v.string(), input: v.any(), context: v.optional(v.any()) },
-  handler: async (ctx, { toolId, input, context }) => {
+  handler: async (ctx, { toolId, input, context }): Promise<ExecutionResult> => {
     const session = await resolveSession(ctx);
     if (!session.ok) throw new Error(session.error);
     const { userId, tenantId, role } = session;
@@ -417,7 +445,7 @@ export const executeTool = action({
 
 export const confirmToolAction = action({
   args: { actionId: v.id("toolActions") },
-  handler: async (ctx, { actionId }) => {
+  handler: async (ctx, { actionId }): Promise<ExecutionResult> => {
     const session = await resolveSession(ctx);
     if (!session.ok) throw new Error(session.error);
     const { userId, tenantId, role } = session;
@@ -453,7 +481,7 @@ export const confirmToolAction = action({
 
 export const cancelToolAction = action({
   args: { actionId: v.id("toolActions") },
-  handler: async (ctx, { actionId }) => {
+  handler: async (ctx, { actionId }): Promise<ExecutionResult> => {
     const session = await resolveSession(ctx);
     if (!session.ok) throw new Error(session.error);
     const { userId, tenantId } = session;

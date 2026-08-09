@@ -24,6 +24,8 @@ const Recommendations = lazy(() => import("./pages/Recommendations.tsx"));
 const Connections = lazy(() => import("./pages/Connections.tsx"));
 const Actions = lazy(() => import("./pages/Actions.tsx"));
 const Events = lazy(() => import("./pages/Events.tsx"));
+const Workflows = lazy(() => import("./pages/Workflows.tsx"));
+const WorkflowDetail = lazy(() => import("./pages/WorkflowDetail.tsx"));
 const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
@@ -225,6 +227,22 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <ProtectedLayout>
                     <Events />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/workflows"
+                element={
+                  <ProtectedLayout>
+                    <Workflows />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/workflows/:id"
+                element={
+                  <ProtectedLayout>
+                    <WorkflowDetail />
                   </ProtectedLayout>
                 }
               />

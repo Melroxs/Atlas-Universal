@@ -45,6 +45,7 @@ import {
   Sparkles,
   Target,
   Users,
+  Workflow,
   Zap,
 } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
@@ -89,6 +90,10 @@ const NAV_SECTIONS: Array<{
     ],
   },
   {
+    label: "Automation",
+    items: [{ to: "/dashboard/workflows", label: "Workflows", icon: Workflow }],
+  },
+  {
     label: "Workspace",
     items: [
       { to: "/dashboard/team", label: "Team", icon: Users },
@@ -106,6 +111,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/connections": "Connections",
   "/dashboard/actions": "Actions & Tools",
   "/dashboard/events": "Events",
+  "/dashboard/workflows": "Workflows",
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",

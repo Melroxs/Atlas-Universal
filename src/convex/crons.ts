@@ -25,4 +25,13 @@ crons.interval(
   {},
 );
 
+// Workflow durability sweep — expires stale approvals and surfaces drift.
+// Timeouts are enforced inside the engine's limits check on every advance.
+crons.interval(
+  "workflow-sweep",
+  { minutes: 15 },
+  internal.workflows.engine.sweepWorkflows,
+  {},
+);
+
 export default crons;

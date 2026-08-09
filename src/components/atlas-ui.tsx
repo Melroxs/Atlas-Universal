@@ -322,6 +322,79 @@ export function SeverityBadge({ severity }: { severity: string }) {
   );
 }
 
+// Workflow badges ------------------------------------------------------------
+
+const WORKFLOW_STATUS_STYLES: Record<string, string> = {
+  pending: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  running: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
+  waiting: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  awaiting_approval:
+    "border-orange-400/30 bg-orange-400/10 text-orange-600 dark:text-orange-300",
+  paused: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  completed: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  cancelled: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  timed_out: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+};
+
+export function WorkflowStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wide",
+        WORKFLOW_STATUS_STYLES[status],
+      )}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const STEP_STATUS_STYLES: Record<string, string> = {
+  pending: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  running: "border-indigo-400/30 bg-indigo-400/10 text-indigo-600 dark:text-indigo-300",
+  succeeded: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  skipped: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  waiting: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+};
+
+export function StepStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wide",
+        STEP_STATUS_STYLES[status],
+      )}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const APPROVAL_STATUS_STYLES: Record<string, string> = {
+  pending: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  approved: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  rejected: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  expired: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function ApprovalStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-mono text-[10px] uppercase tracking-wide",
+        APPROVAL_STATUS_STYLES[status],
+      )}
+    >
+      {status}
+    </Badge>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Confidence / progress
 // ---------------------------------------------------------------------------

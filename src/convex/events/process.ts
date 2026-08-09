@@ -326,6 +326,26 @@ export const processEvent = internalAction({
           lastError: undefined,
         },
       });
+      // Phase 6 — workflow dispatch. The orchestrator listens on processed
+      // events to start or resume workflows. Best-effort: a dispatch failure
+      // never fails the event itself (the event was processed successfully).
+      try {
+        await ctx.runAction(internal.workflows.engine.dispatchWorkflowsForEvent, {
+          eventId,
+        });
+      } catch (e) {
+        await ctx.runMutation(internal.internal.logAudit, {
+          tenantId: evt.tenantId,
+          actorType: "system",
+          actionType: "workflow_dispatch_failed",
+          targetType: "event",
+          targetId: String(eventId),
+          metadata: {
+            eventType: evt.eventType,
+            error: sanitizeEventError(e),
+          },
+        });
+      }
       return { status: "processed" };
     } catch (e) {
       const message = sanitizeEventError(e);

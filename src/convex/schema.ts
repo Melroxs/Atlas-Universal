@@ -447,10 +447,17 @@ const schema = defineSchema(
       actorId: v.optional(v.id("users")),
       /** Where the action came from: a user, an event, or the system. */
       trigger: v.optional(
-        v.union(v.literal("user"), v.literal("event"), v.literal("system")),
+        v.union(
+          v.literal("user"),
+          v.literal("event"),
+          v.literal("system"),
+          v.literal("workflow"),
+        ),
       ),
       /** The event that triggered this action, when applicable. */
       sourceEventId: v.optional(v.id("events")),
+      /** The workflow instance this action belongs to, when applicable. */
+      workflowInstanceId: v.optional(v.id("workflowInstances")),
       toolId: v.string(),
       connectorId: v.optional(v.id("connections")),
       status: v.union(
@@ -588,6 +595,132 @@ const schema = defineSchema(
       confirmationOverride: v.optional(v.string()),
       updatedAt: v.number(),
     }).index("by_tenant_type", ["tenantId", "eventType"]),
+
+    // ------------------------------------------------------------------
+    // Workflows (durable orchestration over events + tools + approvals)
+    // ------------------------------------------------------------------
+
+    /** Per-tenant workflow activation + overrides. Definitions live in the registry. */
+    workflowSettings: defineTable({
+      tenantId: v.id("tenants"),
+      workflowId: v.string(),
+      enabled: v.boolean(),
+      descriptionOverride: v.optional(v.string()),
+      approvalRoleOverride: v.optional(v.string()),
+      maxActionsOverride: v.optional(v.number()),
+      updatedAt: v.number(),
+    }).index("by_tenant_workflow", ["tenantId", "workflowId"]),
+
+    /** One durable workflow execution. State survives restarts — never memory-only. */
+    workflowInstances: defineTable({
+      tenantId: v.id("tenants"),
+      definitionId: v.string(),
+      workflowVersion: v.string(),
+      triggerEventId: v.optional(v.id("events")),
+      triggerEventType: v.optional(v.string()),
+      sourceResourceId: v.optional(v.string()),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("waiting"),
+        v.literal("awaiting_approval"),
+        v.literal("paused"),
+        v.literal("completed"),
+        v.literal("failed"),
+        v.literal("cancelled"),
+        v.literal("timed_out"),
+      ),
+      currentStepId: v.string(),
+      /** Structured, sanitized context — references over payload copies. */
+      context: v.any(),
+      evidenceReferences: v.optional(v.any()),
+      actionReferences: v.optional(v.array(v.string())),
+      approvalReferences: v.optional(v.array(v.string())),
+      waitConditions: v.optional(v.any()),
+      /** Correlation keys already consumed by event waits (loop + dup protection). */
+      waitResumeKeys: v.optional(v.array(v.string())),
+      completedStepIds: v.optional(v.array(v.string())),
+      retryCounts: v.optional(v.any()),
+      actionCount: v.number(),
+      loopGuard: v.optional(v.any()),
+      failureReason: v.optional(v.string()),
+      errorClass: v.optional(v.string()),
+      /** definitionId + trigger event/resource — one instance per dispatch. */
+      dedupeKey: v.string(),
+      startedAt: v.number(),
+      updatedAt: v.number(),
+      completedAt: v.optional(v.number()),
+    })
+      .index("by_tenant_created", ["tenantId", "startedAt"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_dedupeKey", ["dedupeKey"])
+      .index("by_tenant_def_resource", ["tenantId", "definitionId", "sourceResourceId"]),
+
+    /** One recorded execution attempt of a workflow step (idempotent by key). */
+    workflowSteps: defineTable({
+      tenantId: v.id("tenants"),
+      instanceId: v.id("workflowInstances"),
+      stepId: v.string(),
+      stepType: v.string(),
+      attempt: v.number(),
+      /** workflowInstanceId + stepId + attempt — deterministic execution identity. */
+      stepKey: v.string(),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("running"),
+        v.literal("succeeded"),
+        v.literal("failed"),
+        v.literal("skipped"),
+        v.literal("waiting"),
+      ),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      durationMs: v.optional(v.number()),
+      output: v.optional(v.any()),
+      error: v.optional(v.string()),
+      actionId: v.optional(v.id("toolActions")),
+      approvalId: v.optional(v.id("workflowApprovals")),
+      evidenceReferences: v.optional(v.any()),
+      createdAt: v.number(),
+    })
+      .index("by_instance", ["instanceId"])
+      .index("by_tenant", ["tenantId"])
+      .index("by_step_key", ["stepKey"]),
+
+    /** Human approval requests raised by workflow approval steps. */
+    workflowApprovals: defineTable({
+      tenantId: v.id("tenants"),
+      instanceId: v.id("workflowInstances"),
+      workflowDefinitionId: v.string(),
+      stepId: v.string(),
+      title: v.string(),
+      description: v.string(),
+      proposedAction: v.optional(v.any()),
+      affectedSystem: v.optional(v.string()),
+      targetResource: v.optional(v.string()),
+      expectedConsequences: v.optional(v.string()),
+      evidence: v.optional(v.any()),
+      rationale: v.optional(v.string()),
+      reversibility: v.optional(v.string()),
+      requestedRole: v.union(
+        v.literal("member"),
+        v.literal("manager"),
+        v.literal("owner"),
+      ),
+      status: v.union(
+        v.literal("pending"),
+        v.literal("approved"),
+        v.literal("rejected"),
+        v.literal("expired"),
+      ),
+      expiresAt: v.optional(v.number()),
+      decidedBy: v.optional(v.id("users")),
+      decidedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_instance", ["instanceId"])
+      .index("by_status", ["status"]),
 
     // ------------------------------------------------------------------
     // Audit

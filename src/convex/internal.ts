@@ -635,9 +635,15 @@ export const insertToolAction = internalMutation({
     /** Optional — event/system-triggered actions have no human actor. */
     actorId: v.optional(v.id("users")),
     trigger: v.optional(
-      v.union(v.literal("user"), v.literal("event"), v.literal("system")),
+      v.union(
+        v.literal("user"),
+        v.literal("event"),
+        v.literal("system"),
+        v.literal("workflow"),
+      ),
     ),
     sourceEventId: v.optional(v.id("events")),
+    workflowInstanceId: v.optional(v.id("workflowInstances")),
     toolId: v.string(),
     connectorId: v.optional(v.id("connections")),
     status: v.union(
@@ -798,6 +804,237 @@ export const getEventPoliciesByTenant = internalQuery({
     return await ctx.db
       .query("eventPolicies")
       .withIndex("by_tenant_type", (q) => q.eq("tenantId", tenantId))
+      .collect();
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Workflow engine internals
+// ---------------------------------------------------------------------------
+
+export const insertWorkflowInstance = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    definitionId: v.string(),
+    workflowVersion: v.string(),
+    triggerEventId: v.optional(v.id("events")),
+    triggerEventType: v.optional(v.string()),
+    sourceResourceId: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("waiting"),
+      v.literal("awaiting_approval"),
+      v.literal("paused"),
+      v.literal("completed"),
+      v.literal("failed"),
+      v.literal("cancelled"),
+      v.literal("timed_out"),
+    ),
+    currentStepId: v.string(),
+    context: v.any(),
+    evidenceReferences: v.optional(v.any()),
+    waitConditions: v.optional(v.any()),
+    completedStepIds: v.optional(v.array(v.string())),
+    retryCounts: v.optional(v.any()),
+    actionCount: v.number(),
+    dedupeKey: v.string(),
+    startedAt: v.number(),
+    updatedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("workflowInstances", args);
+  },
+});
+
+export const patchWorkflowInstance = internalMutation({
+  args: { id: v.id("workflowInstances"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const getWorkflowInstanceById = internalQuery({
+  args: { instanceId: v.id("workflowInstances") },
+  handler: async (ctx, { instanceId }) => {
+    return await ctx.db.get(instanceId);
+  },
+});
+
+export const getWorkflowInstanceByDedupeKey = internalQuery({
+  args: { dedupeKey: v.string() },
+  handler: async (ctx, { dedupeKey }) => {
+    return await ctx.db
+      .query("workflowInstances")
+      .withIndex("by_dedupeKey", (q) => q.eq("dedupeKey", dedupeKey))
+      .first();
+  },
+});
+
+export const getLatestInstanceByResource = internalQuery({
+  args: { tenantId: v.id("tenants"), definitionId: v.string(), resourceId: v.string() },
+  handler: async (ctx, { tenantId, definitionId, resourceId }) => {
+    return await ctx.db
+      .query("workflowInstances")
+      .withIndex("by_tenant_def_resource", (q) =>
+        q.eq("tenantId", tenantId).eq("definitionId", definitionId).eq("sourceResourceId", resourceId),
+      )
+      .order("desc")
+      .first();
+  },
+});
+
+export const listInstancesByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("workflowInstances")
+      .withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const upsertWorkflowStep = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    instanceId: v.id("workflowInstances"),
+    stepId: v.string(),
+    stepType: v.string(),
+    attempt: v.number(),
+    stepKey: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("running"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("skipped"),
+      v.literal("waiting"),
+    ),
+    startedAt: v.optional(v.number()),
+    completedAt: v.optional(v.number()),
+    durationMs: v.optional(v.number()),
+    output: v.optional(v.any()),
+    error: v.optional(v.string()),
+    actionId: v.optional(v.id("toolActions")),
+    approvalId: v.optional(v.id("workflowApprovals")),
+    evidenceReferences: v.optional(v.any()),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("workflowSteps")
+      .withIndex("by_step_key", (q) => q.eq("stepKey", args.stepKey))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        status: args.status,
+        startedAt: args.startedAt ?? existing.startedAt,
+        completedAt: args.completedAt ?? existing.completedAt,
+        durationMs: args.durationMs ?? existing.durationMs,
+        output: args.output ?? existing.output,
+        error: args.error ?? existing.error,
+        actionId: args.actionId ?? existing.actionId,
+        approvalId: args.approvalId ?? existing.approvalId,
+        evidenceReferences: args.evidenceReferences ?? existing.evidenceReferences,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("workflowSteps", args);
+  },
+});
+
+export const getWorkflowStepByKey = internalQuery({
+  args: { stepKey: v.string() },
+  handler: async (ctx, { stepKey }) => {
+    return await ctx.db
+      .query("workflowSteps")
+      .withIndex("by_step_key", (q) => q.eq("stepKey", stepKey))
+      .first();
+  },
+});
+
+export const listWorkflowStepsByInstance = internalQuery({
+  args: { instanceId: v.id("workflowInstances") },
+  handler: async (ctx, { instanceId }) => {
+    return await ctx.db
+      .query("workflowSteps")
+      .withIndex("by_instance", (q) => q.eq("instanceId", instanceId))
+      .order("desc")
+      .collect();
+  },
+});
+
+export const insertWorkflowApproval = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    instanceId: v.id("workflowInstances"),
+    workflowDefinitionId: v.string(),
+    stepId: v.string(),
+    title: v.string(),
+    description: v.string(),
+    proposedAction: v.optional(v.any()),
+    affectedSystem: v.optional(v.string()),
+    targetResource: v.optional(v.string()),
+    expectedConsequences: v.optional(v.string()),
+    evidence: v.optional(v.any()),
+    rationale: v.optional(v.string()),
+    reversibility: v.optional(v.string()),
+    requestedRole: v.union(v.literal("member"), v.literal("manager"), v.literal("owner")),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("approved"),
+      v.literal("rejected"),
+      v.literal("expired"),
+    ),
+    expiresAt: v.optional(v.number()),
+    createdAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("workflowApprovals", args);
+  },
+});
+
+export const patchWorkflowApproval = internalMutation({
+  args: { id: v.id("workflowApprovals"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const getWorkflowApprovalById = internalQuery({
+  args: { approvalId: v.id("workflowApprovals") },
+  handler: async (ctx, { approvalId }) => {
+    return await ctx.db.get(approvalId);
+  },
+});
+
+export const listApprovalsByInstance = internalQuery({
+  args: { instanceId: v.id("workflowInstances") },
+  handler: async (ctx, { instanceId }) => {
+    return await ctx.db
+      .query("workflowApprovals")
+      .withIndex("by_instance", (q) => q.eq("instanceId", instanceId))
+      .collect();
+  },
+});
+
+export const listAllPendingApprovals = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("workflowApprovals")
+      .withIndex("by_status", (q) => q.eq("status", "pending"))
+      .collect();
+  },
+});
+
+export const getWorkflowSettingsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    return await ctx.db
+      .query("workflowSettings")
+      .withIndex("by_tenant_workflow", (q) => q.eq("tenantId", tenantId))
       .collect();
   },
 });

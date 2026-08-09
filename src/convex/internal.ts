@@ -484,6 +484,7 @@ export const insertAskSession = internalMutation({
     confidence: v.number(),
     mode: v.union(v.literal("ai"), v.literal("local")),
     suggestedActions: v.optional(v.array(v.string())),
+    toolPlan: v.optional(v.any()),
     limitations: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -620,5 +621,63 @@ export const patchConnection = internalMutation({
   args: { id: v.id("connections"), patch: v.any() },
   handler: async (ctx, { id, patch }) => {
     await ctx.db.patch(id, patch);
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Tool & Action runtime internals
+// ---------------------------------------------------------------------------
+
+export const insertToolAction = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    actorId: v.id("users"),
+    toolId: v.string(),
+    connectorId: v.optional(v.id("connections")),
+    status: v.union(
+      v.literal("proposed"),
+      v.literal("awaiting_confirmation"),
+      v.literal("approved"),
+      v.literal("executing"),
+      v.literal("succeeded"),
+      v.literal("failed"),
+      v.literal("verified"),
+      v.literal("verification_failed"),
+      v.literal("cancelled"),
+    ),
+    input: v.any(),
+    confirmationRequired: v.optional(v.boolean()),
+    confirmationMessage: v.optional(v.string()),
+    evidence: v.optional(v.any()),
+    requestText: v.optional(v.string()),
+    startedAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("toolActions", args);
+  },
+});
+
+export const patchToolAction = internalMutation({
+  args: { id: v.id("toolActions"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const getToolActionById = internalQuery({
+  args: { actionId: v.id("toolActions") },
+  handler: async (ctx, { actionId }) => {
+    return await ctx.db.get(actionId);
+  },
+});
+
+export const listToolActionsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    return await ctx.db
+      .query("toolActions")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(80);
   },
 });

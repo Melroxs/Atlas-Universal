@@ -70,6 +70,7 @@ http.route({
       access_token?: string;
       refresh_token?: string;
       expires_in?: number;
+      scope?: string;
     };
     if (!res.ok || !data.access_token) {
       await ctx.runMutation(internal.internal.patchConnection, {
@@ -85,6 +86,7 @@ http.route({
         status: "connected",
         lastSyncAt: undefined,
         lastError: undefined,
+        scopes: (data.scope ?? "").split(" ").filter(Boolean),
         settings: {
           kind: "oauth2",
           tokens: {

@@ -6,7 +6,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
-import { action, type ActionCtx } from "./_generated/server";
+import { action, internalAction, type ActionCtx } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { parseFile } from "./lib/parsers";
 import { ingestText } from "./ingestion";
@@ -427,6 +427,7 @@ export const testConnection = action({
     const provider = conn.provider;
 
     if (provider === "google_drive") {
+      const testStartedAt = Date.now();
       const tokens = (conn.settings?.tokens ?? {}) as DriveTokens;
       if (!tokens.refreshToken) {
         await ctx.runMutation(internal.internal.patchConnection, {
@@ -435,6 +436,7 @@ export const testConnection = action({
             status: "disconnected",
             healthStatus: "error",
             lastTestedAt: Date.now(),
+            lastTestFailureAt: Date.now(),
           },
         });
         return {
@@ -480,6 +482,8 @@ export const testConnection = action({
               status: "disconnected",
               healthStatus: "error",
               lastTestedAt: Date.now(),
+              lastTestFailureAt: Date.now(),
+              lastTestLatencyMs: Date.now() - testStartedAt,
               lastError: "Google rejected the saved connection — reconnect it.",
             },
           });
@@ -520,6 +524,8 @@ export const testConnection = action({
           patch: {
             healthStatus: "error",
             lastTestedAt: Date.now(),
+            lastTestFailureAt: Date.now(),
+            lastTestLatencyMs: Date.now() - testStartedAt,
             lastError: `Google Drive API error ${res.status}`,
           },
         });
@@ -532,6 +538,8 @@ export const testConnection = action({
           status: "connected",
           healthStatus: "healthy",
           lastTestedAt: Date.now(),
+          lastTestSuccessAt: Date.now(),
+          lastTestLatencyMs: Date.now() - testStartedAt,
           lastError: undefined,
           accountName: data.user?.displayName,
           accountEmail: data.user?.emailAddress,
@@ -559,5 +567,110 @@ export const testConnection = action({
       provider,
       reason: "Connection testing isn't implemented for this provider yet.",
     };
+  },
+});
+
+/**
+ * System health sweep (internal — cron-driven). Tests every connected Drive
+ * source across all tenants with a live API call and records latency + last
+ * test outcome. Never marks a connection healthy without a real check.
+ */
+export const runHealthSweep = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.runQuery(internal.internal.listAllConnections, {});
+    const drive = all.filter(
+      (c) => c.provider === "google_drive" && c.status === "connected",
+    );
+    const results: Array<{
+      connectionId: string;
+      ok: boolean;
+      latencyMs?: number;
+      reason?: string;
+    }> = [];
+    for (const conn of drive) {
+      const t0 = Date.now();
+      try {
+        const tokens = (conn.settings?.tokens ?? {}) as DriveTokens;
+        if (!tokens.refreshToken) throw new Error("no tokens");
+        const { clientId, clientSecret } = envCreds();
+        if (!clientId || !clientSecret) throw new Error("not configured");
+        let accessToken = tokens.accessToken;
+        if (
+          !accessToken ||
+          !tokens.tokenExpiresAt ||
+          tokens.tokenExpiresAt < Date.now() + 60_000
+        ) {
+          const res = await fetch(GOOGLE_OAUTH_TOKEN, {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+              client_id: clientId,
+              client_secret: clientSecret,
+              refresh_token: tokens.refreshToken,
+              grant_type: "refresh_token",
+            }),
+          });
+          const data = (await res.json().catch(() => ({}))) as {
+            access_token?: string;
+            expires_in?: number;
+          };
+          if (!res.ok || !data.access_token) throw new Error("reauth");
+          accessToken = data.access_token;
+          await ctx.runMutation(internal.internal.patchConnection, {
+            id: conn._id,
+            patch: {
+              settings: {
+                ...conn.settings,
+                tokens: {
+                  accessToken,
+                  refreshToken: tokens.refreshToken,
+                  tokenExpiresAt:
+                    Date.now() + (Number(data.expires_in) || 3600) * 1000,
+                },
+              },
+            },
+          });
+        }
+        const res = await fetch(
+          `${DRIVE_API}/about?fields=${encodeURIComponent("user(displayName,emailAddress)")}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (!res.ok) throw new Error(`api ${res.status}`);
+        const latencyMs = Date.now() - t0;
+        const data = (await res.json()) as {
+          user?: { displayName?: string; emailAddress?: string };
+        };
+        await ctx.runMutation(internal.internal.patchConnection, {
+          id: conn._id,
+          patch: {
+            healthStatus: "healthy",
+            lastTestedAt: Date.now(),
+            lastTestSuccessAt: Date.now(),
+            lastTestLatencyMs: latencyMs,
+            lastError: undefined,
+            accountName: data.user?.displayName,
+            accountEmail: data.user?.emailAddress,
+          },
+        });
+        results.push({ connectionId: String(conn._id), ok: true, latencyMs });
+      } catch (e) {
+        const message =
+          e instanceof Error && e.message.startsWith("api ")
+            ? `Google Drive API error ${e.message.slice(4)}`
+            : "Health check failed.";
+        await ctx.runMutation(internal.internal.patchConnection, {
+          id: conn._id,
+          patch: {
+            healthStatus: "error",
+            lastTestedAt: Date.now(),
+            lastTestFailureAt: Date.now(),
+            lastError: message,
+          },
+        });
+        results.push({ connectionId: String(conn._id), ok: false, reason: message });
+      }
+    }
+    return { tested: results.length, results };
   },
 });

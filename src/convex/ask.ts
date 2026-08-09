@@ -39,6 +39,17 @@ export const askAtlas = action({
       documentTitle?: string;
       evidenceType?: string;
     }>;
+    /** Structured tool-use proposal (planner) — never auto-executed. */
+    toolPlan?: {
+      status: string;
+      toolId?: string;
+      toolName?: string;
+      arguments?: Record<string, unknown>;
+      confidence?: number;
+      expectedOutcome?: string;
+      verificationPlan?: string;
+      reason?: string;
+    } | null;
   }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("You must be signed in.");
@@ -254,6 +265,51 @@ export const askAtlas = action({
     }
 
     // ------------------------------------------------------------------
+    // 3b. Tool routing (best-effort): can a registered tool do this?
+    // ------------------------------------------------------------------
+    let toolPlan:
+      | {
+          status: string;
+          toolId?: string;
+          toolName?: string;
+          arguments?: Record<string, unknown>;
+          confidence?: number;
+          expectedOutcome?: string;
+          verificationPlan?: string;
+          reason?: string;
+        }
+      | undefined;
+    if (aiAvailable()) {
+      try {
+        const plan = (await ctx.runAction(internal.tools.planner.planToolUse, {
+          tenantId,
+          userId,
+          request: q,
+          contextEvidence: evidence.slice(0, 6).map((e) =>
+            `${e.title}: ${e.snippet}`.slice(0, 200),
+          ),
+        })) as
+          | {
+              status: string;
+              toolId?: string;
+              toolName?: string;
+              arguments?: Record<string, unknown>;
+              confidence?: number;
+              expectedOutcome?: string;
+              verificationPlan?: string;
+              reason?: string;
+            }
+          | null
+          | undefined;
+        if (plan && plan.status === "ready") {
+          toolPlan = plan;
+        }
+      } catch {
+        // Tool routing is best-effort and never fails the answer itself.
+      }
+    }
+
+    // ------------------------------------------------------------------
     // 4. Persist + audit
     // ------------------------------------------------------------------
     const sessionId = await ctx.runMutation(internal.internal.insertAskSession, {
@@ -265,6 +321,7 @@ export const askAtlas = action({
       confidence,
       mode,
       suggestedActions,
+      toolPlan: toolPlan ?? undefined,
       limitations,
     });
     for (const ev of evidence) {
@@ -299,6 +356,7 @@ export const askAtlas = action({
       mode,
       limitations,
       suggestedActions,
+      toolPlan: toolPlan ?? null,
       evidence: evidence.map((e) => ({
         ...e,
         documentTitle: e.kind === "chunk" ? e.title : undefined,

@@ -330,6 +330,8 @@ const schema = defineSchema(
       confidence: v.number(),
       mode: v.union(v.literal("ai"), v.literal("local")),
       suggestedActions: v.optional(v.array(v.string())),
+      /** Structured tool-use proposal produced by the planner (Ask → Actions). */
+      toolPlan: v.optional(v.any()),
       limitations: v.optional(v.string()),
     })
       .index("by_tenant", ["tenantId"])
@@ -416,6 +418,9 @@ const schema = defineSchema(
         ),
       ),
       lastTestedAt: v.optional(v.number()),
+      lastTestSuccessAt: v.optional(v.number()),
+      lastTestFailureAt: v.optional(v.number()),
+      lastTestLatencyMs: v.optional(v.number()),
       /** Human-readable identity of the connected account (e.g. Gmail address). */
       accountName: v.optional(v.string()),
       accountEmail: v.optional(v.string()),
@@ -424,6 +429,57 @@ const schema = defineSchema(
       notes: v.optional(v.string()),
       settings: v.optional(v.any()),
     }).index("by_tenant", ["tenantId"]),
+
+    // ------------------------------------------------------------------
+    // Tool & Action Runtime
+    // ------------------------------------------------------------------
+
+    /** One persisted execution attempt of a registered tool. */
+    toolActions: defineTable({
+      tenantId: v.id("tenants"),
+      actorId: v.id("users"),
+      toolId: v.string(),
+      connectorId: v.optional(v.id("connections")),
+      status: v.union(
+        v.literal("proposed"),
+        v.literal("awaiting_confirmation"),
+        v.literal("approved"),
+        v.literal("executing"),
+        v.literal("succeeded"),
+        v.literal("failed"),
+        v.literal("verified"),
+        v.literal("verification_failed"),
+        v.literal("cancelled"),
+      ),
+      /** Schema-validated input only — never the raw client payload. */
+      input: v.any(),
+      result: v.optional(v.any()),
+      error: v.optional(v.string()),
+      confirmationRequired: v.optional(v.boolean()),
+      confirmationMessage: v.optional(v.string()),
+      confirmedAt: v.optional(v.number()),
+      confirmedBy: v.optional(v.id("users")),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      verificationStatus: v.optional(
+        v.union(
+          v.literal("pending"),
+          v.literal("verified"),
+          v.literal("verification_failed"),
+          v.literal("skipped"),
+        ),
+      ),
+      verificationResult: v.optional(v.any()),
+      /** Evidence consulted before acting (kind, documentId, chunkId, entityId…). */
+      evidence: v.optional(v.any()),
+      /** The original natural-language request, when routed from Ask/voice. */
+      requestText: v.optional(v.string()),
+      /** Structured rationale for the action (why, based on what, with what result). */
+      explanation: v.optional(v.any()),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_actor", ["actorId"]),
 
     // ------------------------------------------------------------------
     // Audit

@@ -4,6 +4,7 @@ import { mutation, query } from "./_generated/server";
 import type { Id } from "./_generated/dataModel";
 import { isManager, requireTenant, requireUser } from "./helpers";
 import { CONNECTOR_REGISTRY } from "./connectors/registry";
+import { deriveConnectorStatus, sanitizeConnection } from "./connectors/status";
 
 // ---------------------------------------------------------------------------
 // Connection Engine — V1
@@ -191,38 +192,6 @@ export const deleteConnection = mutation({
 // ---------------------------------------------------------------------------
 
 /**
- * Strip a connection row for the client. `settings` carries OAuth tokens and
- * pending state and must NEVER leave the backend.
- */
-function sanitizeConnection(conn: {
-  _id: Id<"connections">;
-  name: string;
-  provider: string;
-  category: string;
-  status: string;
-  lastSyncAt?: number;
-  lastError?: string;
-  healthStatus?: string;
-  lastTestedAt?: number;
-  accountName?: string;
-  accountEmail?: string;
-}) {
-  return {
-    _id: conn._id,
-    name: conn.name,
-    provider: conn.provider,
-    category: conn.category,
-    status: conn.status,
-    lastSyncAt: conn.lastSyncAt ?? undefined,
-    lastError: conn.lastError ?? undefined,
-    healthStatus: conn.healthStatus ?? undefined,
-    lastTestedAt: conn.lastTestedAt ?? undefined,
-    accountName: conn.accountName ?? undefined,
-    accountEmail: conn.accountEmail ?? undefined,
-  };
-}
-
-/**
  * The connector catalog: every registry entry enriched with the tenant's
  * actual state. Status is DERIVED — never stored or faked:
  *
@@ -249,27 +218,7 @@ export const listConnectorCatalog = query({
       const configured = def.requiredEnvVars.every((env) => !!process.env[env]);
       const missingEnvVars = def.requiredEnvVars.filter((env) => !process.env[env]);
 
-      let displayStatus: string;
-      if (def.implementationStatus === "planned") {
-        displayStatus = "roadmap";
-      } else if (def.authType !== "none" && !configured) {
-        displayStatus = "not_configured";
-      } else if (!conn) {
-        displayStatus = def.authType === "none" ? "available" : "authorization_required";
-      } else if (conn.status === "error") {
-        displayStatus = "error";
-      } else if (conn.status === "syncing") {
-        displayStatus = "syncing";
-      } else if (conn.status === "disconnected") {
-        displayStatus = "authorization_required";
-      } else if (conn.status === "connected") {
-        displayStatus =
-          conn.healthStatus && conn.healthStatus !== "untested"
-            ? conn.healthStatus
-            : "connected";
-      } else {
-        displayStatus = "authorization_required";
-      }
+      const displayStatus = deriveConnectorStatus(def, conn ?? null, configured);
 
       return {
         id: def.id,

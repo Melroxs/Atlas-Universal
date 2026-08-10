@@ -27,6 +27,7 @@ import {
   MicOff,
   Plus,
   Radar,
+  ScrollText,
   Send,
   ShieldAlert,
   Sparkles,
@@ -56,6 +57,19 @@ interface EntityRef {
   status?: string;
 }
 
+interface SupplementDocumentPayload {
+  claimNumber: string | null;
+  customer: string | null;
+  property: string | null;
+  carrier: string | null;
+  reason: string;
+  status: string;
+  requestedAmount?: number;
+  sections: Array<{ title: string; body: string[] }>;
+  preparedAt: number;
+  disclaimer: string;
+}
+
 interface AssistantTurn {
   id: string;
   role: "user" | "assistant";
@@ -71,6 +85,7 @@ interface AssistantTurn {
   suggestedActions?: string[];
   memoryNote?: string;
   limitations?: string;
+  supplementDocument?: SupplementDocumentPayload | null;
 }
 
 interface ConverseResponse {
@@ -92,6 +107,7 @@ interface ConverseResponse {
   temporal?: { label?: string };
   pending?: PendingState;
   memoryNote?: string;
+  supplementDocument?: SupplementDocumentPayload | null;
 }
 
 const SESSION_KEY = "atlas-conversation-session";
@@ -232,6 +248,7 @@ export function AtlasAssistant({
           suggestedActions: res.suggestedActions,
           memoryNote: res.memoryNote,
           limitations: res.limitations,
+          supplementDocument: res.supplementDocument ?? null,
           ts: Date.now(),
         },
       ]);
@@ -459,6 +476,43 @@ export function AtlasAssistant({
                           <p className="mt-2 text-[11px] italic text-muted-foreground">
                             ⚠ {t.limitations}
                           </p>
+                        )}
+
+                        {/* Phase 12 — inline structured supplement document */}
+                        {t.supplementDocument && (
+                          <div className="mt-3 overflow-hidden rounded-xl border border-teal-400/25 bg-teal-400/5">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-teal-400/20 bg-teal-400/10 px-3 py-2">
+                              <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-200">
+                                <ScrollText className="size-3" />
+                                Supplement document · draft for review
+                              </p>
+                              <span className="rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 font-mono text-[9px] uppercase tracking-wide text-amber-600 dark:text-amber-300">
+                                {(t.supplementDocument.status ?? "draft").replace(/_/g, " ")}
+                              </span>
+                            </div>
+                            <div className="space-y-2 p-3">
+                              {typeof t.supplementDocument.requestedAmount === "number" && (
+                                <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-300">
+                                  Requested ${t.supplementDocument.requestedAmount.toLocaleString()}
+                                </p>
+                              )}
+                              {t.supplementDocument.sections.map((s) => (
+                                <div key={s.title}>
+                                  <p className="text-[11px] font-semibold text-foreground">{s.title}</p>
+                                  <div className="mt-0.5 space-y-0.5">
+                                    {s.body.map((line, i) => (
+                                      <p key={i} className="text-[11px] leading-4 text-muted-foreground">
+                                        {line}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                              <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-2 py-1.5 text-[10px] italic leading-4 text-amber-700 dark:text-amber-200">
+                                {t.supplementDocument.disclaimer}
+                              </p>
+                            </div>
+                          </div>
                         )}
 
                         {t.entityRefs && t.entityRefs.length > 0 && (

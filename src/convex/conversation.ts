@@ -107,6 +107,22 @@ export interface ConversationResponse {
   temporal?: TemporalInfo;
   pending: PendingState;
   memoryNote?: string;
+  /** Phase 12 — structured supplement document shown inline after drafting. */
+  supplementDocument?: SupplementDocumentPayload | null;
+}
+
+/** Structured supplement document payload returned after drafting. */
+export interface SupplementDocumentPayload {
+  claimNumber: string | null;
+  customer: string | null;
+  property: string | null;
+  carrier: string | null;
+  reason: string;
+  status: string;
+  requestedAmount?: number;
+  sections: Array<{ title: string; body: string[] }>;
+  preparedAt: number;
+  disclaimer: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -550,6 +566,7 @@ type RouteResult = {
   intentKind?: string;
   memoryNote?: string;
   claimContext?: { claimId: string; supplementId?: string } | null;
+  supplementDocument?: SupplementDocumentPayload | null;
 };
 
 const EMPTY_PENDING: PendingState = { kind: "none" };
@@ -1541,6 +1558,12 @@ async function handleClaims(
       "It is a DRAFT \u2014 it requires human review and approval before any submission.",
       usable.slice(0, 3).map((f, i) => `${i + 1}. ${f.title} \u2014 ${f.recommendedNextStep}`).join(" "),
     ].join("\n");
+    // Phase 12 — return the structured supplement document so the assistant
+    // can render it inline for review.
+    const supplementDocument = (await conv.rq(api.insurance.claims.getSupplementDocument, {
+      claimId: claimId as Id<"insuranceClaims">,
+      supplementId: res.supplementId,
+    })) as SupplementDocumentPayload | null;
     return {
       answer,
       spoken: spokenFor(`Drafted a supplement with ${usable.length} items for human review.`),
@@ -1555,6 +1578,7 @@ async function handleClaims(
       entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
       pending: EMPTY_PENDING,
       claimContext: { claimId, supplementId: String(res.supplementId) },
+      supplementDocument: supplementDocument ?? null,
     };
   }
 

@@ -288,6 +288,12 @@ const schema = defineSchema(
       sourceDocumentId: v.optional(v.id("documents")),
       firstObservedAt: v.optional(v.number()),
       lastObservedAt: v.optional(v.number()),
+      /** §12 — known identifiers (provider/external/email/domain/phone/doc refs). */
+      identifiers: v.optional(v.any()),
+      /** §13 — alternate names captured during resolution/merge. */
+      aliases: v.optional(v.array(v.string())),
+      /** §14 — non-destructive merge trail (primary absorbs duplicates). */
+      mergeHistory: v.optional(v.any()),
     })
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_type", ["tenantId", "entityTypeKey"])
@@ -341,6 +347,8 @@ const schema = defineSchema(
       limitations: v.optional(v.string()),
       /** Question-type classification (domain | organization | regulatory | mixed | general). */
       questionType: v.optional(v.string()),
+      /** §24 — structured investigation result attached to the session. */
+      investigation: v.optional(v.any()),
     })
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_user", ["tenantId", "userId"]),
@@ -1005,6 +1013,130 @@ const schema = defineSchema(
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_status", ["tenantId", "status"])
       .index("by_dedupe", ["dedupeKey"]),
+
+    // ------------------------------------------------------------------
+    // Everest — Organizational Memory (Phase 9)
+    // ------------------------------------------------------------------
+
+    /** §4 — durable tenant-scoped organizational memory. Memory is NOT chat
+     *  history: it is persistent organizational context with type, origin,
+     *  6-state confidence, provenance and a controlled lifecycle. */
+    memories: defineTable({
+      tenantId: v.id("tenants"),
+      /** fact | preference | policy | relationship | decision | pattern |
+       *  organizational_context | workflow_context | operational_state | summary */
+      memoryType: v.union(
+        v.literal("fact"),
+        v.literal("preference"),
+        v.literal("policy"),
+        v.literal("relationship"),
+        v.literal("decision"),
+        v.literal("pattern"),
+        v.literal("organizational_context"),
+        v.literal("workflow_context"),
+        v.literal("operational_state"),
+        v.literal("summary"),
+      ),
+      /** What the memory is about (entity type, workflow id, ...). */
+      subjectType: v.optional(v.string()),
+      subjectId: v.optional(v.string()),
+      statement: v.string(),
+      structuredValue: v.optional(v.any()),
+      /** confirmed | high | medium | low | disputed | stale */
+      confidence: v.union(
+        v.literal("confirmed"),
+        v.literal("high"),
+        v.literal("medium"),
+        v.literal("low"),
+        v.literal("disputed"),
+        v.literal("stale"),
+      ),
+      confidenceScore: v.optional(v.number()),
+      /** explicit | observed | imported | inferred | system-derived */
+      origin: v.union(
+        v.literal("explicit"),
+        v.literal("observed"),
+        v.literal("imported"),
+        v.literal("inferred"),
+        v.literal("system-derived"),
+      ),
+      /** §5 — "How does Atlas know this?" — always retained. */
+      provenance: v.optional(v.string()),
+      sourceReferences: v.optional(v.any()),
+      /** active | contradicted | superseded | archived | expired | disputed */
+      status: v.union(
+        v.literal("active"),
+        v.literal("contradicted"),
+        v.literal("superseded"),
+        v.literal("archived"),
+        v.literal("expired"),
+        v.literal("disputed"),
+      ),
+      supersedes: v.optional(v.array(v.id("memories"))),
+      supersededBy: v.optional(v.array(v.id("memories"))),
+      createdBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      expiresAt: v.optional(v.number()),
+      /** dedupe token: type + subject + statement hash. */
+      dedupeKey: v.string(),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_tenant_type", ["tenantId", "memoryType"])
+      .index("by_dedupe", ["dedupeKey"]),
+
+    // ------------------------------------------------------------------
+    // Everest — Organizational Intelligence (Phase 9)
+    // ------------------------------------------------------------------
+
+    /** §18–§21 — persisted, prioritized intelligence items with auditable
+     *  status transitions. Every item carries evidence + confidence; nothing
+     *  is fabricated. */
+    organizationalInsights: defineTable({
+      tenantId: v.id("tenants"),
+      /** Stable dedupe key for the derived item. */
+      insightKey: v.string(),
+      /** change_detected | risk | opportunity | anomaly | bottleneck |
+       *  overdue | missing_information | unresolved_issue | recommendation |
+       *  workflow_issue | compliance_concern | operational_trend | deadline |
+       *  approval_required | knowledge_change | stale_information */
+      kind: v.string(),
+      title: v.string(),
+      detail: v.string(),
+      confidence: v.number(),
+      /** 0..1 transparent priority (severity + urgency + confidence + deadline). */
+      priority: v.number(),
+      priorityBasis: v.optional(v.string()),
+      evidence: v.optional(v.any()),
+      entityRefs: v.optional(v.any()),
+      /** new | acknowledged | investigating | action_ready |
+       *  action_pending_confirmation | resolved | dismissed | stale */
+      status: v.union(
+        v.literal("new"),
+        v.literal("acknowledged"),
+        v.literal("investigating"),
+        v.literal("action_ready"),
+        v.literal("action_pending_confirmation"),
+        v.literal("resolved"),
+        v.literal("dismissed"),
+        v.literal("stale"),
+      ),
+      /** §22 — trigger/evidence/context interpretation structure. */
+      explanation: v.optional(v.any()),
+      recommendedNextStep: v.optional(v.string()),
+      actionAvailable: v.optional(v.boolean()),
+      approvalRequired: v.optional(v.boolean()),
+      limitation: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+      /** §21 — audit trail of every status transition. */
+      statusHistory: v.optional(v.any()),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_tenant_priority", ["tenantId", "priority"])
+      .index("by_insight_key", ["insightKey"]),
 
     // ------------------------------------------------------------------
     // Audit

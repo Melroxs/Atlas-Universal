@@ -15,9 +15,23 @@ import { evaluateApplicability } from "./jurisdiction";
 import { freshnessState, sourceHealth } from "./ingest";
 import { deriveExcellence } from "./excellence";
 import { discoverOpportunities, VALUE_ENGINES, valueEngineFor } from "./value";
-import { memoryRecordFromApproval } from "./memory";
+import { memoryRecordFromApproval, transitionMemory } from "./memory";
 import { composeInsights } from "./insight";
-import { requireTenant, requireUser, isManager } from "../helpers";
+import { buildOrganizationalState, stateSummary } from "./state";
+import { investigate, investigationExplanation } from "./investigation";
+import {
+  mergePlan,
+  relationshipLabel,
+  resolveEntity as resolveEntityPure,
+  type EntityCandidate,
+  type EntityIdentifier,
+} from "./resolution";
+import { classifyIntent, orchestrate } from "./orchestrator";
+import { classifyQuestion } from "./questions";
+import { priorityScore } from "../ops/decision";
+import { WORKFLOW_REGISTRY } from "../workflows/registry";
+import { TOOL_REGISTRY } from "../tools/registry";
+import { requireTenant, requireUser, isManager, isEditor } from "../helpers";
 
 const industryKey = (s?: string | null) =>
   (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -891,5 +905,901 @@ export const getComposedIntelligence = query({
       insights,
       packNames: packsById,
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9 — Organizational Intelligence API
+// ---------------------------------------------------------------------------
+
+/** §16/§17 — current organizational state derived from REAL records.
+ *  Every state item carries evidence; nothing is fabricated. */
+export const getOrganizationalState = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const now = Date.now();
+
+    const context = await ctx.db
+      .query("organizationContexts")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
+    const [entities, workflows, approvals, actions, events, decisions, connections] =
+      await Promise.all([
+        ctx.db.query("entities").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).collect(),
+        ctx.db.query("workflowInstances").withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId)).order("desc").take(100),
+        ctx.db.query("workflowApprovals").withIndex("by_tenant_status", (q) => q.eq("tenantId", tenantId).eq("status", "pending")).collect(),
+        ctx.db.query("toolActions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).order("desc").take(80),
+        ctx.db.query("events").withIndex("by_tenant_received", (q) => q.eq("tenantId", tenantId)).order("desc").take(100),
+        ctx.db.query("decisions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).order("desc").take(50),
+        ctx.db.query("connections").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).collect(),
+      ]);
+
+    const pendingAssessments = (await ctx.db
+      .query("impactAssessments")
+      .withIndex("by_status", (q) => q.eq("status", "pending_review"))
+      .take(50))
+      .filter((a) => {
+        const affected = (a.affectedTenantIds ?? []) as string[];
+        return affected.length === 0 || affected.includes(String(tenantId));
+      });
+    const staleKnowledge = await ctx.db
+      .query("authoritativeKnowledge")
+      .filter((q) =>
+        q.or(
+          q.eq(q.field("status"), "superseded"),
+          q.eq(q.field("status"), "expired"),
+        ),
+      )
+      .take(20);
+
+    const items = buildOrganizationalState({
+      now,
+      timezone: context?.primaryTimezone ?? "UTC",
+      businessDays: context?.businessDays ?? [1, 2, 3, 4, 5],
+      businessHours: context?.businessHours ?? { start: "09:00", end: "17:00" },
+      holidays: (context?.holidays as string[] | undefined) ?? [],
+      entities: entities.map((e) => ({
+        id: String(e._id),
+        name: e.name,
+        entityTypeKey: e.entityTypeKey,
+        status: e.status,
+        lastObservedAt: e.lastObservedAt,
+        attributes: e.attributes as Record<string, unknown> | undefined,
+      })),
+      workflows: workflows.map((w) => ({
+        id: String(w._id),
+        definitionId: w.definitionId,
+        status: w.status,
+        startedAt: w.startedAt,
+        updatedAt: w.updatedAt,
+        failureReason: w.failureReason ?? null,
+      })),
+      approvals: approvals.map((a) => ({
+        id: String(a._id),
+        title: a.title,
+        status: a.status,
+        createdAt: a.createdAt,
+        expiresAt: a.expiresAt ?? null,
+      })),
+      actions: actions.map((a) => ({
+        id: String(a._id),
+        toolId: a.toolId,
+        status: a.status,
+        startedAt: a.startedAt,
+        completedAt: a.completedAt,
+        error: a.error ?? null,
+      })),
+      events: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+      decisions: decisions.map((d) => ({ id: String(d._id), title: d.title, status: d.status, createdAt: d.createdAt })),
+      authorityChanges: pendingAssessments.map((a) => ({
+        id: String(a._id),
+        knowledgeTitle: a.knowledgeTitle ?? "Authority change",
+        status: a.status,
+        severity: a.severity,
+        changeType: a.changeType,
+      })),
+      staleKnowledge: staleKnowledge.map((k) => ({ knowledgeId: k.knowledgeId, title: k.title, status: k.status })),
+      connections: connections.map((c) => ({
+        id: String(c._id),
+        provider: c.provider,
+        status: c.status,
+        healthStatus: c.healthStatus ?? null,
+        lastSyncAt: c.lastSyncAt,
+      })),
+    });
+
+    return {
+      generatedAt: now,
+      timezone: context?.primaryTimezone ?? "UTC",
+      summary: stateSummary({
+        now,
+        timezone: context?.primaryTimezone ?? "UTC",
+        businessDays: context?.businessDays ?? [1, 2, 3, 4, 5],
+        businessHours: context?.businessHours ?? { start: "09:00", end: "17:00" },
+        holidays: (context?.holidays as string[] | undefined) ?? [],
+        entities: [],
+        workflows: workflows.map((w) => ({
+          id: String(w._id), definitionId: w.definitionId, status: w.status, startedAt: w.startedAt, updatedAt: w.updatedAt, failureReason: w.failureReason ?? null,
+        })),
+        approvals: approvals.map((a) => ({
+          id: String(a._id), title: a.title, status: a.status, createdAt: a.createdAt, expiresAt: a.expiresAt ?? null,
+        })),
+        actions: actions.map((a) => ({
+          id: String(a._id), toolId: a.toolId, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt, error: a.error ?? null,
+        })),
+        events: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+        decisions: decisions.map((d) => ({ id: String(d._id), title: d.title, status: d.status, createdAt: d.createdAt })),
+        authorityChanges: [],
+        staleKnowledge: [],
+        connections: [],
+      }),
+      items,
+      counts: {
+        entities: entities.length,
+        openDecisions: decisions.filter((d) => d.status === "open").length,
+        pendingApprovals: approvals.length,
+        failedWorkflows: workflows.filter((w) => w.status === "failed").length,
+        pendingAuthorityChanges: pendingAssessments.length,
+      },
+    };
+  },
+});
+
+/** §23/§24 — multi-source investigation. Ask, dashboard, workflows and voice
+ *  call the SAME service. Blockers found are persisted as intelligence items. */
+export const runInvestigation = action({
+  args: { question: v.string() },
+  handler: async (ctx, { question }) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("You must be signed in.");
+    const membership = await ctx.runQuery(internal.internal.getMembershipByUser, { userId });
+    if (!membership) throw new Error("You don't belong to a workspace yet.");
+    const tenantId = membership.tenantId;
+    const now = Date.now();
+    const tenantIdStr = String(tenantId);
+
+    const [entities, events, workflows, actions, documents, memories, decisions, orgContext] =
+      await Promise.all([
+        ctx.runQuery(internal.internal.listEntitiesByTenant, { tenantId }),
+        ctx.runQuery(internal.internal.listEventsByTenant, { tenantId, limit: 120 }),
+        ctx.runQuery(internal.internal.listInstancesByTenant, { tenantId, limit: 100 }),
+        ctx.runQuery(internal.internal.listToolActionsByTenant, { tenantId }),
+        ctx.runQuery(internal.internal.listDocsForInvestigation, { tenantId, limit: 60 }),
+        ctx.runQuery(internal.internal.listMemoriesByTenant, { tenantId, status: "active" }),
+        ctx.runQuery(internal.internal.listDecisionsByTenant, { tenantId, limit: 60 }),
+        ctx.runQuery(internal.internal.getOrganizationContextByTenant, { tenantId }),
+      ]);
+    const approvals = (await ctx.runQuery(internal.internal.listAllPendingApprovals, {})).filter(
+      (a) => String(a.tenantId) === tenantIdStr,
+    );
+
+    // Authority knowledge matching the question keywords.
+    const [allKnowledge, allSources] = await Promise.all([
+      ctx.runQuery(internal.internal.listActiveAuthorityKnowledge, {}),
+      ctx.runQuery(internal.internal.listAuthoritativeSources, {}),
+    ]);
+    const sourceById = new Map(allSources.map((s) => [s.sourceId, s]));
+    const tokens = question.toLowerCase().split(/\W+/).filter((t) => t.length > 3);
+    const authority = allKnowledge
+      .map((k) => ({
+        k,
+        score: tokens.filter((t) => `${k.title} ${k.statement} ${k.industry ?? ""}`.toLowerCase().includes(t)).length,
+      }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 4)
+      .map((x) => x.k);
+
+    // Entity resolution against the workspace graph.
+    const resolved = resolveEntityPure({
+      query: question,
+      candidates: entities.map((e): EntityCandidate => ({
+        id: String(e._id),
+        name: e.name,
+        entityTypeKey: e.entityTypeKey,
+        identifiers: (e.identifiers as EntityIdentifier[] | undefined) ?? [],
+        aliases: e.aliases ?? [],
+        summary: e.summary,
+      })),
+    });
+
+    // Organizational state items relevant to the topic.
+    const stateItems = buildOrganizationalState({
+      now,
+      timezone: orgContext?.primaryTimezone ?? "UTC",
+      businessDays: orgContext?.businessDays ?? [1, 2, 3, 4, 5],
+      businessHours: orgContext?.businessHours ?? { start: "09:00", end: "17:00" },
+      holidays: (orgContext?.holidays as string[] | undefined) ?? [],
+      entities: entities.map((e) => ({
+        id: String(e._id), name: e.name, entityTypeKey: e.entityTypeKey, status: e.status, lastObservedAt: e.lastObservedAt, attributes: e.attributes as Record<string, unknown> | undefined,
+      })),
+      workflows: workflows.map((w) => ({
+        id: String(w._id), definitionId: w.definitionId, status: w.status, startedAt: w.startedAt, updatedAt: w.updatedAt, failureReason: w.failureReason ?? null,
+      })),
+      approvals: approvals.map((a) => ({
+        id: String(a._id), title: a.title, status: a.status, createdAt: a.createdAt, expiresAt: a.expiresAt ?? null,
+      })),
+      actions: actions.map((a) => ({
+        id: String(a._id), toolId: a.toolId, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt, error: a.error ?? null,
+      })),
+      events: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+      decisions: decisions.map((d) => ({ id: String(d._id), title: d.title, status: d.status, createdAt: d.createdAt })),
+      authorityChanges: [],
+      staleKnowledge: [],
+      connections: [],
+    });
+
+    const result = investigate({
+      tenantId: tenantIdStr,
+      question,
+      intent: "investigative",
+      now,
+      entities: resolved.matches.slice(0, 5).map((m) => ({
+        entityId: m.entityId,
+        name: m.name,
+        matchBasis: m.basis,
+        matchScore: m.score,
+      })),
+      events: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt, payload: e.payload })),
+      documents: documents.map((d) => ({ id: String(d._id), title: d.title, createdAt: d.processedAt ?? d.sourceModifiedAt })),
+      workflows: workflows.map((w) => ({
+        id: String(w._id), definitionId: w.definitionId, status: w.status, startedAt: w.startedAt, updatedAt: w.updatedAt, failureReason: w.failureReason ?? null,
+      })),
+      approvals: approvals.map((a) => ({
+        id: String(a._id), title: a.title, status: a.status, createdAt: a.createdAt, expiresAt: a.expiresAt ?? null,
+      })),
+      actions: actions.map((a) => ({
+        id: String(a._id), toolId: a.toolId, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt, error: a.error ?? null,
+      })),
+      memories: memories.map((m) => ({
+        id: String(m._id), statement: m.statement, memoryType: m.memoryType, confidence: m.confidence,
+      })),
+      authority: authority.map((k) => {
+        const src = sourceById.get(k.sourceId) as
+          | { name?: string; authorityTier?: string }
+          | undefined;
+        return {
+          knowledgeId: k.knowledgeId,
+          title: k.title,
+          statement: k.statement,
+          sourceName: src?.name ?? k.sourceId,
+          authorityTier: src?.authorityTier ?? "tier5_general",
+        };
+      }),
+      stateItems,
+    });
+
+    // §21 — persist blockers as actionable intelligence items (deduped).
+    for (const b of result.blockers.slice(0, 5)) {
+      const key = `blocker:${b.text.replace(/[^a-z0-9]+/gi, "-").slice(0, 60)}`;
+      await ctx.runMutation(internal.internal.upsertOrganizationalInsight, {
+        tenantId,
+        insightKey: key,
+        kind: "unresolved_issue",
+        title: b.text,
+        detail: `From an investigation of "${question.slice(0, 120)}".`, // eslint-disable-line no-template-curly-in-string
+        confidence: result.confidence,
+        priority: priorityScore({
+          severity: b.severity === "high" ? "high" : b.severity === "medium" ? "medium" : "low",
+          urgency: b.severity === "high" ? "high" : "medium",
+          confidence: result.confidence,
+          hasAction: result.availableActions.length > 0,
+        }).score,
+        priorityBasis: `Investigation blocker (${b.severity})`,
+        evidence: result.evidence
+          .filter((e) => b.evidenceIds.includes(e.sourceId))
+          .map((e) => ({ kind: e.kind, sourceId: e.sourceId, title: e.title, snippet: e.snippet })),
+        recommendedNextStep: result.recommendedNextStep,
+        actionAvailable: result.availableActions.length > 0,
+        approvalRequired: result.requiredApprovals.length > 0,
+        limitation: "Blocker identified by investigation; verify against live state before acting.",
+      });
+    }
+
+    return {
+      ...result,
+      resolution: {
+        resolved: resolved.resolved,
+        ambiguous: resolved.ambiguous,
+        reason: resolved.reason,
+      },
+      explanation: investigationExplanation(result),
+    };
+  },
+});
+
+/** §37 — memory list with type/origin/status filters. */
+export const listMemories = query({
+  args: { status: v.optional(v.string()), type: v.optional(v.string()), origin: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    let memories = await ctx.db
+      .query("memories")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(200);
+    if (args.status) memories = memories.filter((m) => m.status === args.status);
+    if (args.type) memories = memories.filter((m) => m.memoryType === args.type);
+    if (args.origin) memories = memories.filter((m) => m.origin === args.origin);
+    return memories;
+  },
+});
+
+/** §33 — the controlled memory write (person-stated facts only here). */
+export const writeOrgMemory = mutation({
+  args: {
+    memoryType: v.union(
+      v.literal("fact"),
+      v.literal("preference"),
+      v.literal("policy"),
+      v.literal("relationship"),
+      v.literal("decision"),
+      v.literal("pattern"),
+      v.literal("organizational_context"),
+      v.literal("workflow_context"),
+      v.literal("operational_state"),
+      v.literal("summary"),
+    ),
+    statement: v.string(),
+    provenance: v.optional(v.string()),
+    confidenceScore: v.optional(v.number()),
+    subjectType: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    structuredValue: v.optional(v.any()),
+    expiresAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isEditor(ctx, userId, tenantId))) {
+      throw new Error("Analysts and above can record organizational memory.");
+    }
+    return await ctx.runMutation(internal.internal.writeMemory, {
+      tenantId,
+      memoryType: args.memoryType,
+      statement: args.statement,
+      origin: "explicit",
+      provenance: args.provenance ?? `Stated by a workspace member.`,
+      confidenceScore: args.confidenceScore ?? 0.9,
+      subjectType: args.subjectType,
+      subjectId: args.subjectId,
+      structuredValue: args.structuredValue,
+      expiresAt: args.expiresAt,
+      createdBy: userId,
+    });
+  },
+});
+
+/** §8 — dispute a memory (editor+). */
+export const disputeMemory = mutation({
+  args: { memoryId: v.id("memories"), note: v.optional(v.string()) },
+  handler: async (ctx, { memoryId, note }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isEditor(ctx, userId, tenantId))) {
+      throw new Error("Analysts and above can dispute memories.");
+    }
+    const memory = await ctx.db.get(memoryId);
+    if (!memory) throw new Error("Memory not found.");
+    const t = transitionMemory(memory.status, "disputed");
+    if (!t.ok) throw new Error(t.reason);
+    await ctx.db.patch(memoryId, { status: "disputed", updatedAt: Date.now() });
+    await ctx.db.insert("auditLogs", {
+      tenantId,
+      actorType: "user",
+      actorId: userId,
+      actionType: "memory_dispute",
+      targetType: "memories",
+      targetId: String(memoryId),
+      metadata: { note },
+    });
+    return { ok: true };
+  },
+});
+
+/** §8 — archive a memory (editor+). */
+export const archiveMemory = mutation({
+  args: { memoryId: v.id("memories") },
+  handler: async (ctx, { memoryId }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isEditor(ctx, userId, tenantId))) {
+      throw new Error("Analysts and above can archive memories.");
+    }
+    const memory = await ctx.db.get(memoryId);
+    if (!memory) throw new Error("Memory not found.");
+    const t = transitionMemory(memory.status, "archived");
+    if (!t.ok) throw new Error(t.reason);
+    await ctx.db.patch(memoryId, { status: "archived", updatedAt: Date.now() });
+    await ctx.db.insert("auditLogs", {
+      tenantId, actorType: "user", actorId: userId,
+      actionType: "memory_archive", targetType: "memories", targetId: String(memoryId),
+    });
+    return { ok: true };
+  },
+});
+
+/** §8 — restore an archived/expired/superseded memory (editor+). */
+export const restoreMemory = mutation({
+  args: { memoryId: v.id("memories") },
+  handler: async (ctx, { memoryId }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isEditor(ctx, userId, tenantId))) {
+      throw new Error("Analysts and above can restore memories.");
+    }
+    const memory = await ctx.db.get(memoryId);
+    if (!memory) throw new Error("Memory not found.");
+    const t = transitionMemory(memory.status, "active");
+    if (!t.ok) throw new Error(t.reason);
+    await ctx.db.patch(memoryId, { status: "active", updatedAt: Date.now() });
+    await ctx.db.insert("auditLogs", {
+      tenantId, actorType: "user", actorId: userId,
+      actionType: "memory_restore", targetType: "memories", targetId: String(memoryId),
+    });
+    return { ok: true };
+  },
+});
+
+/** §8 — resolve a contradiction: keep one memory, supersede the other.
+ *  Both records survive; neither source is destroyed. Manager-gated. */
+export const resolveMemoryContradiction = mutation({
+  args: {
+    primaryId: v.id("memories"),
+    secondaryId: v.id("memories"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { primaryId, secondaryId, note }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isManager(ctx, userId, tenantId))) {
+      throw new Error("Managers can resolve memory contradictions.");
+    }
+    const [primary, secondary] = await Promise.all([ctx.db.get(primaryId), ctx.db.get(secondaryId)]);
+    if (!primary || !secondary) throw new Error("Memory not found.");
+    const now = Date.now();
+    await ctx.db.patch(primaryId, {
+      status: "active",
+      supersedes: [...(primary.supersedes ?? []), secondaryId],
+      supersededBy: (primary.supersededBy ?? []).filter((id) => String(id) !== String(secondaryId)),
+      updatedAt: now,
+    });
+    await ctx.db.patch(secondaryId, {
+      status: "superseded",
+      supersededBy: [...(secondary.supersededBy ?? []), primaryId],
+      updatedAt: now,
+    });
+    await ctx.db.insert("auditLogs", {
+      tenantId, actorType: "user", actorId: userId,
+      actionType: "memory_contradiction_resolved",
+      targetType: "memories", targetId: String(primaryId),
+      metadata: { secondaryId: String(secondaryId), note },
+    });
+    return { ok: true };
+  },
+});
+
+/** §13 — deterministic entity resolution against the workspace graph. */
+export const resolveEntityMatch = query({
+  args: { query: v.string(), limit: v.optional(v.number()) },
+  handler: async (ctx, { query, limit }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const entities = await ctx.db
+      .query("entities")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .take(limit ?? 100);
+    return resolveEntityPure({
+      query,
+      candidates: entities.map((e): EntityCandidate => ({
+        id: String(e._id),
+        name: e.name,
+        entityTypeKey: e.entityTypeKey,
+        identifiers: (e.identifiers as EntityIdentifier[] | undefined) ?? [],
+        aliases: e.aliases ?? [],
+        summary: e.summary,
+      })),
+    });
+  },
+});
+
+/** §14 — non-destructive entity merge. Manager-gated; aliases/identifiers are
+ *  preserved and the duplicate keeps its row (flagged merged). */
+export const mergeEntities = mutation({
+  args: {
+    primaryId: v.id("entities"),
+    duplicateId: v.id("entities"),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { primaryId, duplicateId, note }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    if (!(await isManager(ctx, userId, tenantId))) {
+      throw new Error("Managers can merge entities.");
+    }
+    const [primary, duplicate] = await Promise.all([ctx.db.get(primaryId), ctx.db.get(duplicateId)]);
+    if (!primary || !duplicate) throw new Error("Entity not found.");
+    if (String(primary.tenantId) !== String(tenantId) || String(duplicate.tenantId) !== String(tenantId)) {
+      throw new Error("Entities must belong to this workspace.");
+    }
+
+    const record = mergePlan({
+      primary: {
+        id: String(primaryId),
+        name: primary.name,
+        entityTypeKey: primary.entityTypeKey,
+        identifiers: (primary.identifiers as EntityIdentifier[] | undefined) ?? [],
+        aliases: primary.aliases ?? [],
+      },
+      duplicate: {
+        id: String(duplicateId),
+        name: duplicate.name,
+        entityTypeKey: duplicate.entityTypeKey,
+        identifiers: (duplicate.identifiers as EntityIdentifier[] | undefined) ?? [],
+        aliases: duplicate.aliases ?? [],
+      },
+      now: Date.now(),
+      mergedBy: String(userId),
+      note,
+    });
+
+    const mergedAliases = [...new Set([...(primary.aliases ?? []), ...record.contributedAliases])];
+    const mergedIdentifiers = [...(primary.identifiers as unknown[] | undefined) ?? [], ...record.contributedIdentifiers];
+    const mergedAttrs = {
+      ...((primary.attributes as Record<string, unknown>) ?? {}),
+      ...Object.fromEntries(record.contributedAttributes.map((c) => [c.key, c.value])),
+    };
+    const history = [...((primary.mergeHistory as unknown[]) ?? []), record];
+
+    await ctx.db.patch(primaryId, {
+      aliases: mergedAliases,
+      identifiers: mergedIdentifiers,
+      attributes: mergedAttrs,
+      mergeHistory: history,
+      lastObservedAt: Date.now(),
+    });
+    // Duplicate keeps its row: flagged merged, never destroyed.
+    await ctx.db.patch(duplicateId, {
+      status: "merged",
+      attributes: {
+        ...((duplicate.attributes as Record<string, unknown>) ?? {}),
+        mergedInto: String(primaryId),
+        mergedAt: record.mergedAt,
+        preservedConflicts: record.preservedConflicts,
+      },
+    });
+    await ctx.db.insert("auditLogs", {
+      tenantId, actorType: "user", actorId: userId,
+      actionType: "entity_merge", targetType: "entities", targetId: String(primaryId),
+      metadata: {
+        duplicateId: String(duplicateId),
+        contributedIdentifiers: record.contributedIdentifiers.length,
+        contributedAliases: record.contributedAliases.length,
+        preservedConflicts: record.preservedConflicts.length,
+        note,
+      },
+    });
+    return record;
+  },
+});
+
+/** §38 — the unified entity context page: the entity, its relationships,
+ *  assertions, memories, documents, actions and events. */
+export const getEntityDetail = query({
+  args: { entityId: v.id("entities") },
+  handler: async (ctx, { entityId }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const entity = await ctx.db.get(entityId);
+    if (!entity || String(entity.tenantId) !== String(tenantId)) {
+      throw new Error("Entity not found.");
+    }
+
+    const relations = await ctx.db
+      .query("entityRelationships")
+      .withIndex("by_subject", (q) => q.eq("subjectEntityId", entityId))
+      .collect();
+    const related = new Set<string>();
+    for (const r of relations) related.add(String(r.objectEntityId));
+    const reverse = (await ctx.db
+      .query("entityRelationships")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect())
+      .filter((r) => String(r.objectEntityId) === String(entityId));
+    for (const r of reverse) related.add(String(r.subjectEntityId));
+
+    const [objects, assertions, memories, docs] = await Promise.all([
+      Promise.all(
+        [...related].map(async (id) => ctx.db.get(id as never)),
+      ).then((rows) => rows.filter(Boolean)),
+      ctx.db
+        .query("knowledgeAssertions")
+        .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+        .filter((q) => q.eq(q.field("entityId"), entityId))
+        .take(40),
+      ctx.db
+        .query("memories")
+        .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+        .filter((q) => q.eq(q.field("subjectId"), String(entityId)))
+        .take(40),
+      ctx.db
+        .query("documents")
+        .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+        .filter((q) => q.eq(q.field("_id"), entity.sourceDocumentId as never))
+        .take(20),
+    ]);
+    const objectById = new Map(objects.map((o) => [String(o!._id), o]));
+
+    // Actions + events referencing the entity (evidence/intelligence scans).
+    const [actions, events] = await Promise.all([
+      ctx.db
+        .query("toolActions")
+        .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+        .order("desc")
+        .take(120)
+        .then((rows) =>
+          rows.filter((a) =>
+            JSON.stringify(a.evidence ?? a.input ?? {}).includes(String(entityId)),
+          ),
+        ),
+      ctx.db
+        .query("events")
+        .withIndex("by_tenant_received", (q) => q.eq("tenantId", tenantId))
+        .order("desc")
+        .take(150)
+        .then((rows) =>
+          rows.filter((e) => JSON.stringify(e.payload ?? {}).includes(String(entityId))),
+        ),
+    ]);
+
+    return {
+      entity,
+      relationships: [
+        ...relations.map((r) => ({
+          direction: "out" as const,
+          relationshipTypeKey: r.relationshipTypeKey,
+          relationshipLabel: relationshipLabel(r.relationshipTypeKey),
+          targetEntityId: String(r.objectEntityId),
+          targetName: objectById.get(String(r.objectEntityId))?.name ?? "Unknown",
+          confidence: r.confidence,
+          evidence: r.evidence,
+        })),
+        ...reverse.map((r) => ({
+          direction: "in" as const,
+          relationshipTypeKey: r.relationshipTypeKey,
+          relationshipLabel: relationshipLabel(r.relationshipTypeKey),
+          targetEntityId: String(r.subjectEntityId),
+          targetName: objectById.get(String(r.subjectEntityId))?.name ?? "Unknown",
+          confidence: r.confidence,
+          evidence: r.evidence,
+        })),
+      ],
+      assertions: assertions.map((a) => ({ id: String(a._id), classification: a.classification, statement: a.statement, confidence: a.confidence, status: a.status })),
+      memories: memories.map((m) => ({ id: String(m._id), memoryType: m.memoryType, statement: m.statement, confidence: m.confidence, origin: m.origin, status: m.status, provenance: m.provenance })),
+      documents: docs.map((d) => ({ id: String(d._id), title: d.title, classification: d.classification, status: d.status })),
+      actions: actions.slice(0, 10).map((a) => ({ id: String(a._id), toolId: a.toolId, status: a.status, startedAt: a.startedAt, error: a.error })),
+      events: events.slice(0, 10).map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+    };
+  },
+});
+
+/** §36 — the server-driven intelligence feed. */
+export const listInsights = query({
+  args: { status: v.optional(v.string()) },
+  handler: async (ctx, { status }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const insights = await ctx.db
+      .query("organizationalInsights")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(100);
+    return (status ? insights.filter((i) => i.status === status) : insights).sort(
+      (a, b) => b.priority - a.priority,
+    );
+  },
+});
+
+/** §36 — refresh derived intelligence from the current organizational state.
+ *  Deduped by insight key; resolved/dismissed items are never resurrected. */
+export const refreshInsights = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const now = Date.now();
+
+    const context = await ctx.db
+      .query("organizationContexts")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
+    const [entities, workflows, approvals, actions, events, decisions, connections] =
+      await Promise.all([
+        ctx.db.query("entities").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).collect(),
+        ctx.db.query("workflowInstances").withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId)).order("desc").take(100),
+        ctx.db.query("workflowApprovals").withIndex("by_tenant_status", (q) => q.eq("tenantId", tenantId).eq("status", "pending")).collect(),
+        ctx.db.query("toolActions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).order("desc").take(80),
+        ctx.db.query("events").withIndex("by_tenant_received", (q) => q.eq("tenantId", tenantId)).order("desc").take(100),
+        ctx.db.query("decisions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).order("desc").take(50),
+        ctx.db.query("connections").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).collect(),
+      ]);
+
+    const items = buildOrganizationalState({
+      now,
+      timezone: context?.primaryTimezone ?? "UTC",
+      businessDays: context?.businessDays ?? [1, 2, 3, 4, 5],
+      businessHours: context?.businessHours ?? { start: "09:00", end: "17:00" },
+      holidays: (context?.holidays as string[] | undefined) ?? [],
+      entities: entities.map((e) => ({ id: String(e._id), name: e.name, entityTypeKey: e.entityTypeKey, status: e.status, lastObservedAt: e.lastObservedAt, attributes: e.attributes as Record<string, unknown> | undefined })),
+      workflows: workflows.map((w) => ({ id: String(w._id), definitionId: w.definitionId, status: w.status, startedAt: w.startedAt, updatedAt: w.updatedAt, failureReason: w.failureReason ?? null })),
+      approvals: approvals.map((a) => ({ id: String(a._id), title: a.title, status: a.status, createdAt: a.createdAt, expiresAt: a.expiresAt ?? null })),
+      actions: actions.map((a) => ({ id: String(a._id), toolId: a.toolId, status: a.status, startedAt: a.startedAt, completedAt: a.completedAt, error: a.error ?? null })),
+      events: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+      decisions: decisions.map((d) => ({ id: String(d._id), title: d.title, status: d.status, createdAt: d.createdAt })),
+      authorityChanges: [],
+      staleKnowledge: [],
+      connections: connections.map((c) => ({ id: String(c._id), provider: c.provider, status: c.status, healthStatus: c.healthStatus ?? null, lastSyncAt: c.lastSyncAt })),
+    });
+
+    const KIND_MAP: Record<string, string> = {
+      overdue_work: "overdue",
+      failed_workflow: "workflow_issue",
+      bottleneck: "bottleneck",
+      pending_approval: "approval_required",
+      unresolved_issue: "unresolved_issue",
+      authority_change: "knowledge_change",
+      stale_knowledge: "stale_information",
+      upcoming_deadline: "deadline",
+      connector_health: "anomaly",
+      stalled_work: "anomaly",
+    };
+    let created = 0;
+    for (const item of items) {
+      const kind = KIND_MAP[item.kind];
+      if (!kind) continue; // informational kinds (recent events/actions) are not feed items
+      const p = priorityScore({
+        severity: item.urgency === "high" ? "high" : item.urgency === "medium" ? "medium" : "low",
+        urgency: item.urgency,
+        confidence: item.confidence,
+        deadlineHours: item.timestamp ? (item.timestamp - now) / 3600_000 : null,
+        hasAction: true,
+      });
+      const res = await ctx.runMutation(internal.internal.upsertOrganizationalInsight, {
+        tenantId,
+        insightKey: `${item.kind}:${item.title.replace(/[^a-z0-9]+/gi, "-").slice(0, 60)}`,
+        kind,
+        title: item.title,
+        detail: item.detail,
+        confidence: item.confidence,
+        priority: p.score,
+        priorityBasis: p.basis,
+        evidence: item.evidence.map((e) => ({ kind: e.kind, sourceId: e.sourceId, title: e.title, snippet: e.snippet })),
+        entityRefs: item.entityRef ? [item.entityRef] : undefined,
+        explanation: {
+          trigger: item.title,
+          interpretation: item.detail,
+          recommendedNextStep: item.detail,
+        },
+        recommendedNextStep: item.detail,
+        actionAvailable: true,
+        approvalRequired: item.urgency === "high",
+        limitation: "Derived from live workspace records; verify before acting.",
+      });
+      void res;
+      created++;
+    }
+    return { created };
+  },
+});
+
+/** §21 — auditable status transition for intelligence items. */
+export const updateInsightStatus = mutation({
+  args: {
+    insightId: v.id("organizationalInsights"),
+    status: v.union(
+      v.literal("new"),
+      v.literal("acknowledged"),
+      v.literal("investigating"),
+      v.literal("action_ready"),
+      v.literal("action_pending_confirmation"),
+      v.literal("resolved"),
+      v.literal("dismissed"),
+      v.literal("stale"),
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { insightId, status, note }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const insight = await ctx.db.get(insightId);
+    if (!insight || String(insight.tenantId) !== String(tenantId)) {
+      throw new Error("Insight not found.");
+    }
+    // Terminal transitions require a manager; lifecycle moves are member-ok.
+    if ((status === "resolved" || status === "dismissed") && !(await isManager(ctx, userId, tenantId))) {
+      throw new Error("Managers can resolve or dismiss intelligence items.");
+    }
+    if (insight.status === "resolved" || insight.status === "dismissed") {
+      if (status !== "resolved" && status !== "dismissed") {
+        throw new Error("Resolved or dismissed items stay terminal unless reopened by a manager.");
+      }
+    }
+    const now = Date.now();
+    const history = [
+      ...((insight.statusHistory as Array<{ from: string; to: string; at: number; by?: string; note?: string }>) ?? []),
+      { from: insight.status, to: status, at: now, by: String(userId), note },
+    ];
+    await ctx.db.patch(insightId, { status, statusHistory: history, updatedAt: now });
+    await ctx.db.insert("auditLogs", {
+      tenantId, actorType: "user", actorId: userId,
+      actionType: "insight_status", targetType: "organizationalInsights", targetId: String(insightId),
+      metadata: { from: insight.status, to: status, note },
+    });
+    return { ok: true };
+  },
+});
+
+/** §25/§26 — ONE orchestration entry: intent classification + plan. Never
+ *  executes anything; only proposes with confirmation/approval labels. */
+export const getOrchestrationPlan = query({
+  args: { question: v.string() },
+  handler: async (ctx, { question }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+
+    const intent = classifyIntent(question);
+    const questionType = (await import("./questions")).classifyQuestion(question).type;
+
+    const [settings, entities, approvals] = await Promise.all([
+      ctx.db
+        .query("workflowSettings")
+        .withIndex("by_tenant_workflow", (q) => q.eq("tenantId", tenantId))
+        .collect(),
+      ctx.db.query("entities").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).take(100),
+      ctx.db
+        .query("workflowApprovals")
+        .withIndex("by_tenant_status", (q) => q.eq("tenantId", tenantId).eq("status", "pending"))
+        .collect(),
+    ]);
+    const enabledIds = new Set(
+      settings.filter((s) => s.enabled).map((s) => s.workflowId),
+    );
+    const workflowCandidates = WORKFLOW_REGISTRY.filter(
+      (w) => enabledIds.size === 0 || enabledIds.has(w.id),
+    ).map((w) => ({ definitionId: w.id, label: w.name, expectedOutcome: "" }));
+    const actionCandidates = TOOL_REGISTRY.filter(
+      (t) => t.implementationStatus === "implemented",
+    ).map((t) => ({
+      toolId: t.id,
+      label: t.name,
+      risk: (t.riskLevel === "IRREVERSIBLE" ? "high" : t.riskLevel === "HIGH_WRITE" ? "medium" : t.riskLevel === "LOW_WRITE" ? "low" : "low") as "low" | "medium" | "high",
+    }));
+
+    const resolution = resolveEntityPure({
+      query: question,
+      candidates: entities.map((e) => ({
+        id: String(e._id),
+        name: e.name,
+        entityTypeKey: e.entityTypeKey,
+        identifiers: (e.identifiers as { kind: string; value: string }[] | undefined) ?? [],
+        aliases: e.aliases ?? [],
+      })),
+    });
+
+    const plan = orchestrate({
+      question,
+      intent,
+      questionType,
+      resolutionAmbiguous: resolution.ambiguous,
+      resolutionMatches: resolution.matches.map((m) => ({ name: m.name, basis: m.basis })),
+      workflowCandidates,
+      actionCandidates,
+      pendingApprovalCount: approvals.length,
+    });
+
+    return { intent, questionType, plan, resolution };
   },
 });

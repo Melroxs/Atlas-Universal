@@ -490,6 +490,8 @@ export const insertAskSession = internalMutation({
     limitations: v.optional(v.string()),
     /** Question-type classification (domain | organization | regulatory | mixed | general). */
     questionType: v.optional(v.string()),
+    /** §24 — structured investigation result attached to the session. */
+    investigation: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("askSessions", args);
@@ -1110,6 +1112,325 @@ export const insertAuthorityMemory = internalMutation({
       evidence: args.evidence,
       status: "confirmed",
     });
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 9 — organizational memory + intelligence internals
+// ---------------------------------------------------------------------------
+
+export const listMemoriesByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), status: v.optional(v.string()) },
+  handler: async (ctx, { tenantId, status }) => {
+    return await ctx.db
+      .query("memories")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .filter((q) => (status ? q.eq(q.field("status"), status) : true))
+      .order("desc")
+      .take(200);
+  },
+});
+
+export const getMemoryByDedupe = internalQuery({
+  args: { dedupeKey: v.string() },
+  handler: async (ctx, { dedupeKey }) => {
+    return await ctx.db
+      .query("memories")
+      .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
+      .first();
+  },
+});
+
+export const listActiveMemoriesBySubject = internalQuery({
+  args: { tenantId: v.id("tenants"), subjectId: v.string() },
+  handler: async (ctx, { tenantId, subjectId }) => {
+    return await ctx.db
+      .query("memories")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .filter((q) =>
+        q.and(q.eq(q.field("subjectId"), subjectId), q.eq(q.field("status"), "active")),
+      )
+      .collect();
+  },
+});
+
+/** §10 — the controlled memory-write service. Validates, dedupes, detects
+ *  contradictions (never silently overwrites) and audits every write. */
+export const writeMemory = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    memoryType: v.union(
+      v.literal("fact"),
+      v.literal("preference"),
+      v.literal("policy"),
+      v.literal("relationship"),
+      v.literal("decision"),
+      v.literal("pattern"),
+      v.literal("organizational_context"),
+      v.literal("workflow_context"),
+      v.literal("operational_state"),
+      v.literal("summary"),
+    ),
+    statement: v.string(),
+    origin: v.union(
+      v.literal("explicit"),
+      v.literal("observed"),
+      v.literal("imported"),
+      v.literal("inferred"),
+      v.literal("system-derived"),
+    ),
+    provenance: v.optional(v.string()),
+    confidenceScore: v.optional(v.number()),
+    subjectType: v.optional(v.string()),
+    subjectId: v.optional(v.string()),
+    structuredValue: v.optional(v.any()),
+    sourceReferences: v.optional(v.any()),
+    expiresAt: v.optional(v.number()),
+    createdBy: v.optional(v.id("users")),
+  },
+  handler: async (ctx, args) => {
+    const { validateMemoryWrite, detectContradiction } = await import("./everest/memory");
+    const validated = validateMemoryWrite(args);
+    if (!validated.ok) {
+      return { ok: false, reason: validated.reason, memoryId: undefined, contradicted: false };
+    }
+    const now = Date.now();
+    const dedupeKey = validated.dedupeKey!;
+    const existing = await ctx.db
+      .query("memories")
+      .withIndex("by_dedupe", (q) => q.eq("dedupeKey", dedupeKey))
+      .first();
+    if (existing) {
+      // §8 — reinforce (update timestamps + confidence) instead of duplicating.
+      await ctx.db.patch(existing._id, {
+        updatedAt: now,
+        confidenceScore: Math.max(existing.confidenceScore ?? 0, args.confidenceScore ?? 0.6),
+      });
+      return { ok: true, memoryId: String(existing._id), contradicted: false, reinforced: true };
+    }
+    // §8 — contradiction detection against active memories about the same subject.
+    if (args.subjectId) {
+      const sameSubject = await ctx.db
+        .query("memories")
+        .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
+        .filter((q) =>
+          q.and(q.eq(q.field("subjectId"), args.subjectId), q.eq(q.field("status"), "active")),
+        )
+        .collect();
+      for (const m of sameSubject) {
+        const conflict = detectContradiction({
+          existing: { statement: m.statement, provenance: m.provenance },
+          incoming: { statement: args.statement, provenance: args.provenance },
+          sameSubject: true,
+        });
+        if (conflict.contradicted) {
+          // Create the new memory in a contradicted state; flag the old one.
+          const memoryId = await ctx.db.insert("memories", {
+            tenantId: args.tenantId,
+            memoryType: args.memoryType,
+            subjectType: args.subjectType,
+            subjectId: args.subjectId,
+            statement: args.statement,
+            structuredValue: args.structuredValue,
+            confidence: validated.confidence!,
+            confidenceScore: args.confidenceScore,
+            origin: args.origin,
+            provenance: args.provenance ?? conflict.reason,
+            sourceReferences: args.sourceReferences,
+            status: "contradicted",
+            supersedes: [m._id],
+            supersededBy: undefined,
+            createdBy: args.createdBy,
+            createdAt: now,
+            updatedAt: now,
+            expiresAt: args.expiresAt,
+            dedupeKey,
+          });
+          await ctx.db.patch(m._id, {
+            status: "contradicted",
+            supersededBy: [memoryId],
+            updatedAt: now,
+          });
+          await ctx.db.insert("auditLogs", {
+            tenantId: args.tenantId,
+            actorType: args.createdBy ? "user" : "system",
+            actorId: args.createdBy,
+            actionType: "memory_contradiction",
+            targetType: "memories",
+            targetId: String(memoryId),
+            metadata: { reason: conflict.reason, previousId: String(m._id) },
+          });
+          return {
+            ok: true,
+            memoryId: String(memoryId),
+            contradicted: true,
+            reason: conflict.reason,
+          };
+        }
+      }
+    }
+    const memoryId = await ctx.db.insert("memories", {
+      tenantId: args.tenantId,
+      memoryType: args.memoryType,
+      subjectType: args.subjectType,
+      subjectId: args.subjectId,
+      statement: args.statement,
+      structuredValue: args.structuredValue,
+      confidence: validated.confidence!,
+      confidenceScore: args.confidenceScore,
+      origin: args.origin,
+      provenance: args.provenance,
+      sourceReferences: args.sourceReferences,
+      status: "active",
+      supersedes: undefined,
+      supersededBy: undefined,
+      createdBy: args.createdBy,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt: args.expiresAt,
+      dedupeKey,
+    });
+    await ctx.db.insert("auditLogs", {
+      tenantId: args.tenantId,
+      actorType: args.createdBy ? "user" : "system",
+      actorId: args.createdBy,
+      actionType: "memory_write",
+      targetType: "memories",
+      targetId: String(memoryId),
+      metadata: { memoryType: args.memoryType, origin: args.origin },
+    });
+    return { ok: true, memoryId: String(memoryId), contradicted: false };
+  },
+});
+
+export const patchMemory = internalMutation({
+  args: { id: v.id("memories"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const listDecisionsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("decisions")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const listEventsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("events")
+      .withIndex("by_tenant_received", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const listImpactAssessmentsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    const all = await ctx.db
+      .query("impactAssessments")
+      .withIndex("by_created", (q) => q.gte("createdAt", 0))
+      .order("desc")
+      .take(limit);
+    const tenantIdStr = String(tenantId);
+    return all.filter((a) => {
+      const affected = (a.affectedTenantIds ?? []) as string[];
+      return affected.length === 0 || affected.includes(tenantIdStr);
+    });
+  },
+});
+
+export const listDocsForInvestigation = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("documents")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+/** §18–§21 — upsert a derived intelligence item (deduped by insightKey). */
+export const upsertOrganizationalInsight = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    insightKey: v.string(),
+    kind: v.string(),
+    title: v.string(),
+    detail: v.string(),
+    confidence: v.number(),
+    priority: v.number(),
+    priorityBasis: v.optional(v.string()),
+    evidence: v.optional(v.any()),
+    entityRefs: v.optional(v.any()),
+    explanation: v.optional(v.any()),
+    recommendedNextStep: v.optional(v.string()),
+    actionAvailable: v.optional(v.boolean()),
+    approvalRequired: v.optional(v.boolean()),
+    limitation: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("organizationalInsights")
+      .withIndex("by_insight_key", (q) => q.eq("insightKey", args.insightKey))
+      .first();
+    if (existing) {
+      // Refresh priority/state but never resurrect resolved/dismissed items.
+      if (existing.status === "resolved" || existing.status === "dismissed") return existing._id;
+      await ctx.db.patch(existing._id, {
+        priority: args.priority,
+        priorityBasis: args.priorityBasis,
+        evidence: args.evidence,
+        detail: args.detail,
+        updatedAt: now,
+      });
+      return existing._id;
+    }
+    return await ctx.db.insert("organizationalInsights", {
+      ...args,
+      status: "new",
+      createdAt: now,
+      updatedAt: now,
+      statusHistory: [{ from: "none", to: "new", at: now }],
+    });
+  },
+});
+
+export const patchOrganizationalInsight = internalMutation({
+  args: { id: v.id("organizationalInsights"), patch: v.any() },
+  handler: async (ctx, { id, patch }) => {
+    await ctx.db.patch(id, patch);
+  },
+});
+
+export const listInsightsByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("organizationalInsights")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
+export const getOrganizationContextByTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    return await ctx.db
+      .query("organizationContexts")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
   },
 });
 

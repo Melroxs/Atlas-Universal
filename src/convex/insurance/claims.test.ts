@@ -10,13 +10,13 @@ import {
 const CLAIM_STATUS_COUNT = CLAIM_STATUSES.length;
 
 describe("analyzeClaimCompleteness", () => {
-  it("never invents a percentage — 0 of 8 for an empty claim", () => {
+  it("never invents a percentage — 0 of 9 for an empty claim", () => {
     const c = analyzeClaimCompleteness({});
-    expect(c.total).toBe(8);
+    expect(c.total).toBe(9);
     expect(c.complete).toBe(0);
     expect(c.score).toBe(0);
-    expect(c.summary).toContain("0 of 8");
-    expect(c.summary).toContain("8 require attention");
+    expect(c.summary).toContain("0 of 9");
+    expect(c.summary).toContain("9 require attention");
   });
 
   it("counts verified and extracted fields as complete", () => {
@@ -30,10 +30,11 @@ describe("analyzeClaimCompleteness", () => {
       estimateAmount: 25000,
       estimateLineItemCount: 12,
       evidenceSummary: ["estimate", "photos"],
+      invoicedAmount: 22000,
       provenance: "Confirmed from Carrier estimate.pdf",
     });
-    expect(c.total).toBe(8);
-    expect(c.complete).toBe(8);
+    expect(c.total).toBe(9);
+    expect(c.complete).toBe(9);
     expect(c.score).toBe(1);
     expect(c.summary).not.toContain("require attention");
   });

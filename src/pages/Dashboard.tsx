@@ -17,6 +17,8 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import {
   Activity,
   ArrowRight,
+  BadgeDollarSign,
+  ClipboardList,
   Database,
   FileUp,
   FlaskConical,
@@ -26,6 +28,7 @@ import {
   Search,
   Sparkles,
   Target,
+  TrendingUp,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -50,6 +53,11 @@ const NODE_COLORS: Record<string, string> = {
   supplement: "oklch(0.78 0.115 230)",
   unknown: "oklch(0.6 0 0)",
 };
+
+function money(n?: number | null): string {
+  if (typeof n !== "number") return "—";
+  return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
 
 function MiniGraph({ nodes, edges }: { nodes: Array<{ id: string; type: string }>; edges: Array<{ source: string; target: string }> }) {
   const W = 300;
@@ -110,6 +118,8 @@ export default function Dashboard() {
   const recs = useQuery(api.recommendations.listRecommendations);
   const activity = useQuery(api.history.recentActivity);
   const graph = useQuery(api.knowledge.graphSnapshot);
+  const claimCounts = useQuery(api.insurance.claims.claimCounts);
+  const claims = useQuery(api.insurance.claims.listClaims, {});
   const seedDemo = useMutation(api.seed.seedDemoData);
   const runDetectors = useAction(api.recommendations.runDetectors);
 
@@ -207,6 +217,120 @@ export default function Dashboard() {
         <StatCard icon={Sparkles} label="Assertions" value={entityStats?.assertions ?? "—"} hint="labeled knowledge statements" accent="text-violet-600 dark:text-violet-300" />
         <StatCard icon={Target} label="Open signals" value={recCounts?.open ?? "—"} hint={`${recCounts?.executed ?? 0} executed · ${recCounts?.approved ?? 0} approved`} accent="text-amber-600 dark:text-amber-300" />
       </div>
+
+      {/* Phase 11 — Revenue recovery (first vertical) */}
+      <Panel>
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <TrendingUp className="size-4 text-emerald-600 dark:text-emerald-300" />
+            Revenue recovery
+          </h2>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/revenue-recovery")}
+            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-emerald-700 dark:hover:text-emerald-200"
+          >
+            Open Revenue Recovery <ArrowRight className="size-3" />
+          </button>
+        </div>
+        <div className="px-5 py-4">
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300">
+                <ClipboardList className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Open claims</p>
+                <p className="font-mono text-lg font-semibold text-foreground">
+                  {claimCounts?.openClaims ?? "…"}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {claimCounts?.attentionClaims ?? 0} need attention
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-amber-400/25 bg-amber-400/10 text-amber-600 dark:text-amber-300">
+                <Sparkles className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Potential opportunities</p>
+                <p className="font-mono text-lg font-semibold text-foreground">
+                  {claimCounts?.openFindings ?? "…"}
+                </p>
+                <p className="text-[11px] text-muted-foreground">
+                  {claimCounts?.drafts ?? 0} draft · {claimCounts?.readyForSubmission ?? 0} ready supplements
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-emerald-400/25 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300">
+                <BadgeDollarSign className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Potential recovery</p>
+                <p className="font-mono text-lg font-semibold text-foreground">
+                  {money(claimCounts?.potential)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">potential — never guaranteed</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-rose-400/25 bg-rose-400/10 text-rose-600 dark:text-rose-300">
+                <Activity className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-xs text-muted-foreground">Potentially outstanding</p>
+                <p className="font-mono text-lg font-semibold text-rose-600 dark:text-rose-300">
+                  {money(claimCounts?.outstanding)}
+                </p>
+                <p className="text-[11px] text-muted-foreground">approved vs paid</p>
+              </div>
+            </div>
+          </div>
+
+          {(claims ?? []).length > 0 && (
+            <div className="mt-4 border-t border-border/50 pt-3">
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Claims needing attention
+              </p>
+              <div className="space-y-1.5">
+                {(claims ?? [])
+                  .filter(
+                    (c) =>
+                      c.openFindings > 0 ||
+                      (c.outstanding ?? 0) > 0 ||
+                      c.completeness < c.completenessTotal ||
+                      c.hasDiscrepancy,
+                  )
+                  .slice(0, 3)
+                  .map((c) => (
+                    <button
+                      key={c._id}
+                      type="button"
+                      onClick={() => navigate(`/dashboard/revenue-recovery/${c._id}`)}
+                      className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-left transition-colors hover:border-emerald-400/40 hover:bg-muted/40"
+                    >
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-medium text-foreground">
+                          {c.customer ?? c.property ?? c.claimNumber ?? "Unnamed claim"}
+                        </span>
+                        <span className="block truncate text-[10px] text-muted-foreground">
+                          {(c.status ?? "opened").replace(/_/g, " ")}
+                          {c.openFindings > 0 && ` · ${c.openFindings} open finding${c.openFindings === 1 ? "" : "s"}`}
+                          {c.completeness < c.completenessTotal && ` · ${c.completeness}/${c.completenessTotal} complete`}
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs font-semibold text-rose-600 dark:text-rose-300">
+                        {money(c.outstanding)}
+                      </span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </Panel>
 
       {/* Knowledge graph + recommendations */}
       <div className="grid gap-6 lg:grid-cols-5">

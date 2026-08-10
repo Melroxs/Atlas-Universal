@@ -62,9 +62,14 @@ describe("mentionsAtlas", () => {
 
 describe("shouldAcceptWake", () => {
   it("enforces a cooldown", () => {
+    // Fresh state (lastWakeAt 0 = never woke, epoch timestamps): accepted.
     const state = { lastWakeAt: 0, lastWakeTranscript: "" };
-    expect(shouldAcceptWake("Atlas go", state, 1000)).toBe(true);
-    expect(shouldAcceptWake("Atlas go", state, 2000)).toBe(false);
+    expect(shouldAcceptWake("Atlas go", state, 10_000)).toBe(true);
+    // Immediately after an accepted wake, another phrase is suppressed.
+    const afterWake = { lastWakeAt: 10_000, lastWakeTranscript: "Atlas go" };
+    expect(shouldAcceptWake("Atlas different", afterWake, 11_000)).toBe(false);
+    // Once the cooldown elapses, a new phrase is accepted again.
+    expect(shouldAcceptWake("Atlas different", afterWake, 13_000)).toBe(true);
   });
 
   it("suppresses duplicates", () => {

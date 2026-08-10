@@ -65,7 +65,7 @@ function claimStatusTone(status: string): string {
 export default function RevenueRecovery() {
   const navigate = useNavigate();
   const counts = useQuery(api.insurance.claims.claimCounts);
-  const claims = useQuery(api.insurance.claims.listClaims);
+  const claims = useQuery(api.insurance.claims.listClaims, {});
   const createClaim = useMutation(api.insurance.claims.createClaim);
 
   // New claim dialog

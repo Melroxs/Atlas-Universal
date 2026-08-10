@@ -81,6 +81,30 @@ describe("classifyIntent", () => {
     expect(classifyIntent("What happened with this claim?").intent).toBe("claims");
   });
 
+  it("revenue recovery, supplement and claim-status phrasing routes to claims (§33)", () => {
+    for (const q of [
+      "What money are we leaving on the table?",
+      "Find potential supplements",
+      "Draft the supplement",
+      "Which claims need attention?",
+      "What's the status of claim 1842?",
+    ]) {
+      expect(classifyIntent(q).intent, q).toBe("claims");
+    }
+  });
+
+  it("claim investigation with why-phrasing stays investigative", () => {
+    expect(classifyIntent("Why hasn't the supplement been approved?").intent).toBe("investigative");
+    expect(classifyIntent("Why was the claim closed without payment?").intent).toBe("investigative");
+  });
+
+  it("ambiguous claim follow-ups without context do not assume a claim (§33)", () => {
+    expect(classifyIntent("What's missing?").intent).not.toBe("claims");
+    expect(classifyIntent("What are the gaps?").intent).not.toBe("claims");
+    // An explicit claim reference still routes to the claim.
+    expect(classifyIntent("What is missing from this claim?").intent).toBe("claims");
+  });
+
   it("investigative questions", () => {
     expect(classifyIntent("Why hasn't the Johnson project moved forward?").intent).toBe("investigative");
     expect(classifyIntent("What went wrong with that workflow?").intent).toBe("investigative");

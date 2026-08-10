@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CLAIM_STATUSES,
+  SUPPLEMENT_STATUSES,
   analyzeClaimCompleteness,
   buildClaimFindings,
   buildClaimPackage,
@@ -8,6 +9,7 @@ import {
   buildSupplementDocument,
   pipelineIndexFor,
   reconcileClaim,
+  type SupplementStatus,
 } from "./claims";
 
 const CLAIM_STATUS_COUNT = CLAIM_STATUSES.length;
@@ -115,6 +117,20 @@ describe("buildClaimFindings", () => {
       expect(x.confidence).toBeLessThan(1);
       expect(x.recommendedNextStep.length).toBeGreaterThan(10);
     }
+  });
+
+  it("reports no financial findings for a fully consistent claim", () => {
+    const f = buildClaimFindings({
+      _id: "c1",
+      expectedScope: ["demo", "drywall", "paint"],
+      actualScope: ["demo", "drywall", "paint"],
+      evidenceSummary: ["damage", "scope", "quantity", "pricing", "necessity"],
+      estimateAmount: 25000,
+      paymentAmount: 25000,
+      invoicedAmount: 25000,
+      estimateLineItemCount: 3,
+    });
+    expect(f).toEqual([]);
   });
 });
 
@@ -310,6 +326,22 @@ describe("buildSupplementDocument (Phase 12)", () => {
     expect(limText).not.toContain("guaranteed");
     expect(doc.disclaimer).toContain("not insurer policy");
   });
+
+  it("refuses to invent a requested amount the evidence does not support", () => {
+    const doc = buildSupplementDocument({ claimNumber: "CLM-9" }, { reason: "Hidden damage" });
+    expect(doc.requestedAmount).toBeUndefined();
+    const amount = doc.sections.find((s) => s.title === "Requested amount");
+    expect(amount?.body.join(" ")).toContain("Not calculated");
+    expect(amount?.body.join(" ")).toContain("does not yet support");
+  });
+
+  it("keeps drafts review-gated — never a silent submission", () => {
+    const doc = buildSupplementDocument({}, { reason: "r", status: "draft" });
+    expect(doc.status).toBe("draft");
+    const notes = doc.sections.find((s) => s.title === "Reviewer notes");
+    expect(notes?.body.join(" ").toLowerCase()).toContain("required before submission");
+    expect(doc.disclaimer).toContain("not a submission");
+  });
 });
 
 describe("reconcileClaim — Phase 12 depth", () => {
@@ -326,5 +358,20 @@ describe("reconcileClaim — Phase 12 depth", () => {
     const r = reconcileClaim({ invoicedAmount: 10000, paymentAmount: 4000 }, []);
     expect(r.notes.join(" ")).toContain("$6,000 of the invoiced total remains unpaid");
     expect(r.hasDiscrepancy).toBe(true);
+  });
+});
+
+describe("supplement lifecycle — approval before payment (§33)", () => {
+  it("orders the status flow so a draft is reviewed and approved before payment is recorded", () => {
+    const idx = (s: string) => SUPPLEMENT_STATUSES.indexOf(s as SupplementStatus);
+    expect(idx("draft")).toBeGreaterThanOrEqual(0);
+    expect(idx("draft")).toBeLessThan(idx("ready_for_submission"));
+    expect(idx("ready_for_submission")).toBeLessThan(idx("submitted"));
+    expect(idx("submitted")).toBeLessThan(idx("carrier_review"));
+    expect(idx("carrier_review")).toBeLessThan(idx("approved"));
+    expect(idx("partially_approved")).toBeLessThan(idx("payment_received"));
+    expect(idx("approved")).toBeLessThan(idx("payment_received"));
+    expect(idx("denied")).toBeLessThan(idx("closed"));
+    expect(idx("payment_received")).toBeLessThan(idx("closed"));
   });
 });

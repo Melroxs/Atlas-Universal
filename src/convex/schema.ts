@@ -1183,6 +1183,109 @@ const schema = defineSchema(
     })
       .index("by_tenant_user", ["tenantId", "userId"])
       .index("by_tenant", ["tenantId"]),
+
+    // ------------------------------------------------------------------
+    // Phase 11 — Insurance Restoration · Claims, supplements & findings
+    // ------------------------------------------------------------------
+    // Tenant-scoped operational records for the first Atlas vertical. Every
+    // field is optional where the information isn't known yet — Atlas never
+    // invents claim data. Each record carries provenance and confidence, and
+    // every write is audited.
+
+    /** One insurance restoration claim. All fields optional until known. */
+    insuranceClaims: defineTable({
+      tenantId: v.id("tenants"),
+      claimNumber: v.optional(v.string()),
+      customer: v.optional(v.string()),
+      property: v.optional(v.string()),
+      carrier: v.optional(v.string()),
+      policy: v.optional(v.string()),
+      adjuster: v.optional(v.string()),
+      dateOfLoss: v.optional(v.number()),
+      causeOfLoss: v.optional(v.string()),
+      /** Stage in the generalized claim lifecycle (see everest/insurance.ts). */
+      status: v.string(),
+      currentStage: v.optional(v.string()),
+      /** Original priced estimate (dollars). */
+      estimateAmount: v.optional(v.number()),
+      estimateLineItemCount: v.optional(v.number()),
+      invoicedAmount: v.optional(v.number()),
+      paymentAmount: v.optional(v.number()),
+      /** Line items: {name, quantity?, unit?, amount?, inEstimate?, documented?}. */
+      scopeItems: v.optional(v.array(v.any())),
+      /** Documented/expected scope concepts (strings). */
+      expectedScope: v.optional(v.array(v.string())),
+      /** Observed/performed scope concepts (strings). */
+      actualScope: v.optional(v.array(v.string())),
+      /** Evidence categories with material on file (damage, scope, quantity…). */
+      evidenceSummary: v.optional(v.array(v.string())),
+      evidenceDocumentIds: v.optional(v.array(v.id("documents"))),
+      /** How Atlas came to know what it knows about this claim. */
+      provenance: v.optional(v.string()),
+      confidence: v.number(),
+      createdBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"]),
+
+    /** Structured supplement records — never auto-submitted, always reviewed. */
+    claimSupplements: defineTable({
+      tenantId: v.id("tenants"),
+      claimId: v.id("insuranceClaims"),
+      reason: v.string(),
+      affectedLineItems: v.optional(v.array(v.string())),
+      requestedItems: v.optional(v.array(v.string())),
+      evidence: v.optional(v.array(v.string())),
+      estimateDifference: v.optional(v.number()),
+      amount: v.optional(v.number()),
+      justification: v.optional(v.string()),
+      /** draft | ready_for_submission | submitted | carrier_review |
+       *  approved | partially_approved | denied | additional_docs_requested |
+       *  payment_received | closed */
+      status: v.string(),
+      submissionDate: v.optional(v.number()),
+      carrierResponse: v.optional(v.string()),
+      approvedAmount: v.optional(v.number()),
+      deniedAmount: v.optional(v.number()),
+      outstandingAmount: v.optional(v.number()),
+      provenance: v.optional(v.string()),
+      confidence: v.number(),
+      createdBy: v.optional(v.id("users")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_claim", ["claimId"]),
+
+    /** Persisted, evidence-labeled potential recovery findings. Deduped by
+     *  findingKey. Every finding is a POTENTIAL opportunity — never a
+     *  guarantee — and always carries its limitation. */
+    claimFindings: defineTable({
+      tenantId: v.id("tenants"),
+      claimId: v.id("insuranceClaims"),
+      /** claim:<claimId>:<category> — deterministic dedupe. */
+      findingKey: v.string(),
+      category: v.string(),
+      title: v.string(),
+      description: v.string(),
+      affectedEstimateItem: v.optional(v.string()),
+      evidence: v.optional(v.array(v.string())),
+      source: v.optional(v.string()),
+      confidence: v.number(),
+      estimatedAmount: v.optional(v.number()),
+      limitation: v.string(),
+      recommendedNextStep: v.string(),
+      /** open | accepted | dismissed | resolved */
+      status: v.string(),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_claim", ["claimId"])
+      .index("by_claim_status", ["claimId", "status"])
+      .index("by_finding_key", ["findingKey"]),
   },
   {
     schemaValidation: false,

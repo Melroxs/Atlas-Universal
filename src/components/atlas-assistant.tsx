@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,7 @@ export function AtlasAssistant({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     busyRef.current = busy;
@@ -149,6 +151,9 @@ export function AtlasAssistant({
     onTranscript: (text) => {
       setInput((prev) => (prev ? `${prev} ${text}` : text));
     },
+    // Phase 11 — ambient mode: a wake-word command is sent straight through the
+    // same conversational brain as a typed message.
+    onAmbientCommand: (text) => void send(text),
   });
 
   const send = async (text?: string) => {
@@ -252,6 +257,41 @@ export function AtlasAssistant({
     }
   })();
 
+  // Phase 11 — ambient status label. Never claims the mic is active when it
+  // is not: every label maps to a real state.
+  const statusLabel = (() => {
+    if (busy) return "Thinking…";
+    switch (voice.status) {
+      case "listening":
+      case "transcribing":
+        return "Listening…";
+      case "speaking":
+        return "Speaking…";
+      case "interrupted":
+        return "Atlas stopped.";
+      case "permission_required":
+        return "Microphone permission needed";
+      case "listening_for_wake_word":
+        return "Say \u201cAtlas\u201d…";
+      case "wake_detected":
+        return "Yes?";
+      case "listening_for_command":
+        return "I\u2019m listening…";
+      case "paused":
+        return "Paused";
+      case "error":
+        return "Voice error";
+      default:
+        return "Online";
+    }
+  })();
+
+  const ambientActive =
+    voice.ambientEnabled &&
+    ["listening_for_wake_word", "wake_detected", "listening_for_command", "paused", "interrupted"].includes(
+      voice.status,
+    );
+
   return (
     <>
       {/* Floating launcher */}
@@ -298,16 +338,17 @@ export function AtlasAssistant({
                           ? "animate-pulse bg-rose-500"
                           : micState === "speaking"
                             ? "animate-pulse bg-teal-400"
-                            : "bg-teal-500"
+                            : ambientActive
+                              ? "animate-pulse bg-emerald-400"
+                              : "bg-teal-500"
                     }`}
                   />
-                  {busy
-                    ? "Thinking…"
-                    : micState === "listening"
-                      ? "Listening…"
-                      : micState === "speaking"
-                        ? "Speaking…"
-                        : "Online"}
+                  {statusLabel}
+                  {ambientActive && (
+                    <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px font-mono text-[9px] uppercase tracking-wide text-emerald-600 dark:text-emerald-300">
+                      ambient
+                    </span>
+                  )}
                   <span className="hidden truncate text-muted-foreground/60 sm:inline">
                     · {voiceLabel}
                   </span>
@@ -388,14 +429,27 @@ export function AtlasAssistant({
 
                         {t.entityRefs && t.entityRefs.length > 0 && (
                           <div className="mt-2.5 flex flex-wrap gap-1.5">
-                            {t.entityRefs.map((e) => (
-                              <span
-                                key={e.id}
-                                className="rounded-md border border-cyan-400/25 bg-cyan-400/5 px-2 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-200"
-                              >
-                                {e.name}
-                              </span>
-                            ))}
+                            {t.entityRefs.map((e) => {
+                              const isClaim = /claim/.test(e.entityTypeKey ?? "");
+                              return isClaim ? (
+                                <button
+                                  key={e.id}
+                                  type="button"
+                                  onClick={() => navigate(`/dashboard/revenue-recovery/${e.id}`)}
+                                  title="Open claim"
+                                  className="rounded-md border border-amber-400/30 bg-amber-400/5 px-2 py-0.5 text-[11px] text-amber-700 transition-colors hover:border-amber-400/60 hover:bg-amber-400/10 dark:text-amber-200"
+                                >
+                                  {e.name} →
+                                </button>
+                              ) : (
+                                <span
+                                  key={e.id}
+                                  className="rounded-md border border-cyan-400/25 bg-cyan-400/5 px-2 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-200"
+                                >
+                                  {e.name}
+                                </span>
+                              );
+                            })}
                           </div>
                         )}
 
@@ -625,14 +679,34 @@ export function AtlasAssistant({
                   {autoSpeak ? <Volume2 className="size-3" /> : <VolumeX className="size-3" />}
                   {autoSpeak ? "Auto-speak on" : "Auto-speak off"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => void voice.speak(turns[turns.length - 1]?.spoken ?? "")}
-                  disabled={turns.length === 0}
-                  className="text-[11px] text-muted-foreground/60 transition-colors hover:text-teal-600 dark:hover:text-teal-300 disabled:opacity-40"
-                >
-                  Replay last response
-                </button>
+                <div className="flex items-center gap-3">
+                  {/* Phase 11 — ambient mode toggle: “Say Atlas and Atlas is ready.” */}
+                  <button
+                    type="button"
+                    onClick={() => voice.toggleAmbient()}
+                    title={
+                      voice.ambientEnabled
+                        ? "Disable ambient listening"
+                        : "Enable ambient listening (mic access required)"
+                    }
+                    className={`flex items-center gap-1.5 text-[11px] transition-colors ${
+                      voice.ambientEnabled
+                        ? "text-emerald-600 dark:text-emerald-300"
+                        : "text-muted-foreground/60"
+                    }`}
+                  >
+                    <Radar className="size-3" />
+                    {voice.ambientEnabled ? "Ambient on" : "Ambient off"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void voice.speak(turns[turns.length - 1]?.spoken ?? "")}
+                    disabled={turns.length === 0}
+                    className="text-[11px] text-muted-foreground/60 transition-colors hover:text-teal-600 dark:hover:text-teal-300 disabled:opacity-40"
+                  >
+                    Replay last response
+                  </button>
+                </div>
               </div>
             </div>
           </motion.div>

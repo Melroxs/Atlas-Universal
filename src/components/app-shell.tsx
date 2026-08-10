@@ -46,6 +46,7 @@ import {
   Settings2,
   Sparkles,
   Target,
+  TrendingUp,
   Users,
   Workflow,
   Zap,
@@ -77,6 +78,16 @@ const NAV_SECTIONS: Array<{
       { to: "/dashboard/connections", label: "Connections", icon: Cable },
       { to: "/dashboard/intelligence", label: "Intelligence", icon: Layers },
       { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
+    ],
+  },
+  {
+    label: "Industry verticals",
+    items: [
+      {
+        to: "/dashboard/revenue-recovery",
+        label: "Revenue Recovery",
+        icon: TrendingUp,
+      },
     ],
   },
   {
@@ -116,6 +127,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/actions": "Actions & Tools",
   "/dashboard/events": "Events",
   "/dashboard/workflows": "Workflows",
+  "/dashboard/revenue-recovery": "Revenue Recovery",
+  "/dashboard/revenue-recovery/:id": "Claim Package",
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",

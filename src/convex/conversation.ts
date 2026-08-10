@@ -18,6 +18,7 @@ import type { Id } from "./_generated/dataModel";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { requireTenant, requireUser } from "./helpers";
 import { classifyQuestion } from "./everest/questions";
+import { STATUS_LABELS } from "./insurance/claims";
 import { greeting as briefingGreeting } from "./ops/briefing";
 
 // ---------------------------------------------------------------------------
@@ -32,6 +33,7 @@ export type ConversationIntent =
   | "organizational"
   | "investigative"
   | "workflow"
+  | "claims"
   | "action"
   | "regulatory"
   | "informational"
@@ -73,6 +75,9 @@ export interface PendingState {
   workflow?: { definitionId: string; name: string; entityName?: string };
   options?: Array<{ id?: string; label: string }>;
   question?: string;
+  /** Custom claim/recovery action awaiting confirmation. */
+  actionType?: string;
+  claim?: { claimId?: string; supplementId?: string; label?: string; resolve?: boolean };
 }
 
 export interface TemporalInfo {
@@ -122,6 +127,8 @@ const ORGANIZATIONAL_RE =
   /(what'?s going on|what'?s happening|how'?s (the|our|everything)|status (update|of|overview)|what changed|what'?s new|what needs (my |our |)attention|what'?s waiting on (me|us|you)|waiting on (me|us)|what should (i|we) (know|worry|watch)|anything (important|urgent|i should know)|biggest (issues|problems|risks)|overview|what happened (today|yesterday|this week)|what did (atlas|you|we) (do|change|send|complete|finish)|did (the|that|this) (workflow|action|email|request) (complete|finish|go through|send|run)|what'?s on (my|our) plate)/i;
 const INVESTIGATIVE_RE =
   /(why (is|has|did|didn|hasn|was|were|does|do|are)|what'?s wrong|what went wrong|what'?s blocking|what'?s holding|blocking|stuck|stalled|stagnant|investigat|root cause|what happened to|why\b)/i;
+const CLAIMS_RE =
+  /(\bclaims?\b|supplement|leaving on the table|revenue recovery|carrier response|date of loss|claim number)/i;
 const ACTION_RE =
   /^(send|email|schedule|create|update|approve|reject|cancel|close|start|stop|remind|notify|invite|post|record|log|file|submit|pay|mark|assign|move|copy|delete|add|set|tag|archive|restore)\b/i;
 
@@ -163,6 +170,11 @@ export function classifyIntent(
     signals.push("workflow request");
     return { intent: "workflow", confidence: 0.9, signals };
   }
+  // Insurance restoration vertical — but "why…" phrasing keeps investigating.
+  if (CLAIMS_RE.test(low) && !INVESTIGATIVE_RE.test(q)) {
+    signals.push("insurance claim phrasing");
+    return { intent: "claims", confidence: 0.82, signals };
+  }
   if (ORGANIZATIONAL_RE.test(low)) {
     signals.push("organizational state query");
     return { intent: "organizational", confidence: 0.85, signals };
@@ -192,6 +204,7 @@ export const INTENT_LABELS: Record<ConversationIntent, string> = {
   organizational: "Organizational intelligence",
   investigative: "Investigation",
   workflow: "Workflow",
+  claims: "Claims & recovery",
   action: "Action",
   regulatory: "Regulatory",
   informational: "Information",
@@ -494,6 +507,8 @@ interface ContextShape {
   entityContext?: EntityRef | null;
   pending?: PendingState;
   lastResult?: { kind: string; refs: string[] } | null;
+  /** Active insurance claim (and optional draft supplement) in this thread. */
+  claimContext?: { claimId: string; supplementId?: string } | null;
 }
 
 interface Conv {
@@ -524,6 +539,7 @@ type RouteResult = {
   pending: PendingState;
   intentKind?: string;
   memoryNote?: string;
+  claimContext?: { claimId: string; supplementId?: string } | null;
 };
 
 const EMPTY_PENDING: PendingState = { kind: "none" };
@@ -693,6 +709,16 @@ export const converse = action({
         break;
       }
 
+      case "claims": {
+        response = await handleClaims(
+          conv,
+          q,
+          context,
+          { userId, tenantId, role, tenantIdStr: String(tenantId) },
+        );
+        break;
+      }
+
       case "action": {
         response = await handleAction(conv, q, entityContext);
         break;
@@ -717,8 +743,10 @@ export const converse = action({
       lastResult: response.entityRefs.length
         ? { kind: response.intentKind ?? intent, refs: response.entityRefs.map((e) => e.id) }
         : (context.lastResult ?? null),
+      claimContext: response.claimContext ?? context.claimContext,
     };
     delete response.intentKind;
+    delete response.claimContext;
 
     const memoryNote = response.memoryNote ?? (await memoryNoteFor(conv, tenantId));
 
@@ -883,6 +911,61 @@ async function handleConfirmation(
     }
   }
 
+  if (pending.kind === "confirm_action" && pending.actionType === "claim_submit_supplement" && pending.claim?.supplementId) {
+    const claimId = pending.claim.claimId;
+    if (proceed) {
+      try {
+        await conv.rm(api.insurance.claims.updateSupplementStatus, {
+          supplementId: pending.claim.supplementId as Id<"claimSupplements">,
+          status: "ready_for_submission",
+        });
+        await conv.rm(internal.internal.logAudit, {
+          tenantId: identity.tenantId,
+          actorType: "user",
+          actorId: identity.userId,
+          actionType: "supplement_marked_ready_for_submission",
+          targetType: "claimSupplement",
+          targetId: String(pending.claim.supplementId),
+          metadata: { claimId, confirmedVia: "conversation" },
+        });
+        const answer = `Done. The supplement for ${pending.claim.label ?? "this claim"} is now marked ready for submission and appears in Revenue Recovery. No connector is connected to the carrier yet, so nothing was transmitted — the workspace must submit it through the connected process.`;
+        return {
+          answer,
+          spoken: spokenFor(answer) || "The supplement is ready for submission.",
+          suggestedActions: ["Open Revenue Recovery"],
+          authorityAnswers: [],
+          evidence: [],
+          toolPlan: null,
+          entityRefs: claimId ? [{ id: claimId, name: pending.claim.label ?? "Claim", entityTypeKey: "claim" }] : [],
+          pending: EMPTY_PENDING,
+        };
+      } catch (e) {
+        const answer = `I couldn't mark the supplement as ready: ${e instanceof Error ? e.message : "unknown error"}`;
+        return {
+          answer,
+          spoken: "I couldn't mark the supplement as ready.",
+          suggestedActions: [],
+          authorityAnswers: [],
+          evidence: [],
+          toolPlan: null,
+          entityRefs: [],
+          pending: EMPTY_PENDING,
+        };
+      }
+    }
+    const answer = `Understood — the supplement stays a draft for review.`;
+    return {
+      answer,
+      spoken: answer,
+      suggestedActions: [],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [],
+      pending: EMPTY_PENDING,
+    };
+  }
+
   if (pending.kind === "confirm_workflow" && pending.workflow) {
     if (proceed) {
       return await startWorkflowConfirmed(conv, identity, pending.workflow);
@@ -1027,6 +1110,10 @@ async function handleSelection(
     };
   }
   const selected = pending.options[idx];
+  if (pending.kind === "clarify_entity" && pending.claim?.resolve === true) {
+    // Resolving a claim pick — open the selected claim directly.
+    return await handleClaims(conv, `open ${selected.label}`, { claimContext: null });
+  }
   if (pending.kind === "clarify_entity") {
     const entity = {
       id: selected.id ?? "",
@@ -1041,6 +1128,611 @@ async function handleSelection(
     return { ...result, pending: EMPTY_PENDING };
   }
   const answer = `Got it — ${selected.label}.`;
+  return {
+    answer,
+    spoken: answer,
+    suggestedActions: [],
+    authorityAnswers: [],
+    evidence: [],
+    toolPlan: null,
+    entityRefs: [],
+    pending: EMPTY_PENDING,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Insurance restoration claims (first vertical)
+//
+// Discovery → Draft → Human review → Approval → Submission. Voice never
+// bypasses risk/confirmation: submitting a supplement always requires
+// confirmation, and no connector means no transmission is ever claimed.
+// ---------------------------------------------------------------------------
+
+interface ClaimSummaryRow {
+  _id: string;
+  claimNumber?: string | null;
+  customer?: string | null;
+  property?: string | null;
+  status?: string | null;
+  completeness?: {
+    complete?: number;
+    total?: number;
+    summary?: string;
+    categories?: Array<{ key: string; label: string; status: string; note: string }>;
+  };
+  reconciliation?: {
+    requested?: number;
+    approved?: number;
+    denied?: number;
+    paid?: number;
+    outstanding?: number;
+    hasDiscrepancy?: boolean;
+    notes?: string[];
+  };
+  openFindings?: Array<{
+    category?: string;
+    title?: string;
+    confidence?: number;
+    estimatedAmount?: number;
+    recommendedNextStep?: string;
+    limitation?: string;
+  }>;
+}
+
+async function claimsList(conv: Conv): Promise<ClaimSummaryRow[]> {
+  return ((await conv.rq(api.insurance.claims.analyzeAllClaims, {})) ?? []) as ClaimSummaryRow[];
+}
+
+function claimLabel(c: ClaimSummaryRow): string {
+  return c.customer || c.property || c.claimNumber || "Claim";
+}
+
+function matchesClaim(c: ClaimSummaryRow, q: string): boolean {
+  const low = q.toLowerCase();
+  const hay = [c.customer, c.property, c.claimNumber].filter(Boolean).join(" ").toLowerCase();
+  if (!hay) return false;
+  const tokens = low
+    .replace(/\b(open|show|view|the|claim|for|about|regarding|on|at|tell|me|what|is|of)\b/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 3);
+  return tokens.length > 0 && tokens.every((t) => hay.includes(t));
+}
+
+async function resolveClaim(
+  conv: Conv,
+  q: string,
+  context: ContextShape,
+): Promise<{ row: ClaimSummaryRow | null; options?: Array<{ id?: string; label: string }> }> {
+  if (context.claimContext?.claimId) {
+    const all = await claimsList(conv);
+    const found = all.find((c) => String(c._id) === context.claimContext?.claimId);
+    if (found) return { row: found };
+  }
+  const all = await claimsList(conv);
+  if (all.length === 0) return { row: null };
+  const matches = all.filter((c) => matchesClaim(c, q));
+  if (matches.length === 1) return { row: matches[0] };
+  if (matches.length > 1) {
+    return {
+      row: null,
+      options: matches.map((c) => ({ id: String(c._id), label: claimLabel(c) })),
+    };
+  }
+  return { row: null };
+}
+
+function parseDateOfLoss(q: string): number | undefined {
+  const m = q.match(/\b(date of loss|dol)\b[^a-z0-9]{1,3}(.+)/i);
+  if (!m) return undefined;
+  const raw = m[2].trim().replace(/[.,]$/, "");
+  const t = Date.parse(raw);
+  if (!Number.isNaN(t)) return t;
+  const parts = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})$/);
+  if (parts) {
+    const [, mo, da, yr] = parts;
+    const year = yr.length === 2 ? `20${yr}` : yr;
+    return new Date(`${year}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`).getTime();
+  }
+  return undefined;
+}
+
+function moneyMatch(q: string, re: RegExp): number | undefined {
+  const m = q.match(re);
+  if (!m) return undefined;
+  const n = Number(String(m[1]).replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : undefined;
+}
+
+async function handleClaims(
+  conv: Conv,
+  q: string,
+  context: ContextShape,
+  identity?: { userId: Id<"users">; tenantId: Id<"tenants">; role: string; tenantIdStr: string },
+): Promise<RouteResult> {
+  const low = q.toLowerCase();
+
+  // 1) Flagship: “What am I leaving on the table?”
+  if (/leaving on the table|revenue recovery|what am i leaving|money (left )?on the table/.test(low)) {
+    const all = await claimsList(conv);
+    if (all.length === 0) {
+      const answer =
+        "There are no claims in Atlas yet, so there's nothing to analyze. Say \u201ccreate a claim for the Johnson property\u201d to start one, or upload an estimate and I'll attach it.";
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const potentialTotal = all.reduce(
+      (s, c) => s + (c.openFindings ?? []).reduce((a, f) => a + (f.estimatedAmount ?? 0), 0),
+      0,
+    );
+    const outstandingTotal = all.reduce((s, c) => s + (c.reconciliation?.outstanding ?? 0), 0);
+    const attention = all.filter(
+      (c) => (c.openFindings?.length ?? 0) > 0 || c.reconciliation?.hasDiscrepancy,
+    );
+    const lines: string[] = [`I analyzed ${all.length} claim${all.length === 1 ? "" : "s"}.`];
+    if (potentialTotal > 0) {
+      lines.push(`Potential recovery identified across open findings: $${potentialTotal.toLocaleString()} \u2014 potential, not guaranteed.`);
+    }
+    if (outstandingTotal > 0) {
+      lines.push(`Potentially outstanding after payments: $${outstandingTotal.toLocaleString()}.`);
+    }
+    if (attention.length === 0) lines.push("No open findings or reconciliation gaps right now.");
+    for (const c of attention.slice(0, 3)) {
+      const findings = (c.openFindings ?? []).slice(0, 2).map((f) => f.title).join("; ");
+      const rec = c.reconciliation;
+      const recNote =
+        rec && rec.outstanding && rec.outstanding > 0
+          ? ` $${rec.outstanding.toLocaleString()} potentially outstanding.`
+          : rec?.hasDiscrepancy
+            ? " Reconciliation needs review."
+            : "";
+      lines.push(`\u2022 ${claimLabel(c)}: ${findings || "needs attention"}${recNote}`);
+    }
+    lines.push("Every finding is labeled as potential and carries its own evidence and limitation \u2014 review before acting.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || "Here's what may be left on the table.",
+      suggestedActions: ["Open Revenue Recovery", "Prepare a supplement"],
+      authorityAnswers: [],
+      evidence: attention.slice(0, 3).flatMap((c) =>
+        (c.openFindings ?? []).map((f) => ({
+          kind: "claim_finding",
+          title: f.title ?? "Finding",
+          snippet: `Confidence ${Math.round((f.confidence ?? 0) * 100)}%. ${f.limitation ?? ""}`,
+        })),
+      ),
+      toolPlan: null,
+      entityRefs: attention.slice(0, 5).map((c) => ({
+        id: c._id,
+        name: claimLabel(c),
+        entityTypeKey: "claim",
+        status: c.status ?? undefined,
+      })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 2) Create a claim (never fabricates fields; asks for the rest).
+  if (/(create|add|new)\s+(a |an |the |new )?claim/i.test(low)) {
+    const rest = low.replace(/(create|add|new)\s+(a |an |the |new )?claim/i, "").trim();
+    let property: string | undefined;
+    let customer: string | undefined;
+    const propMatch = rest.match(/(.+?)\s+property/i);
+    if (propMatch) property = propMatch[1].trim();
+    const custMatch = q.match(/\bcustomer( is | named )?([A-Za-z][A-Za-z .'-]{1,60})/i);
+    if (custMatch) customer = custMatch[2].trim();
+    if (!property && !customer && rest) customer = rest.replace(/^for\s+/, "").trim();
+    if (!property && !customer) {
+      const answer =
+        "I can create a claim \u2014 tell me the customer or property, e.g. \u201ccreate a claim for the Johnson property\u201d.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: { kind: "clarify_general", message: answer, question: q },
+      };
+    }
+    const dateOfLoss = parseDateOfLoss(q);
+    const causeMatch = q.match(/\bcause of loss[^a-z0-9]{1,3}(.+)/i);
+    const causeOfLoss = causeMatch ? causeMatch[1].trim() : undefined;
+    const numMatch =
+      q.match(/\bclaim (number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i) ??
+      q.match(/\b#\s*([A-Za-z0-9-]{4,})/i);
+    const claimNumber = numMatch ? (numMatch[2] ?? numMatch[1]) : undefined;
+    if (!identity) {
+      return notSignedInClaimResult();
+    }
+    const res = (await conv.rm(api.insurance.claims.createClaim, {
+      customer,
+      property,
+      claimNumber,
+      causeOfLoss,
+      dateOfLoss,
+      provenance: "Created from conversation request.",
+    })) as { claimId: Id<"insuranceClaims">; completeness: { summary: string } };
+    const missing: string[] = [];
+    if (typeof dateOfLoss !== "number") missing.push("date of loss");
+    if (!claimNumber) missing.push("claim number");
+    const answer = [
+      `Created claim for ${property ?? customer}.`,
+      missing.length ? `Still missing: ${missing.join(", ")}.` : "The package has the core information.",
+      "You can add details by saying e.g. \u201cdate of loss is March 4th\u201d or \u201cestimate is $12,400\u201d.",
+    ].join(" ");
+    return {
+      answer,
+      spoken: `Created the claim. ${missing.length ? `Still missing ${missing.join(" and ")}.` : "Core information is on file."}`,
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [
+        {
+          id: String(res.claimId),
+          name: claimLabel({ _id: String(res.claimId), customer, property, claimNumber }),
+          entityTypeKey: "claim",
+        },
+      ],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId: String(res.claimId) },
+    };
+  }
+
+  // 3) Record new claim facts (“date of loss is March 4th”, “estimate is $12k”).
+  const updateIntent =
+    /date of loss|cause of loss|claim number|estimate (is|of|:)|adjuster|carrier (is|:)|payment/.test(low);
+  if (updateIntent) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim? Say \u201copen the Johnson claim\u201d first, or name the claim in your sentence.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q }
+          : { kind: "clarify_general", message: answer },
+      };
+    }
+    const patch: Record<string, unknown> = {};
+    const dateOfLoss = parseDateOfLoss(q);
+    if (typeof dateOfLoss === "number") patch.dateOfLoss = dateOfLoss;
+    const causeMatch = q.match(/\bcause of loss[^a-z0-9]{1,3}(.+)/i);
+    if (causeMatch) patch.causeOfLoss = causeMatch[1].trim();
+    const numMatch = q.match(/\bclaim (number|#)\s*[:#]?\s*([A-Za-z0-9-]+)/i);
+    if (numMatch) patch.claimNumber = numMatch[2] ?? numMatch[1];
+    const est = moneyMatch(q, /estimate\s*(?:is|of)?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    if (typeof est === "number") patch.estimateAmount = est;
+    const carrier = q.match(/\bcarrier\s*(?:is)?\s*([A-Za-z][A-Za-z .'-]{1,60})/i);
+    if (carrier && !/carrier response/.test(low)) patch.carrier = carrier[1].trim();
+    const adjuster = q.match(/\badjuster\s*(?:is)?\s*([A-Za-z][A-Za-z .'-]{1,60})/i);
+    if (adjuster) patch.adjuster = adjuster[1].trim();
+    if (Object.keys(patch).length === 0) {
+      const answer =
+        "I didn't find a fact to record in that. Try \u201cdate of loss is March 4th\u201d or \u201cestimate is $12,400\u201d.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    if (!identity) return notSignedInClaimResult();
+    const res = (await conv.rm(api.insurance.claims.updateClaim, {
+      claimId: resolved.row._id as Id<"insuranceClaims">,
+      patch,
+      provenance: "Recorded from conversation request.",
+    })) as { completeness: { summary: string } };
+    const answer = `Updated ${claimLabel(resolved.row)}. ${res.completeness.summary}`;
+    return {
+      answer,
+      spoken: spokenFor(answer) || "Claim updated.",
+      suggestedActions: ["Run analysis", "Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [
+        {
+          id: String(resolved.row._id),
+          name: claimLabel(resolved.row),
+          entityTypeKey: "claim",
+          status: resolved.row.status ?? undefined,
+        },
+      ],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId: String(resolved.row._id) },
+    };
+  }
+
+  // 4) Prepare a supplement DRAFT (discovery → draft → human review).
+  if (/(prepare|draft|write|create)\s+(a |the |an )?supplement/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim should the supplement be for? Say \u201copen the Johnson claim\u201d or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const claimId = String(resolved.row._id);
+    if (!identity) return notSignedInClaimResult();
+    await conv.rm(api.insurance.claims.runClaimAnalysis, { claimId: claimId as Id<"insuranceClaims"> });
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: claimId as Id<"insuranceClaims">,
+    })) as {
+      claim: { customer?: string; property?: string; claimNumber?: string };
+      findings: Array<{
+        category: string;
+        title: string;
+        evidence?: string[];
+        estimatedAmount?: number;
+        recommendedNextStep: string;
+        limitation: string;
+      }>;
+    };
+    const usable = (pkg.findings ?? [])
+      .filter((f) => f.category !== "documentation_gap" && f.category !== "workflow_delay")
+      .slice(0, 5);
+    if (usable.length === 0) {
+      const answer = `I ran the analysis on ${claimLabel(resolved.row)} and found no clear supplement items right now. Review the claim package to confirm.`;
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: ["Open Revenue Recovery"],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+        pending: EMPTY_PENDING,
+        claimContext: { claimId },
+      };
+    }
+    const amount = usable.reduce((s, f) => s + (f.estimatedAmount ?? 0), 0) || undefined;
+    const requestedItems = usable.map((f) => f.title);
+    const evidence = usable.flatMap((f) => f.evidence ?? []);
+    const res = (await conv.rm(api.insurance.claims.createSupplement, {
+      claimId: claimId as Id<"insuranceClaims">,
+      reason: "Recovering documented scope not fully represented in the current estimate.",
+      amount,
+      requestedItems,
+      affectedLineItems: requestedItems,
+      evidence,
+      justification: "Draft assembled from verified evidence by Atlas \u2014 requires human review.",
+    })) as { supplementId: Id<"claimSupplements"> };
+    const answer = [
+      `Drafted a supplement for ${claimLabel(resolved.row)} with ${usable.length} item${usable.length === 1 ? "" : "s"}${amount ? ` and a potential amount of $${amount.toLocaleString()}` : ""}.`,
+      "It is a DRAFT \u2014 it requires human review and approval before any submission.",
+      usable.slice(0, 3).map((f, i) => `${i + 1}. ${f.title} \u2014 ${f.recommendedNextStep}`).join(" "),
+    ].join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`Drafted a supplement with ${usable.length} items for human review.`),
+      suggestedActions: ["Submit supplement", "Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: evidence.slice(0, 4).map((e) => ({
+        kind: "supplement_evidence",
+        title: "Supporting evidence",
+        snippet: e,
+      })),
+      toolPlan: null,
+      entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId, supplementId: String(res.supplementId) },
+    };
+  }
+
+  // 5) Submit — always through confirmation, never silently.
+  if (/(submit|send|file)\s+(it|the|this|a)?\s*(supplement|draft)?|send it|do it now/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    const supplementId = context.claimContext?.supplementId;
+    if (!resolved.row || !supplementId) {
+      const answer =
+        "There's no draft supplement in this conversation to submit. Say \u201cprepare the supplement\u201d for the claim first.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: String(resolved.row._id) as Id<"insuranceClaims">,
+    })) as {
+      supplements: Array<{ _id: string; reason?: string; amount?: number; status?: string }>;
+    };
+    const draft = pkg.supplements.find((s) => String(s._id) === supplementId);
+    const amount = draft?.amount;
+    const message = `This will mark the supplement for ${claimLabel(resolved.row)} as ready for submission${amount ? ` with a potential requested amount of $${amount.toLocaleString()}` : ""}. No carrier or email connector is connected yet, so Atlas will NOT transmit anything to the carrier \u2014 it records the submission as ready and raises it in Revenue Recovery for follow-up. Proceed?`;
+    return {
+      answer: message,
+      spoken: spokenFor(message) || "This supplement requires confirmation before it can be marked ready for submission.",
+      suggestedActions: [],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [
+        {
+          id: String(resolved.row._id),
+          name: claimLabel(resolved.row),
+          entityTypeKey: "claim",
+        },
+      ],
+      pending: {
+        kind: "confirm_action",
+        actionType: "claim_submit_supplement",
+        claim: {
+          claimId: String(resolved.row._id),
+          supplementId,
+          label: claimLabel(resolved.row),
+        },
+        title: "Submit supplement",
+        message,
+      },
+      claimContext: { claimId: String(resolved.row._id), supplementId },
+    };
+  }
+
+  // 6) Open / show a specific claim.
+  if (/(open|show|view|tell me about|what about|go to)\b/.test(low) && /\bclaim\b/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (resolved.options && resolved.options.length > 0) {
+      const answer = `I found ${resolved.options.length} claims. Which one do you mean? ${resolved.options
+        .map((o, i) => `${i + 1}. ${o.label}`)
+        .join(" ")}`;
+      return {
+        answer,
+        spoken: "Which claim? Say the number or name.",
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } },
+        claimContext: undefined,
+      };
+    }
+    if (!resolved.row) {
+      const all = await claimsList(conv);
+      const answer =
+        all.length === 0
+          ? "There are no claims yet. Say \u201ccreate a claim for the Johnson property\u201d to start."
+          : `I don't have that claim. Current claims: ${all.map(claimLabel).join(", ")}.`;
+      return {
+        answer,
+        spoken: spokenFor(answer),
+        suggestedActions: ["Open Revenue Recovery"],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: String(resolved.row._id) as Id<"insuranceClaims">,
+    })) as {
+      claim: { status?: string; estimateAmount?: number; paymentAmount?: number };
+      completeness: { summary: string; categories: Array<{ label: string; status: string }> };
+      findings: Array<{ status?: string }>;
+      supplements: unknown[];
+      reconciliation: { outstanding?: number; hasDiscrepancy?: boolean; notes?: string[] };
+    };
+    const open = Array.isArray(pkg.findings)
+      ? pkg.findings.filter((f) => f.status === "open").length
+      : 0;
+    const answer = [
+      `${claimLabel(resolved.row)} \u2014 status ${STATUS_LABELS[pkg.claim.status ?? ""] ?? pkg.claim.status ?? "opened"}.`,
+      pkg.completeness.summary,
+      open > 0 ? `${open} open finding${open === 1 ? "" : "s"} (potential opportunities).` : "No open findings.",
+      pkg.reconciliation?.outstanding && pkg.reconciliation.outstanding > 0
+        ? `$${pkg.reconciliation.outstanding.toLocaleString()} potentially outstanding after payments.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${claimLabel(resolved.row)} opened.`,
+      suggestedActions: ["Prepare supplement", "Run analysis", "Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [
+        {
+          id: String(resolved.row._id),
+          name: claimLabel(resolved.row),
+          entityTypeKey: "claim",
+          status: resolved.row.status ?? undefined,
+        },
+      ],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId: String(resolved.row._id) },
+    };
+  }
+
+  // 7) Default — claims needing attention / current claims.
+  const all = await claimsList(conv);
+  if (all.length === 0) {
+    const answer =
+      "There are no claims in Atlas yet. Say \u201ccreate a claim for the Johnson property\u201d to start one.";
+    return {
+      answer,
+      spoken: answer,
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [],
+      pending: EMPTY_PENDING,
+    };
+  }
+  const needs = all.filter(
+    (c) =>
+      (c.openFindings?.length ?? 0) > 0 ||
+      c.reconciliation?.hasDiscrepancy ||
+      (c.completeness?.complete ?? 0) < (c.completeness?.total ?? 9),
+  );
+  const shown = needs.length > 0 ? needs : all;
+  const lines = shown.slice(0, 5).map((c) => {
+    const bits: string[] = [claimLabel(c)];
+    if ((c.openFindings?.length ?? 0) > 0) {
+      bits.push(`${c.openFindings!.length} potential finding${c.openFindings!.length === 1 ? "" : "s"}`);
+    }
+    if (c.reconciliation?.outstanding && c.reconciliation.outstanding > 0) {
+      bits.push(`$${c.reconciliation.outstanding.toLocaleString()} outstanding`);
+    }
+    if (c.completeness && c.completeness.total && (c.completeness.complete ?? 0) < c.completeness.total) {
+      bits.push(`${c.completeness.complete}/${c.completeness.total} info complete`);
+    }
+    return `\u2022 ${bits.join(" \u00b7 ")}`;
+  });
+  const answer = [
+    needs.length > 0
+      ? `I found ${needs.length} claim${needs.length === 1 ? "" : "s"} needing attention:`
+      : `Here are your ${all.length} claim${all.length === 1 ? "" : "s"}:`,
+    ...lines,
+  ].join("\n");
+  return {
+    answer,
+    spoken: spokenFor(answer),
+    suggestedActions: ["What am I leaving on the table?", "Open Revenue Recovery"],
+    authorityAnswers: [],
+    evidence: [],
+    toolPlan: null,
+    entityRefs: shown.slice(0, 5).map((c) => ({
+      id: c._id,
+      name: claimLabel(c),
+      entityTypeKey: "claim",
+      status: c.status ?? undefined,
+    })),
+    pending: EMPTY_PENDING,
+  };
+}
+
+function notSignedInClaimResult(): RouteResult {
+  const answer = "You need workspace access to create or update claims.";
   return {
     answer,
     spoken: answer,

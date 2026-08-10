@@ -27,6 +27,8 @@ const Actions = lazy(() => import("./pages/Actions.tsx"));
 const Events = lazy(() => import("./pages/Events.tsx"));
 const Workflows = lazy(() => import("./pages/Workflows.tsx"));
 const WorkflowDetail = lazy(() => import("./pages/WorkflowDetail.tsx"));
+const RevenueRecovery = lazy(() => import("./pages/RevenueRecovery.tsx"));
+const ClaimDetail = lazy(() => import("./pages/ClaimDetail.tsx"));
 const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
@@ -252,6 +254,22 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <ProtectedLayout>
                     <WorkflowDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/revenue-recovery"
+                element={
+                  <ProtectedLayout>
+                    <RevenueRecovery />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/revenue-recovery/:id"
+                element={
+                  <ProtectedLayout>
+                    <ClaimDetail />
                   </ProtectedLayout>
                 }
               />

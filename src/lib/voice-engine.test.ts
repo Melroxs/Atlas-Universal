@@ -104,7 +104,12 @@ function makeHarness(
     states,
     commands,
     errors,
-    interrupts,
+    // Live getter — a plain primitive copy here would freeze at 0 and the
+    // interrupt assertions would read a stale value even when the engine
+    // correctly fired onInterrupt().
+    get interrupts() {
+      return interrupts;
+    },
     wakes,
     get current() {
       return recognizers[recognizers.length - 1];

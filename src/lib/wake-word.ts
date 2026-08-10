@@ -29,9 +29,9 @@ const WAKE_LEADING_RE = /^\s*atlas\b/i;
 
 /** Commands that interrupt Atlas while it is speaking. */
 export const INTERRUPT_RE =
-  /^\s*atlas[,.]?\s*(stop|wait|never mind|nevermind|quiet|silence|cancel that|pause|be quiet|hold on)\b/i;
+  /^\s*atlas[,.]?\s+(please\s+)?(stop|wait|never mind|nevermind|quiet|silence|cancel that|pause|be quiet|hold on)\b/i;
 export const INTERRUPT_WORDS_RE =
-  /\b(atlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|silence|pause|hold on)|stop talking|be quiet)\b/i;
+  /\b(atlas[,.]?\s+(please\s+)?(stop|wait|never mind|nevermind|quiet|silence|pause|hold on)|stop talking|be quiet)\b/i;
 
 /**
  * Interrupt phrase matched ANYWHERE in a transcript. Used by the wake engine
@@ -40,7 +40,7 @@ export const INTERRUPT_WORDS_RE =
  * mid-stream. This scan catches "…Atlas stop…" wherever it appears.
  */
 export const INTERRUPT_ANYWHERE_RE =
-  /\batlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|silence|cancel that|pause|be quiet|hold on)\b|\b(stop talking|be quiet)\b/i;
+  /\batlas[,.]?\s+(please\s+)?(stop|wait|never mind|nevermind|quiet|silence|cancel that|pause|be quiet|hold on)\b|\b(stop talking|be quiet)\b/i;
 
 /** The word "atlas" appearing anywhere (used for false-positive scoring). */
 const ATLAS_ANYWHERE_RE = /\batlas\b/i;

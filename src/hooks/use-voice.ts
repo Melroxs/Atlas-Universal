@@ -92,6 +92,20 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
 
   const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
   const wakeEngineRef = useRef<WakeWordEngine | null>(null);
+  /**
+   * Safety net: after an ambient command is handed to the brain, Atlas pauses
+   * the engine until it speaks. If the caller never speaks (auto-speak off,
+   * error, long think), this timer returns the engine to wake listening so
+   * ambient mode never silently dies.
+   */
+  const ambientRoundTripRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * True while Atlas is processing an ambient command or capturing a
+   * push-to-talk utterance. While true, the transient-pause auto-resume in
+   * the state effect is suppressed so the engine stays paused (one
+   * SpeechRecognition at a time; Atlas never listens while processing).
+   */
+  const captureBusyRef = useRef(false);
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
   const onAmbientCommandRef = useRef(onAmbientCommand);
@@ -128,6 +142,11 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     async (text: string) => {
       if (!text) return;
       stopBrowserSpeaking();
+      // The round-trip is done: release the capture hold and bring the engine
+      // back so "Atlas stop" can interrupt while Atlas speaks. The state
+      // effect switches it to interrupt-only once status becomes "speaking".
+      captureBusyRef.current = false;
+      wakeEngineRef.current?.resume();
       const useServer = providerStatus?.tts === "server";
       if (useServer) {
         setStatus("speaking");
@@ -179,7 +198,9 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     if (busy) {
       engine.pause();
     } else if (wakeState === "paused" || wakeState === "interrupted") {
-      // Resume a beat after the busy window so a trailing word never wakes us.
+      // Stay paused while a capture/round-trip is in flight; otherwise resume
+      // a beat after the busy window so a trailing word never wakes us.
+      if (captureBusyRef.current) return;
       const t = setTimeout(() => wakeEngineRef.current?.resume(), 400);
       return () => clearTimeout(t);
     }
@@ -203,8 +224,22 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
         return;
       }
       setWakeState("transcribing");
+      setStatus("transcribing");
       logEvent("command-captured", text);
+      captureBusyRef.current = true;
       onAmbientCommandRef.current?.(text);
+      // Guard: if Atlas doesn't speak (auto-speak off, error, or a very long
+      // think), don't leave the engine paused forever — resume listening.
+      if (ambientRoundTripRef.current !== null) {
+        clearTimeout(ambientRoundTripRef.current);
+      }
+      ambientRoundTripRef.current = setTimeout(() => {
+        ambientRoundTripRef.current = null;
+        captureBusyRef.current = false;
+        wakeEngineRef.current?.resume();
+        setStatus((s) => (s === "transcribing" ? "idle" : s));
+        setWakeState((s) => (s === "transcribing" ? "listening_for_wake_word" : s));
+      }, 15_000);
     },
     [stopSpeaking, logEvent],
   );
@@ -290,6 +325,11 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   }, [supported, handleAmbientCommand, stopSpeaking, logEvent]);
 
   const disableAmbient = useCallback(() => {
+    if (ambientRoundTripRef.current !== null) {
+      clearTimeout(ambientRoundTripRef.current);
+      ambientRoundTripRef.current = null;
+    }
+    captureBusyRef.current = false;
     wakeEngineRef.current?.stop();
     wakeEngineRef.current = null;
     setAmbientEnabled(false);
@@ -323,6 +363,11 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   // Clean up on unmount — never leave the mic or audio running.
   useEffect(() => {
     return () => {
+      if (ambientRoundTripRef.current !== null) {
+        clearTimeout(ambientRoundTripRef.current);
+        ambientRoundTripRef.current = null;
+      }
+      captureBusyRef.current = false;
       recognizerRef.current?.abort();
       wakeEngineRef.current?.stop();
       stopBrowserSpeaking();
@@ -350,6 +395,11 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     }
     // Interrupt any in-flight playback before capturing (no overlapping audio).
     stopBrowserSpeaking();
+    // Pause ambient listening while capturing PTT — the browser allows only
+    // one active SpeechRecognition, so a running ambient engine would make
+    // this recognizer throw InvalidStateError and the capture would fail.
+    captureBusyRef.current = true;
+    wakeEngineRef.current?.pause();
     setError(null);
     setInterim("");
     setStatus("listening");
@@ -359,10 +409,16 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     // when the utterance ends (stop() or the browser ending the session).
     let segments: string[] = [];
     let delivered = false;
+    /** PTT capture ended — release the capture hold so ambient can resume. */
+    const endCapture = () => {
+      captureBusyRef.current = false;
+      wakeEngineRef.current?.resume();
+    };
     const commit = (via: string) => {
       if (delivered) return;
       delivered = true;
       recognizerRef.current = null;
+      endCapture();
       const text = segments.join(" ").trim();
       setInterim("");
       if (text) {
@@ -384,16 +440,19 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
         onError: (code) => {
           if (code === "not-allowed" || code === "service-not-allowed") {
             recognizerRef.current = null;
+            endCapture();
             setStatus("permission_required");
             setError("Microphone access was denied. Allow the microphone in your browser and try again.");
             logEvent("ptt-error", code);
           } else if (code === "no-speech" || code === "aborted") {
             recognizerRef.current = null;
+            endCapture();
             setStatus((s) => (s === "listening" ? "idle" : s));
             setError(null);
             logEvent("ptt-error", code);
           } else if (code === "start-failed") {
             recognizerRef.current = null;
+            endCapture();
             setStatus("unavailable");
             setError("The microphone couldn't be started. Check your browser's microphone permission.");
             logEvent("ptt-error", code);
@@ -401,6 +460,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
             // Unknown error: deliver what was captured, then surface honestly.
             const t = segments.join(" ").trim();
             recognizerRef.current = null;
+            endCapture();
             if (t) {
               setStatus("transcribing");
               logEvent("transcript-received", `error:${code}`);
@@ -420,6 +480,9 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
       recognizerRef.current = rec;
       rec.start();
     } else {
+      // No recognizer was created — release the capture hold so any paused
+      // ambient engine returns to wake listening instead of silently dying.
+      endCapture();
       setStatus("unavailable");
     }
   }, [supported, logEvent]);

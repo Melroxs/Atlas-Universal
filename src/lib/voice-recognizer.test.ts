@@ -34,9 +34,20 @@ function fireResult(
   resultIndex: number,
   results: Array<{ transcript: string; isFinal: boolean }>,
 ) {
+  // The real Web Speech API reports a CUMULATIVE results array: entries before
+  // resultIndex were already seen, and new entries start at resultIndex. The
+  // recognizer loops from resultIndex over results.length, so the array must
+  // be padded to that length or entries at resultIndex > 0 are never seen.
+  const padded: Array<{ isFinal: boolean; 0: { transcript: string } }> = [];
+  for (let i = 0; i < resultIndex; i++) {
+    padded.push({ isFinal: false, 0: { transcript: "" } });
+  }
   rec.onresult?.({
     resultIndex,
-    results: results.map((r) => ({ isFinal: r.isFinal, 0: { transcript: r.transcript } })),
+    results: [
+      ...padded,
+      ...results.map((r) => ({ isFinal: r.isFinal, 0: { transcript: r.transcript } })),
+    ],
   });
 }
 
@@ -44,7 +55,17 @@ describe("createSpeechRecognizer", () => {
   it("fires onFinal once per newly finalized segment (not on every result)", () => {
     const finals: string[] = [];
     const interims: string[] = [];
-    const rec = new FakeSpeechRecognition();
+    // createSpeechRecognizer wires handlers onto an instance it constructs
+    // internally, so the test must capture THAT instance (a separately
+    // constructed fake would never receive events and the assertions would
+    // read an empty buffer).
+    const created: FakeSpeechRecognition[] = [];
+    const RecordingFake = class extends FakeSpeechRecognition {
+      constructor() {
+        super();
+        created.push(this);
+      }
+    };
     createSpeechRecognizer(
       {
         onFinal: (s) => finals.push(s),
@@ -52,8 +73,9 @@ describe("createSpeechRecognizer", () => {
         onEnd: () => {},
         onError: () => {},
       },
-      FakeSpeechRecognition as unknown as typeof rec.constructor,
+      RecordingFake as unknown as typeof FakeSpeechRecognition,
     );
+    const rec = created[0];
     // First result: interim only.
     fireResult(rec, 0, [{ transcript: "Atlas what", isFinal: false }]);
     expect(finals).toHaveLength(0);
@@ -79,7 +101,13 @@ describe("createSpeechRecognizer", () => {
 
   it("delivers a full running transcript through onInterim", () => {
     const interims: string[] = [];
-    const rec = new FakeSpeechRecognition();
+    const created: FakeSpeechRecognition[] = [];
+    const RecordingFake = class extends FakeSpeechRecognition {
+      constructor() {
+        super();
+        created.push(this);
+      }
+    };
     createSpeechRecognizer(
       {
         onFinal: () => {},
@@ -87,8 +115,9 @@ describe("createSpeechRecognizer", () => {
         onEnd: () => {},
         onError: () => {},
       },
-      FakeSpeechRecognition as unknown as typeof rec.constructor,
+      RecordingFake as unknown as typeof FakeSpeechRecognition,
     );
+    const rec = created[0];
     fireResult(rec, 0, [{ transcript: "Atlas what's happening", isFinal: true }]);
     fireResult(rec, 1, [{ transcript: "with my claims", isFinal: false }]);
     expect(interims[interims.length - 1]).toBe("Atlas what's happening with my claims");

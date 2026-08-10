@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  INTERRUPT_ANYWHERE_RE,
   detectWakeWord,
   hasCommandAfterWake,
   mentionsAtlas,
@@ -35,6 +36,23 @@ describe("detectWakeWord", () => {
     expect(detectWakeWord("Atlas, wait").interruption).toBe(true);
     expect(detectWakeWord("atlas never mind").interruption).toBe(true);
     expect(detectWakeWord("Atlas what's happening?").interruption).toBe(false);
+  });
+});
+
+describe("INTERRUPT_ANYWHERE_RE", () => {
+  it("matches an interrupt phrase anywhere in the transcript", () => {
+    expect(INTERRUPT_ANYWHERE_RE.test("Atlas stop")).toBe(true);
+    expect(INTERRUPT_ANYWHERE_RE.test("atlas please wait")).toBe(true);
+    expect(INTERRUPT_ANYWHERE_RE.test("whatever atlas hold on now")).toBe(true);
+    expect(INTERRUPT_ANYWHERE_RE.test("stop talking")).toBe(true);
+    expect(INTERRUPT_ANYWHERE_RE.test("be quiet")).toBe(true);
+  });
+
+  it("does not match ordinary requests or non-interrupt words", () => {
+    expect(INTERRUPT_ANYWHERE_RE.test("Atlas what's happening with my claims?")).toBe(false);
+    expect(INTERRUPT_ANYWHERE_RE.test("atlas open the claim")).toBe(false);
+    expect(INTERRUPT_ANYWHERE_RE.test("stop by the office tomorrow")).toBe(false);
+    expect(INTERRUPT_ANYWHERE_RE.test("atlas paused my subscription")).toBe(false);
   });
 });
 

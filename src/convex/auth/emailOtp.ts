@@ -9,7 +9,10 @@ export const emailOtp = Email({
   async generateVerificationToken() {
     const random: RandomReader = {
       read(bytes: Uint8Array) {
-        crypto.getRandomValues(bytes);
+        // Type-only assertion: newer TS DOM libs type getRandomValues as
+        // ArrayBufferView<ArrayBuffer>; the crypto helper passes a plain
+        // Uint8Array. Runtime behavior is identical.
+        crypto.getRandomValues(bytes as Uint8Array<ArrayBuffer>);
       },
     };
     const alphabet = "0123456789";

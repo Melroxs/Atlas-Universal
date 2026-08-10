@@ -33,6 +33,15 @@ export const INTERRUPT_RE =
 export const INTERRUPT_WORDS_RE =
   /\b(atlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|silence|pause|hold on)|stop talking|be quiet)\b/i;
 
+/**
+ * Interrupt phrase matched ANYWHERE in a transcript. Used by the wake engine
+ * while Atlas is speaking: the transcript may already contain Atlas's own
+ * TTS output, so the leading-position matchers would miss a "stop" spoken
+ * mid-stream. This scan catches "…Atlas stop…" wherever it appears.
+ */
+export const INTERRUPT_ANYWHERE_RE =
+  /\batlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|silence|cancel that|pause|be quiet|hold on)\b|\b(stop talking|be quiet)\b/i;
+
 /** The word "atlas" appearing anywhere (used for false-positive scoring). */
 const ATLAS_ANYWHERE_RE = /\batlas\b/i;
 

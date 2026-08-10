@@ -11,9 +11,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useVoice } from "@/hooks/use-voice";
+import { getMicPermissionState } from "@/lib/voice";
 import { useAction, useMutation } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Activity,
   AlertTriangle,
   Bot,
   Check,
@@ -154,6 +156,8 @@ export function AtlasAssistant({
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [voiceIntro, setVoiceIntro] = useState(false);
+  const [voiceDiag, setVoiceDiag] = useState(false);
+  const [micPermission, setMicPermission] = useState<string>("unknown");
   const voiceIntroSeenRef = useRef(
     typeof localStorage !== "undefined" && !!localStorage.getItem("atlas-voice-intro"),
   );
@@ -191,12 +195,6 @@ export function AtlasAssistant({
     }
   };
 
-  useEffect(() => {
-    if (open) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-    }
-  }, [turns, busy, open]);
-
   const voice = useVoice({
     onTranscript: (text) => {
       setInput((prev) => (prev ? `${prev} ${text}` : text));
@@ -205,6 +203,18 @@ export function AtlasAssistant({
     // same conversational brain as a typed message.
     onAmbientCommand: (text) => void send(text),
   });
+
+  useEffect(() => {
+    if (open) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [turns, busy, open]);
+
+  // Refresh mic permission state when the diagnostics panel opens.
+  useEffect(() => {
+    if (!voiceDiag) return;
+    void getMicPermissionState().then(setMicPermission);
+  }, [voiceDiag, voice.ambientEnabled]);
 
   const send = async (text?: string) => {
     const q = (text ?? input).trim();
@@ -777,6 +787,16 @@ export function AtlasAssistant({
                     <HelpCircle className="size-3" />
                     Voice
                   </button>
+                  {/* Phase 12 — developer-visible voice diagnostics (Part 10). */}
+                  <button
+                    type="button"
+                    onClick={() => setVoiceDiag(true)}
+                    title="Voice diagnostics"
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 transition-colors hover:text-teal-600 dark:hover:text-teal-300"
+                  >
+                    <Activity className="size-3" />
+                    Diag
+                  </button>
                   {/* Phase 11 — ambient mode toggle: “Say Atlas and Atlas is ready.” */}
                   <button
                     type="button"
@@ -888,6 +908,90 @@ export function AtlasAssistant({
               Enable ambient listening
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Phase 12 — Voice diagnostics (Part 10). Developer-visible, no secrets: */}
+      {/* capability flags, provider status, engine state, and a live event log. */}
+      <Dialog open={voiceDiag} onOpenChange={(o) => !o && setVoiceDiag(false)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Activity className="size-4 text-teal-600 dark:text-teal-300" />
+              Voice diagnostics
+            </DialogTitle>
+            <DialogDescription>
+              Real-time voice runtime state. No secrets are shown — only capability
+              flags, provider status and the state machine log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2.5 py-1 text-[12px] leading-5">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Speech recognition
+                </p>
+                <p className="mt-0.5 font-medium">{voice.supported ? "Browser (Web Speech)" : "Unavailable"}</p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Speech synthesis
+                </p>
+                <p className="mt-0.5 font-medium">{voice.ttsSupported ? "Browser" : "Unavailable"}</p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Mic permission
+                </p>
+                <p className="mt-0.5 font-medium">{micPermission}</p>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+                <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  Engine state
+                </p>
+                <p className="mt-0.5 font-medium">
+                  {voice.wakeState !== "off" ? voice.wakeState : voice.status}
+                </p>
+              </div>
+            </div>
+            {voice.providerStatus && (
+              <p className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2 text-[11px] text-muted-foreground">
+                STT: <span className="font-medium text-foreground">{voice.providerStatus.stt === "server" ? `server (${voice.providerStatus.sttProvider ?? "?"})` : "browser"}</span>
+                {" · "}
+                TTS: <span className="font-medium text-foreground">{voice.providerStatus.tts === "server" ? `server (${voice.providerStatus.ttsProvider ?? "?"})` : "browser"}</span>
+                {" · "}server credentials:{" "}
+                <span className="font-medium text-foreground">
+                  {voice.providerStatus.serverConfigured ? "configured" : "not configured (browser fallback)"}
+                </span>
+              </p>
+            )}
+            <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                Event log
+              </p>
+              {voice.voiceEvents.length === 0 ? (
+                <p className="mt-1 text-[11px] text-muted-foreground/70">No voice activity yet.</p>
+              ) : (
+                <div className="mt-1.5 max-h-40 space-y-1 overflow-y-auto font-mono text-[10px] leading-4">
+                  {voice.voiceEvents.slice(-16).reverse().map((e, i) => (
+                    <p key={`${e.ts}-${i}"`} className="flex gap-1.5 text-muted-foreground">
+                      <span className="shrink-0 text-muted-foreground/50">
+                        {new Date(e.ts).toLocaleTimeString()}
+                      </span>
+                      <span className="min-w-0 truncate">
+                        {e.event}
+                        {e.detail ? ` · ${e.detail}` : ""}
+                      </span>
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] italic leading-4 text-muted-foreground/70">
+              Ambient voice only listens after you enable it, and no audio is uploaded to Atlas
+              before the wake word is heard. Interruptions are recognized as “Atlas stop” while speaking.
+            </p>
+          </div>
         </DialogContent>
       </Dialog>
     </>

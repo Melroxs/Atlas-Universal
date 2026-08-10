@@ -1,6 +1,7 @@
 import { api } from "@/convex/_generated/api";
 import {
   browserSpeechRecognitionSupported,
+  browserSpeechSynthesisSupported,
   createSpeechRecognizer,
   createWakeWordEngine,
   playWakeChime,
@@ -42,6 +43,12 @@ export type WakeState =
   | "paused"
   | "error";
 
+export interface VoiceLogEntry {
+  ts: number;
+  event: string;
+  detail?: string;
+}
+
 export interface UseVoiceOptions {
   /** Called with the final transcript once the user finishes speaking (push-to-talk). */
   onTranscript: (text: string) => void;
@@ -50,6 +57,7 @@ export interface UseVoiceOptions {
 }
 
 const AMBIENT_KEY = "atlas-ambient";
+const LOG_LIMIT = 50;
 
 function storedAmbient(): boolean {
   if (typeof localStorage === "undefined") return false;
@@ -61,11 +69,16 @@ function storedAmbient(): boolean {
  * assistant. Microphone → speech recognition → transcript → caller handles
  * orchestration → caller calls speak() to hear the response.
  *
- * Phase 11 adds AMBIENT mode: "Say 'Atlas' and Atlas is ready." A dedicated
- * wake-word engine listens locally (browser speech recognition) for the wake
- * word, then captures the command that follows. Atlas never claims to be
- * listening when the mic is not actually active, and never wakes itself
- * while speaking (suppression).
+ * Phase 12 runtime fixes:
+ * - The ambient engine uses ONE recognizer for wake + command (two concurrent
+ *   recognizers were rejected by Chrome, so commands were never captured).
+ * - Push-to-talk accumulates final segments and delivers ONCE when the
+ *   utterance ends (the old recognizer re-delivered the accumulated text on
+ *   every result event, duplicating transcripts).
+ * - While Atlas is speaking the engine stays in interrupt-only mode so
+ *   "Atlas stop" interrupts speech but ordinary speech (including Atlas's own
+ *   TTS) can never wake it.
+ * - A diagnostics event log is kept for the developer-visible Voice panel.
  */
 export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
@@ -73,6 +86,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   const [ambientEnabled, setAmbientEnabled] = useState<boolean>(storedAmbient);
   const [interim, setInterim] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [voiceEvents, setVoiceEvents] = useState<VoiceLogEntry[]>([]);
   const providerStatus = useQuery(api.voice.voiceProviderStatus);
   const synthesize = useAction(api.voice.synthesizeSpeech);
 
@@ -86,17 +100,27 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   statusRef.current = status;
 
   const supported = browserSpeechRecognitionSupported();
+  const ttsSupported = browserSpeechSynthesisSupported();
+
+  const logEvent = useCallback((event: string, detail?: string) => {
+    setVoiceEvents((prev) => {
+      const next = [...prev, { ts: Date.now(), event, detail }];
+      return next.length > LOG_LIMIT ? next.slice(next.length - LOG_LIMIT) : next;
+    });
+  }, []);
 
   const finishSpeaking = useCallback(() => {
     setStatus((s) => (s === "speaking" ? "idle" : s));
-  }, []);
+    logEvent("tts-end");
+  }, [logEvent]);
 
   const speakBrowser = useCallback(
     (text: string) => {
       setStatus("speaking");
+      logEvent("tts-start", "browser");
       speakText(text, { onEnd: finishSpeaking });
     },
-    [finishSpeaking],
+    [finishSpeaking, logEvent],
   );
 
   /** Speak a response — server TTS when configured, browser otherwise. */
@@ -107,6 +131,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
       const useServer = providerStatus?.tts === "server";
       if (useServer) {
         setStatus("speaking");
+        logEvent("tts-start", `server:${providerStatus?.ttsProvider ?? "unknown"}`);
         try {
           const res = await synthesize({ text });
           const audio = new Audio(`data:${res.mimeType};base64,${res.audioB64}`);
@@ -124,7 +149,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
         speakBrowser(text);
       }
     },
-    [providerStatus, synthesize, speakBrowser, finishSpeaking],
+    [providerStatus, synthesize, speakBrowser, finishSpeaking, logEvent],
   );
 
   const stopSpeaking = useCallback(() => {
@@ -136,12 +161,24 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   // Ambient wake-word mode
   // ---------------------------------------------------------------------
 
-  /** Keep Atlas from hearing itself: suppress the wake word while busy. */
+  /**
+   * State machine: pause the engine while the brain is working (no point
+   * listening during thinking/transcribing), switch to interrupt-only while
+   * speaking (so "Atlas stop" works), and resume listening otherwise. Atlas
+   * never listens while it is processing, and never wakes itself.
+   */
   useEffect(() => {
-    const busy = status === "thinking" || status === "speaking" || status === "transcribing";
+    const engine = wakeEngineRef.current;
+    if (!engine || !ambientEnabled) return;
+    if (status === "speaking") {
+      engine.setInterruptOnly(true);
+      return;
+    }
+    engine.setInterruptOnly(false);
+    const busy = status === "thinking" || status === "transcribing";
     if (busy) {
-      wakeEngineRef.current?.pause();
-    } else if (ambientEnabled && wakeState !== "off") {
+      engine.pause();
+    } else if (wakeState === "paused" || wakeState === "interrupted") {
       // Resume a beat after the busy window so a trailing word never wakes us.
       const t = setTimeout(() => wakeEngineRef.current?.resume(), 400);
       return () => clearTimeout(t);
@@ -158,6 +195,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
         stopSpeaking();
         setStatus("interrupted");
         setWakeState("interrupted");
+        logEvent("voice-interrupt", text);
         setTimeout(() => {
           setStatus((s) => (s === "interrupted" ? "idle" : s));
           setWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s));
@@ -165,25 +203,30 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
         return;
       }
       setWakeState("transcribing");
+      logEvent("command-captured", text);
       onAmbientCommandRef.current?.(text);
     },
-    [stopSpeaking],
+    [stopSpeaking, logEvent],
   );
 
   const enableAmbient = useCallback(async () => {
     if (!supported) {
       setWakeState("unavailable");
       setError("Ambient voice needs a browser with speech recognition (Chrome, Edge, Safari).");
+      logEvent("ambient-unavailable");
       return;
     }
     setWakeState("initializing");
+    logEvent("mic-permission-request");
     const ok = await requestMicrophonePermission();
     if (!ok) {
       setWakeState("permission_required");
       setStatus("permission_required");
       setError("Atlas voice requires microphone access. Allow the microphone in your browser and try again.");
+      logEvent("mic-permission-denied");
       return;
     }
+    logEvent("mic-permission-granted");
     setError(null);
     setAmbientEnabled(true);
     try {
@@ -194,6 +237,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     const engine = createWakeWordEngine({
       onState: (state) => {
         setWakeState(state as WakeState);
+        logEvent("engine-state", state);
         if (state === "listening_for_wake_word") {
           setStatus("listening_for_wake_word");
           setError(null);
@@ -213,13 +257,24 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
           setWakeState(state);
         }
       },
-      onWake: () => {
-        // The chime + state transition happen via onState; nothing else needed.
+      onWake: (transcript) => {
+        logEvent("wake-word-detected", transcript);
       },
       onCommand: (text) => {
         handleAmbientCommand(text.trim());
       },
+      onInterrupt: () => {
+        logEvent("voice-interrupt", "engine");
+        stopSpeaking();
+        setStatus("interrupted");
+        setWakeState("interrupted");
+        setTimeout(() => {
+          setStatus((s) => (s === "interrupted" ? "idle" : s));
+          setWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s));
+        }, 1100);
+      },
       onError: (code) => {
+        logEvent("engine-error", code);
         if (code === "unsupported") {
           setWakeState("unavailable");
           setStatus("unavailable");
@@ -232,20 +287,21 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     });
     wakeEngineRef.current = engine;
     engine.start();
-  }, [supported, handleAmbientCommand]);
+  }, [supported, handleAmbientCommand, stopSpeaking, logEvent]);
 
   const disableAmbient = useCallback(() => {
     wakeEngineRef.current?.stop();
     wakeEngineRef.current = null;
     setAmbientEnabled(false);
     setWakeState("off");
+    logEvent("ambient-disabled");
     try {
       localStorage.setItem(AMBIENT_KEY, "off");
     } catch {
       // best-effort
     }
     if (statusRef.current !== "speaking") setStatus("idle");
-  }, []);
+  }, [logEvent]);
 
   const toggleAmbient = useCallback(() => {
     if (ambientEnabled) {
@@ -274,7 +330,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   }, []);
 
   // ---------------------------------------------------------------------
-  // Push-to-talk (unchanged behavior)
+  // Push-to-talk
   // ---------------------------------------------------------------------
 
   const stop = useCallback(() => {
@@ -297,45 +353,76 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     setError(null);
     setInterim("");
     setStatus("listening");
-    const rec = createSpeechRecognizer({
-      onInterim: (t) => setInterim(t),
-      onFinal: (text) => {
-        const t = text.trim();
-        if (t) {
-          setStatus("transcribing");
-          onTranscriptRef.current(t);
-        }
+    logEvent("ptt-start");
+
+    // Accumulate final segments; deliver the joined transcript exactly once
+    // when the utterance ends (stop() or the browser ending the session).
+    let segments: string[] = [];
+    let delivered = false;
+    const commit = (via: string) => {
+      if (delivered) return;
+      delivered = true;
+      recognizerRef.current = null;
+      const text = segments.join(" ").trim();
+      setInterim("");
+      if (text) {
+        setStatus("transcribing");
+        logEvent("transcript-received", via);
+        onTranscriptRef.current(text);
+      } else {
+        setStatus((s) => (s === "listening" ? "idle" : s));
+      }
+    };
+
+    const rec = createSpeechRecognizer(
+      {
+        onInterim: (t) => setInterim(t),
+        onFinal: (segment) => {
+          segments.push(segment);
+        },
+        onEnd: () => commit("end"),
+        onError: (code) => {
+          if (code === "not-allowed" || code === "service-not-allowed") {
+            recognizerRef.current = null;
+            setStatus("permission_required");
+            setError("Microphone access was denied. Allow the microphone in your browser and try again.");
+            logEvent("ptt-error", code);
+          } else if (code === "no-speech" || code === "aborted") {
+            recognizerRef.current = null;
+            setStatus((s) => (s === "listening" ? "idle" : s));
+            setError(null);
+            logEvent("ptt-error", code);
+          } else if (code === "start-failed") {
+            recognizerRef.current = null;
+            setStatus("unavailable");
+            setError("The microphone couldn't be started. Check your browser's microphone permission.");
+            logEvent("ptt-error", code);
+          } else {
+            // Unknown error: deliver what was captured, then surface honestly.
+            const t = segments.join(" ").trim();
+            recognizerRef.current = null;
+            if (t) {
+              setStatus("transcribing");
+              logEvent("transcript-received", `error:${code}`);
+              onTranscriptRef.current(t);
+            } else {
+              setStatus("error");
+              setError("Speech recognition failed. Please try again.");
+              logEvent("ptt-error", code);
+            }
+          }
+        },
       },
-      onEnd: () => {
-        setStatus((s) => (s === "transcribing" ? "thinking" : "idle"));
-        setInterim("");
-        recognizerRef.current = null;
-      },
-      onError: (code) => {
-        recognizerRef.current = null;
-        setInterim("");
-        if (code === "not-allowed" || code === "service-not-allowed") {
-          setStatus("permission_required");
-          setError("Microphone access was denied. Allow the microphone in your browser and try again.");
-        } else if (code === "no-speech" || code === "aborted") {
-          setStatus("idle");
-          setError(null);
-        } else if (code === "start-failed") {
-          setStatus("unavailable");
-          setError("The microphone couldn't be started. Check your browser's microphone permission.");
-        } else {
-          setStatus("error");
-          setError("Speech recognition failed. Please try again.");
-        }
-      },
-    });
+      undefined,
+      { continuous: false },
+    );
     if (rec) {
       recognizerRef.current = rec;
       rec.start();
     } else {
       setStatus("unavailable");
     }
-  }, [supported]);
+  }, [supported, logEvent]);
 
   const toggle = useCallback(() => {
     if (status === "listening" || status === "transcribing") {
@@ -353,7 +440,9 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     interim,
     error,
     supported,
+    ttsSupported,
     providerStatus,
+    voiceEvents,
     start,
     stop,
     toggle,

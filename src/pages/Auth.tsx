@@ -14,9 +14,12 @@ import {
   InputOTPSlot,
 } from "@/components/ui/input-otp";
 
+import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
+import { classifySendError, classifyVerifyError } from "@/lib/auth-errors";
 import logo from "@/assets/logo.svg";
-import { ArrowRight, Loader2, Mail, UserX } from "lucide-react";
+import { useQuery } from "convex/react";
+import { AlertTriangle, ArrowRight, Loader2, Mail, UserX } from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -46,28 +49,52 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [otp, setOtp] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendNote, setResendNote] = useState<string | null>(null);
+  const authStatus = useQuery(api.authStatus.authStatus);
+  const emailOtpUnconfigured =
+    authStatus !== undefined && authStatus.emailOtpConfigured === false;
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
+  const sendCode = async (email: string) => {
+    const formData = new FormData();
+    formData.set("email", email);
+    await signIn("email-otp", formData);
+  };
+
   const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
+    setResendNote(null);
     try {
       const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-      setStep({ email: formData.get("email") as string });
+      const email = formData.get("email") as string;
+      await sendCode(email);
+      setStep({ email });
       setIsLoading(false);
     } catch (error) {
       console.error("Email sign-in error:", error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : "Failed to send verification code. Please try again.",
-      );
+      setError(classifySendError(error).message);
+      setIsLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    if (step === "signIn") return;
+    setIsLoading(true);
+    setError(null);
+    setResendNote(null);
+    try {
+      await sendCode(step.email);
+      setResendNote(`A new code was sent to ${step.email}.`);
+    } catch (error) {
+      console.error("Resend error:", error);
+      setError(classifySendError(error).message);
+    } finally {
       setIsLoading(false);
     }
   };
@@ -86,7 +113,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     } catch (error) {
       console.error("OTP verification error:", error);
 
-      setError("The verification code you entered is incorrect.");
+      setError(classifyVerifyError(error).message);
       setIsLoading(false);
 
       setOtp("");
@@ -134,6 +161,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <CardDescription>
                   Enter your email to log in or sign up
                 </CardDescription>
+                {emailOtpUnconfigured && (
+                  <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
+                    <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
+                    Email verification isn't configured for this deployment yet. Ask the
+                    administrator to add the{" "}
+                    <code className="font-mono">VLY_EMAIL_API_KEY</code> project key — or
+                    continue as Guest below.
+                  </div>
+                )}
               </CardHeader>
               <form onSubmit={handleEmailSubmit}>
                 <CardContent>
@@ -234,14 +270,28 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       {error}
                     </p>
                   )}
+                  {resendNote && (
+                    <p className="mt-2 text-center text-xs text-emerald-600 dark:text-emerald-300">
+                      {resendNote}
+                    </p>
+                  )}
                   <p className="text-sm text-muted-foreground text-center mt-4">
                     Didn't receive a code?{" "}
                     <Button
                       variant="link"
                       className="p-0 h-auto"
+                      onClick={() => void handleResend()}
+                      disabled={isLoading}
+                    >
+                      Resend code
+                    </Button>{" "}
+                    ·{" "}
+                    <Button
+                      variant="link"
+                      className="p-0 h-auto"
                       onClick={() => setStep("signIn")}
                     >
-                      Try again
+                      Use different email
                     </Button>
                   </p>
                 </CardContent>

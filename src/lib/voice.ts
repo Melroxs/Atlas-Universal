@@ -4,9 +4,23 @@
 // The server-side Convex voice actions (src/convex/voice.ts) take over STT/TTS
 // when credentials are configured; otherwise the UI falls back to these
 // browser-native providers and reports that honestly.
+//
+// Runtime guarantees:
+// - Before the wake word, NOTHING is sent anywhere: recognition runs locally
+//   in the browser and only the committed command transcript is handed to the
+//   conversational brain (conversation.converse).
+// - Exactly ONE SpeechRecognition instance is active at a time. Starting a
+//   second recognizer while one is active throws InvalidStateError in Chrome,
+//   which silently broke command capture in earlier builds.
+// - State is reported honestly — there is no fake "always listening" state.
 // ---------------------------------------------------------------------------
 
-import { detectWakeWord } from "./wake-word";
+import {
+  INTERRUPT_ANYWHERE_RE,
+  detectWakeWord,
+  shouldAcceptWake,
+  stripWakeWord,
+} from "./wake-word";
 
 type SpeechRecognitionCtor = new () => {
   continuous: boolean;
@@ -38,10 +52,10 @@ export function browserSpeechSynthesisSupported(): boolean {
 }
 
 export interface RecognizerHandlers {
-  /** Called with the running final transcript as it accumulates. */
-  onFinal: (text: string) => void;
-  /** Called with interim (uncommitted) transcript for live display. */
-  onInterim: (text: string) => void;
+  /** Called with each NEWLY finalized transcript segment (not the whole buffer). */
+  onFinal: (segment: string) => void;
+  /** Called on every result with the full running transcript (finals + interim). */
+  onInterim: (running: string) => void;
   /** Called when recognition ends (stop or silence). */
   onEnd: () => void;
   /** Called with a normalized error code. */
@@ -54,19 +68,36 @@ export interface Recognizer {
   abort: () => void;
 }
 
+export interface RecognizerOptions {
+  /** Continuous recognition (default true). False = end after one utterance. */
+  continuous?: boolean;
+}
+
 /**
- * Create a continuous speech recognizer. Returns null when the browser does
- * not support speech recognition (honest — the UI shows an unavailable state).
+ * Create a speech recognizer. Returns null when the browser does not support
+ * speech recognition (honest — the UI shows an unavailable state).
+ *
+ * `ctor` and `opts` are injectable for unit tests. Delivery semantics:
+ * - onFinal fires once per finalized segment (deduplicated — it does NOT fire
+ *   repeatedly with the accumulated buffer on every result event, which caused
+ *   duplicate chimes/commands in earlier builds).
+ * - onInterim fires with the full running text (finals + interim) on every
+ *   result so consumers can do leading-position wake matching reliably.
  */
-export function createSpeechRecognizer(handlers: RecognizerHandlers): Recognizer | null {
-  const Ctor = getSpeechRecognitionCtor();
+export function createSpeechRecognizer(
+  handlers: RecognizerHandlers,
+  ctor?: SpeechRecognitionCtor | null,
+  opts?: RecognizerOptions,
+): Recognizer | null {
+  const Ctor = ctor !== undefined ? ctor : getSpeechRecognitionCtor();
   if (!Ctor) return null;
   const rec = new Ctor();
-  rec.continuous = true;
+  rec.continuous = opts?.continuous ?? true;
   rec.interimResults = true;
   rec.lang = "en-US";
 
-  let finalText = "";
+  let finalSegments: string[] = [];
+  let lastFinalIndex = -1;
 
   rec.onresult = (event: unknown) => {
     const evt = event as {
@@ -74,13 +105,25 @@ export function createSpeechRecognizer(handlers: RecognizerHandlers): Recognizer
       results: ArrayLike<{ isFinal: boolean; [index: number]: { transcript: string } }>;
     };
     let interim = "";
+    const fresh: string[] = [];
     for (let i = evt.resultIndex; i < evt.results.length; i++) {
       const res = evt.results[i];
-      if (res.isFinal) finalText += res[0].transcript;
-      else interim += res[0].transcript;
+      const seg = (res[0]?.transcript ?? "").trim();
+      if (!seg) continue;
+      if (res.isFinal) {
+        // Dedupe: only a result index we have not seen before counts.
+        if (i > lastFinalIndex) {
+          lastFinalIndex = i;
+          finalSegments.push(seg);
+          fresh.push(seg);
+        }
+      } else {
+        interim += `${seg} `;
+      }
     }
-    handlers.onInterim(interim || finalText);
-    if (finalText.trim()) handlers.onFinal(finalText.trim());
+    for (const s of fresh) handlers.onFinal(s);
+    const running = [...finalSegments, interim.trim()].filter(Boolean).join(" ");
+    handlers.onInterim(running);
   };
 
   rec.onerror = (event: unknown) => {
@@ -119,21 +162,42 @@ export function createSpeechRecognizer(handlers: RecognizerHandlers): Recognizer
   };
 }
 
+// ---------------------------------------------------------------------------
+// Speech synthesis
+// ---------------------------------------------------------------------------
+
+let pendingSpeakTimer: ReturnType<typeof setTimeout> | null = null;
+
 /**
  * Speak text using the browser's speech synthesis. Returns false when
  * synthesis is unavailable so callers can fall back to a written response.
+ *
+ * Chrome drops an utterance when speak() is called in the same tick as
+ * cancel(), so the actual speak is deferred ~60ms after the cancel — the
+ * single most common reason "Atlas didn't say anything" in Chrome.
  */
 export function speakText(
   text: string,
   opts?: { onEnd?: () => void },
 ): boolean {
   if (!browserSpeechSynthesisSupported()) return false;
+  if (typeof SpeechSynthesisUtterance === "undefined") return false;
+  const clean = (text ?? "").trim();
+  if (!clean) return false;
   const synth = window.speechSynthesis;
+  if (!synth) return false;
+
+  if (pendingSpeakTimer !== null) {
+    clearTimeout(pendingSpeakTimer);
+    pendingSpeakTimer = null;
+  }
   synth.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
+
+  const utterance = new SpeechSynthesisUtterance(clean);
   utterance.rate = 1.05;
   utterance.pitch = 1;
-  const voices = synth.getVoices();
+  const voices =
+    typeof synth.getVoices === "function" ? synth.getVoices() : [];
   const preferred =
     voices.find((v) => v.lang.startsWith("en") && /google|natural|premium/i.test(v.name)) ??
     voices.find((v) => v.lang.startsWith("en"));
@@ -142,44 +206,55 @@ export function speakText(
     utterance.onend = () => opts.onEnd?.();
     utterance.onerror = () => opts.onEnd?.();
   }
-  synth.speak(utterance);
+  pendingSpeakTimer = setTimeout(() => {
+    pendingSpeakTimer = null;
+    try {
+      synth.speak(utterance);
+    } catch {
+      opts?.onEnd?.();
+    }
+  }, 60);
   return true;
 }
 
 /** Stop any browser speech synthesis immediately (interruption). */
 export function stopBrowserSpeaking(): void {
+  if (pendingSpeakTimer !== null) {
+    clearTimeout(pendingSpeakTimer);
+    pendingSpeakTimer = null;
+  }
   if (browserSpeechSynthesisSupported()) {
-    window.speechSynthesis.cancel();
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      // Already stopped.
+    }
   }
 }
 
 // ---------------------------------------------------------------------------
-// Phase 11 — Ambient wake-word engine
+// Phase 11/12 — Ambient wake-word engine
 //
-// A continuous recognizer watches for the wake word (browser-native
-// transport, honest about device limits). On detection it hands off to a
-// fresh command recognizer. Cooldown + duplicate suppression live here;
-// suppression-while-speaking lives in the hook (it calls pause/resume).
+// A SINGLE continuous recognizer drives the whole loop (wake detection AND
+// command capture). Earlier builds created a second recognizer for the
+// command, which Chrome rejects while the first is active — commands were
+// silently lost. Now:
+//
+//   listening_for_wake_word → wake_detected → listening_for_command → commit
+//                                                                     ↓
+//   listening_for_wake_word ←──── (fresh recognizer, clean transcript) ←┘
+//
+// Wake-word safety: nothing is uploaded before the wake word. Detection is a
+// local leading-position match with cooldown + duplicate suppression; the
+// browser transcript never leaves the device until a command commits.
 // ---------------------------------------------------------------------------
-
-/** Request microphone access (transient, then releases the stream). */
-export async function requestMicrophonePermission(): Promise<boolean> {
-  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-    return false;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((t) => t.stop());
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Short confirmation tone for wake detection (optional, subtle). */
 export function playWakeChime(): void {
   try {
-    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    const Ctx =
+      window.AudioContext ??
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
     const osc = ctx.createOscillator();
@@ -198,14 +273,56 @@ export function playWakeChime(): void {
   }
 }
 
+/** Request microphone access (transient, then releases the stream). */
+export async function requestMicrophonePermission(): Promise<boolean> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    return false;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type MicPermissionState =
+  | "granted"
+  | "prompt"
+  | "denied"
+  | "unsupported"
+  | "unknown";
+
+/**
+ * Read the current microphone permission state (diagnostics only). Returns
+ * "unsupported" when the Permissions API is unavailable.
+ */
+export async function getMicPermissionState(): Promise<MicPermissionState> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) {
+    return "unsupported";
+  }
+  try {
+    const status = await navigator.permissions.query({
+      name: "microphone" as PermissionName,
+    });
+    return (status.state as MicPermissionState) ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 export interface WakeWordEngineHandlers {
-  /** Wake-word state transitions: listening_for_wake_word | wake_detected |
-   *  listening_for_command | paused | error | unavailable. */
+  /** Engine states: listening_for_wake_word | wake_detected |
+   *  listening_for_command | paused | permission_required | unavailable |
+   *  error. */
   onState: (state: string) => void;
   /** Wake word detected (transcript at detection time). */
   onWake: (transcript: string) => void;
-  /** Final command transcript captured after the wake word. */
+  /** Final command transcript captured after the wake word (wake word stripped). */
   onCommand: (text: string) => void;
+  /** Interruption phrase spoken while Atlas is speaking. */
+  onInterrupt: () => void;
   /** Normalized error code from the underlying recognizer. */
   onError: (code: string) => void;
 }
@@ -215,158 +332,259 @@ export interface WakeWordEngine {
   stop: () => void;
   pause: () => void;
   resume: () => void;
+  /** While true, only interruption phrases are accepted (used during speaking). */
+  setInterruptOnly: (value: boolean) => void;
 }
 
+export interface WakeWordEngineDeps {
+  /** Injectable recognizer factory for unit tests (defaults to the browser). */
+  createRecognizer?: (handlers: RecognizerHandlers) => Recognizer | null;
+  /** Injectable clock for unit tests (defaults to Date.now). */
+  now?: () => number;
+}
+
+/** Commit the command after this much silence following the last input. */
+const COMMIT_SILENCE_MS = 1500;
+/** Abandon a bare wake (no command yet) after this long waiting. */
+const ABANDON_WAIT_MS = 8000;
+/** Restarts within this window are treated as rapid (error churn). */
+const RAPID_WINDOW_MS = 1200;
+/** Max rapid restarts before surfacing an honest error. */
+const MAX_RAPID_RESTARTS = 5;
+
 /**
- * The ambient wake-word loop. Uses the same browser recognizer transport as
- * push-to-talk — no remote audio, no fake states. Call start() after the mic
- * permission is granted; call pause() while Atlas is speaking/thinking so the
- * wake word is suppressed during its own output.
+ * The ambient wake-word loop. Uses a single recognizer for wake + command so
+ * Chrome never rejects a second concurrent recognizer. Call start() after mic
+ * permission is granted; call setInterruptOnly(true) while Atlas is speaking
+ * so "Atlas stop" can interrupt but ordinary speech cannot wake Atlas.
  */
-export function createWakeWordEngine(handlers: WakeWordEngineHandlers): WakeWordEngine {
-  let wakeRec: ReturnType<typeof createSpeechRecognizer> | null = null;
-  let cmdRec: ReturnType<typeof createSpeechRecognizer> | null = null;
-  let stopped = false;
+export function createWakeWordEngine(
+  handlers: WakeWordEngineHandlers,
+  deps?: WakeWordEngineDeps,
+): WakeWordEngine {
+  const { onState, onWake, onCommand, onInterrupt } = handlers;
+  const makeRecognizer = deps?.createRecognizer ?? createSpeechRecognizer;
+  const now = deps?.now ?? (() => Date.now());
+
+  let rec: Recognizer | null = null;
+  let mode: "wake" | "command" = "wake";
+  let stopped = true;
   let paused = false;
+  let interruptOnly = false;
+  let commandText = "";
   let lastWakeAt = 0;
   let lastWakeTranscript = "";
+  let commitTimer: ReturnType<typeof setTimeout> | null = null;
+  let restartTimer: ReturnType<typeof setTimeout> | null = null;
+  let restartCount = 0;
+  let lastRestartAt = 0;
 
-  const emit = (state: string) => handlers.onState(state);
+  const emit = (state: string) => onState(state);
 
-  const stopCmdRec = () => {
+  const clearCommitTimer = () => {
+    if (commitTimer !== null) {
+      clearTimeout(commitTimer);
+      commitTimer = null;
+    }
+  };
+
+  /** Commit whatever command was captured, then return to wake listening. */
+  const commit = () => {
+    clearCommitTimer();
+    const text = commandText.trim();
+    commandText = "";
+    mode = "wake";
+    if (text) {
+      restartCount = 0;
+      onCommand(text);
+    }
+    // Fresh recognizer: the previous transcript still begins with the wake
+    // word, so reusing it would re-detect "Atlas" on the next utterance.
+    restartFresh();
+  };
+
+  /** Immediate restart with a brand-new recognizer (clean transcript). */
+  const restartFresh = () => {
+    if (stopped || paused) return;
+    setTimeout(() => {
+      if (!stopped && !paused) startRecognizer();
+    }, 0);
+  };
+
+  /** Backoff restart used after recognition ends/errors (idempotent). */
+  const scheduleRestart = () => {
+    if (restartTimer !== null || stopped || paused) return;
+    const since = now() - lastRestartAt;
+    const rapid = since < RAPID_WINDOW_MS;
+    restartCount = rapid ? restartCount + 1 : 0;
+    lastRestartAt = now();
+    const delay = rapid ? Math.min(300 * restartCount, 1500) : 0;
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (stopped || paused) return;
+      if (restartCount >= MAX_RAPID_RESTARTS) {
+        emit("error");
+        handlers.onError("restart-limit");
+        return;
+      }
+      startRecognizer();
+    }, delay);
+  };
+
+  const startRecognizer = () => {
+    if (stopped || paused) return;
     try {
-      cmdRec?.abort();
+      rec?.abort();
     } catch {
       // already stopped
     }
-    cmdRec = null;
-  };
-
-  const startCommandCapture = (wakeTranscript: string) => {
-    stopCmdRec();
-    emit("wake_detected");
-    const transcript = wakeTranscript.trim();
-    if (transcript) {
-      lastWakeAt = Date.now();
-      lastWakeTranscript = transcript;
-    }
-    // Small pause so the wake word itself isn't captured as the command.
-    setTimeout(() => {
-      if (stopped || paused) return;
-      emit("listening_for_command");
-      cmdRec = createSpeechRecognizer({
-        onInterim: () => {
-          /* command interim is not shown by default */
-        },
-        onFinal: (text) => {
-          const t = text.trim();
-          if (!t) return;
-          stopCmdRec();
-          handlers.onCommand(t);
-        },
-        onEnd: () => {
-          cmdRec = null;
-          if (!stopped && !paused) {
-            startWakeListening();
-          }
-        },
-        onError: (code) => {
-          cmdRec = null;
-          if (code === "not-allowed" || code === "service-not-allowed") {
-            handlers.onError(code);
-            emit("permission_required");
-            return;
-          }
-          if (!stopped && !paused) startWakeListening();
-        },
-      });
-      cmdRec?.start();
-    }, 260);
-  };
-
-  const startWakeListening = () => {
-    if (stopped || paused) return;
-    if (cmdRec) stopCmdRec();
-    wakeRec = createSpeechRecognizer({
-      onInterim: (text) => {
-        if (paused || stopped) return;
-        const match = detectWake(text);
-        if (match) startCommandCapture(text);
+    rec = makeRecognizer({
+      onInterim,
+      onFinal: () => {
+        /* the engine tracks the running transcript via onInterim */
       },
-      onFinal: (text) => {
-        if (paused || stopped) return;
-        const match = detectWake(text);
-        if (match) startCommandCapture(text);
-      },
-      onEnd: () => {
-        wakeRec = null;
-        if (!stopped && !paused) startWakeListening();
-      },
-      onError: (code) => {
-        wakeRec = null;
-        if (code === "not-allowed" || code === "service-not-allowed") {
-          handlers.onError(code);
-          emit("permission_required");
-          return;
-        }
-        if (code === "no-speech" || code === "aborted") {
-          if (!stopped && !paused) startWakeListening();
-          return;
-        }
-        emit("error");
-        handlers.onError(code);
-      },
+      onEnd,
+      onError: handleRecognizerError,
     });
-    wakeRec?.start();
-    emit("listening_for_wake_word");
+    if (!rec) {
+      emit("unavailable");
+      handlers.onError("unsupported");
+      return;
+    }
+    emit(mode === "command" ? "listening_for_command" : "listening_for_wake_word");
+    rec.start();
   };
 
-  const detectWake = (text: string): boolean => {
-    const match = detectWakeWord(text);
-    if (!match.detected) return false;
-    const now = Date.now();
-    if (now - lastWakeAt < 2500) return false;
-    if (lastWakeTranscript === text.trim()) return false;
-    return true;
+  const scheduleCommit = (delay: number) => {
+    clearCommitTimer();
+    commitTimer = setTimeout(() => {
+      commitTimer = null;
+      if (mode === "command" && !stopped && !paused) commit();
+    }, delay);
+  };
+
+  const onInterim = (running: string) => {
+    if (stopped || paused) return;
+    const text = (running ?? "").trim();
+    if (!text) return;
+
+    // While Atlas is speaking, only an interruption phrase ("Atlas stop")
+    // may wake — ordinary speech (including Atlas's own TTS) must not.
+    if (interruptOnly) {
+      if (INTERRUPT_ANYWHERE_RE.test(text)) {
+        onInterrupt();
+        lastWakeAt = now();
+        lastWakeTranscript = text;
+        restartFresh();
+      }
+      return;
+    }
+
+    if (mode === "wake") {
+      const match = detectWakeWord(text);
+      if (!match.detected) return;
+      if (!shouldAcceptWake(text, { lastWakeAt, lastWakeTranscript }, now())) {
+        return;
+      }
+      mode = "command";
+      lastWakeAt = now();
+      lastWakeTranscript = text;
+      commandText = stripWakeWord(text);
+      restartCount = 0;
+      emit("wake_detected");
+      onWake(text);
+      emit("listening_for_command");
+      scheduleCommit(commandText.trim() ? COMMIT_SILENCE_MS : ABANDON_WAIT_MS);
+      return;
+    }
+
+    // Command mode: capture everything after the wake word. The recognizer
+    // transcript is cumulative from its start, so stripping the leading wake
+    // word each time yields exactly the command (works across pauses too).
+    commandText = stripWakeWord(text);
+    scheduleCommit(commandText.trim() ? COMMIT_SILENCE_MS : ABANDON_WAIT_MS);
+  };
+
+  const onEnd = () => {
+    if (stopped || paused) return;
+    if (mode === "command") commit();
+    else scheduleRestart();
+  };
+
+  const handleRecognizerError = (code: string) => {
+    if (code === "not-allowed" || code === "service-not-allowed") {
+      clearCommitTimer();
+      mode = "wake";
+      commandText = "";
+      emit("permission_required");
+      handlers.onError(code);
+      return;
+    }
+    if (mode === "command") {
+      // Deliver whatever was captured before the failure, honestly.
+      commit();
+      return;
+    }
+    clearCommitTimer();
+    if (code === "no-speech" || code === "aborted") {
+      scheduleRestart();
+      return;
+    }
+    emit("error");
+    handlers.onError(code);
+    scheduleRestart();
   };
 
   return {
     start: () => {
-      if (!browserSpeechRecognitionSupported()) {
-        handlers.onError("unsupported");
+      if (!deps?.createRecognizer && !browserSpeechRecognitionSupported()) {
         emit("unavailable");
+        handlers.onError("unsupported");
         return;
       }
       stopped = false;
       paused = false;
-      startWakeListening();
+      mode = "wake";
+      commandText = "";
+      startRecognizer();
     },
     pause: () => {
       paused = true;
-      stopCmdRec();
+      clearCommitTimer();
       try {
-        wakeRec?.abort();
+        rec?.abort();
       } catch {
         // already stopped
       }
-      wakeRec = null;
+      rec = null;
       emit("paused");
     },
     resume: () => {
-      paused = false;
       if (stopped) return;
-      startWakeListening();
+      paused = false;
+      mode = "wake";
+      commandText = "";
+      restartFresh();
     },
     stop: () => {
       stopped = true;
       paused = false;
-      stopCmdRec();
+      clearCommitTimer();
+      if (restartTimer !== null) {
+        clearTimeout(restartTimer);
+        restartTimer = null;
+      }
       try {
-        wakeRec?.abort();
+        rec?.abort();
       } catch {
         // already stopped
       }
-      wakeRec = null;
+      rec = null;
+      mode = "wake";
+      commandText = "";
+    },
+    setInterruptOnly: (value: boolean) => {
+      interruptOnly = value;
     },
   };
 }

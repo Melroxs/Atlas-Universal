@@ -2,16 +2,20 @@
 // Everest — Intelligence Foundation API
 // ---------------------------------------------------------------------------
 
+import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { mutation, query } from "../_generated/server";
-import { AUTHORITATIVE_KNOWLEDGE_SEEDS, AUTHORITATIVE_SOURCE_SEEDS, AUTHORITY_TIERS, buildProvenance, provenanceAnswer, tierLabel, tierWeight } from "./authority";
+import { action, mutation, query } from "../_generated/server";
+import { AUTHORITATIVE_KNOWLEDGE_SEEDS, AUTHORITATIVE_SOURCE_SEEDS, AUTHORITY_TIERS, SOURCE_RETRIEVAL_META, buildProvenance, provenanceAnswer, tierLabel, tierWeight } from "./authority";
 import { BUSINESS_BRAIN, MATURITY_KEYS, disambiguateTerm, maturityGuidance } from "./business";
 import { temporalSnapshot, tzForLocation } from "./calendar";
 import { deriveCoverage } from "./coverage";
 import { CLAIM_EVIDENCE_CATEGORIES, CLAIM_LIFECYCLE, CLAIM_BASELINE, analyzeRecoveryOpportunities } from "./insurance";
 import { evaluateApplicability } from "./jurisdiction";
-import { requireTenant, requireUser } from "../helpers";
+import { freshnessState, sourceHealth } from "./ingest";
+import { deriveExcellence } from "./excellence";
+import { discoverOpportunities, VALUE_ENGINES, valueEngineFor } from "./value";
+import { requireTenant, requireUser, isManager } from "../helpers";
 
 const industryKey = (s?: string | null) =>
   (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -441,9 +445,14 @@ export const seedEverest = mutation({
         .withIndex("by_source_id", (q) => q.eq("sourceId", s.sourceId))
         .first();
       if (existing) continue;
+      const meta = SOURCE_RETRIEVAL_META[s.sourceId];
       await ctx.db.insert("authoritativeSources", {
         ...s,
-        lastCheckedAt: Date.now(),
+        industries: meta?.industries,
+        subjects: meta?.subjects,
+        retrievalMethod: meta?.retrievalMethod,
+        implementationStatus: meta?.implementationStatus ?? "declared",
+        enabled: meta?.enabled ?? false,
         active: true,
       });
       seededSources++;
@@ -458,9 +467,236 @@ export const seedEverest = mutation({
         ...k,
         retrievalDate: Date.now(),
         status: "active",
+        reviewStatus: "approved",
+        freshness: "unavailable",
       });
       seededKnowledge++;
     }
     return { seededSources, seededKnowledge };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Authority monitoring, knowledge changes, governance, excellence
+// ---------------------------------------------------------------------------
+
+/** Trigger a check of one authoritative source now (manager action). */
+export const runAuthorityCheckNow = action({
+  args: { sourceId: v.string() },
+  handler: async (ctx, { sourceId }): Promise<{ status: string; sourceId: string; error?: string; createdVersionIds?: string[] }> => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("You must be signed in.");
+    return (await ctx.runAction(internal.everest.sync.runAuthorityCheck, { sourceId })) as {
+      status: string;
+      sourceId: string;
+      error?: string;
+      createdVersionIds?: string[];
+    };
+  },
+});
+
+/** Authority monitor: sources with honest health/freshness + check history. */
+export const getAuthorityMonitor = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireUser(ctx);
+    const [sources, checks] = await Promise.all([
+      ctx.db.query("authoritativeSources").collect(),
+      ctx.db.query("authorityChecks").withIndex("by_checked", (q) => q.gte("checkedAt", 0)).order("desc").take(200),
+    ]);
+    const now = Date.now();
+    const checkBySource = new Map<string, typeof checks>();
+    for (const c of checks) {
+      const list = checkBySource.get(c.sourceId) ?? [];
+      if (list.length < 8) list.push(c);
+      checkBySource.set(c.sourceId, list);
+    }
+    return {
+      now,
+      sources: sources.map((s) => {
+        const lastCheck = checks.find((c) => c.sourceId === s.sourceId);
+        const health = sourceHealth(s, now);
+        const fresh = freshnessState(s.lastCheckedAt, s.updateFrequency, now);
+        return {
+          sourceId: s.sourceId,
+          name: s.name,
+          organization: s.organization,
+          authorityTier: s.authorityTier,
+          tierLabel: tierLabel(s.authorityTier),
+          sourceType: s.sourceType,
+          jurisdiction: s.jurisdiction,
+          industry: s.industry,
+          subjects: s.subjects ?? [],
+          retrievalMethod: s.retrievalMethod ?? "undeclared",
+          implementationStatus: s.implementationStatus ?? "declared",
+          enabled: s.enabled ?? false,
+          canonicalUrl: s.canonicalUrl,
+          updateFrequency: s.updateFrequency,
+          health,
+          freshness: fresh,
+          lastCheckedAt: s.lastCheckedAt,
+          lastSuccessfulSyncAt: s.lastSuccessfulSyncAt,
+          lastKnownVersion: s.lastKnownVersion,
+          contentHash: s.contentHash,
+          lastChangeType: s.lastChangeType,
+          consecutiveFailures: s.consecutiveFailures ?? 0,
+          lastLatencyMs: s.lastLatencyMs,
+          lastFetchError: s.lastFetchError,
+          recentChecks: checkBySource.get(s.sourceId) ?? [],
+        };
+      }),
+    };
+  },
+});
+
+/** Immutable knowledge version history — the living-knowledge change log. */
+export const listKnowledgeChanges = query({
+  args: { limit: v.optional(v.number()) },
+  handler: async (ctx, { limit }) => {
+    await requireUser(ctx);
+    const versions = await ctx.db.query("knowledgeVersions").order("desc").take(limit ?? 50);
+    const sources = await ctx.db.query("authoritativeSources").collect();
+    const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
+    return versions.map((v) => ({
+      ...v,
+      sourceName: sourceById.get(v.sourceId)?.name ?? null,
+      sourceTier: sourceById.get(v.sourceId)?.authorityTier ?? null,
+    }));
+  },
+});
+
+/** Impact assessments visible to the workspace (tenant-scoped visibility). */
+export const listImpactAssessments = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const assessments = await ctx.db.query("impactAssessments").order("desc").take(100);
+    const sources = await ctx.db.query("authoritativeSources").collect();
+    const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
+    // Tenant-scoped visibility: only assessments that actually touch this
+    // workspace. Global assessments (no affected tenant) stay out of
+    // workspace views — no cross-tenant leakage of operational context.
+    return assessments
+      .filter((a) => (a.affectedTenantIds ?? []).includes(tenantId))
+      .map((a) => ({
+        ...a,
+        sourceName: sourceById.get(a.sourceId)?.name ?? a.sourceId,
+        tierLabel: a.authorityTier ? tierLabel(a.authorityTier as never) : null,
+      }));
+  },
+});
+
+/** Human governance: approve/reject a pending impact assessment (manager+). */
+export const decideImpactReview = mutation({
+  args: {
+    assessmentId: v.id("impactAssessments"),
+    decision: v.union(v.literal("approved"), v.literal("rejected"), v.literal("disputed")),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { assessmentId, decision, note }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const manager = await isManager(ctx, userId, tenantId);
+    if (!manager) throw new Error("Manager role required to decide authority reviews.");
+    const assessment = await ctx.db.get(assessmentId);
+    if (!assessment) throw new Error("Assessment not found.");
+    if ((assessment.affectedTenantIds ?? []).length > 0 && !(assessment.affectedTenantIds ?? []).includes(tenantId)) {
+      throw new Error("Assessment is not scoped to this workspace.");
+    }
+    await ctx.db.patch(assessmentId, {
+      status: decision,
+      reviewNote: note,
+      decidedBy: userId,
+      decidedAt: Date.now(),
+    });
+    await ctx.runMutation(internal.internal.logAudit, {
+      tenantId,
+      actorType: "user",
+      actorId: userId,
+      actionType: `authority_review_${decision}`,
+      targetType: "impact_assessment",
+      targetId: assessmentId,
+      metadata: { sourceId: assessment.sourceId, changeType: assessment.changeType, note },
+    });
+  },
+});
+
+/** Industry excellence: multi-axis depth + value engines + discovery. */
+export const getIndustryExcellence = query({
+  args: { packKey: v.optional(v.string()) },
+  handler: async (ctx, { packKey }) => {
+    await requireUser(ctx);
+    const [packs, items, sources, knowledge, checks] = await Promise.all([
+      ctx.db.query("intelligencePacks").collect(),
+      ctx.db.query("intelligenceItems").collect(),
+      ctx.db.query("authoritativeSources").collect(),
+      ctx.db.query("authoritativeKnowledge").collect(),
+      ctx.db.query("authorityChecks").collect(),
+    ]);
+    const now = Date.now();
+    const itemsByPack = new Map<string, string[]>();
+    const lifecycleCount = new Map<string, number>();
+    for (const item of items) {
+      const list = itemsByPack.get(item.packKey) ?? [];
+      list.push(item.itemType);
+      itemsByPack.set(item.packKey, list);
+      const content = item.content as { stages?: unknown } | undefined;
+      if (Array.isArray(content?.stages)) {
+        lifecycleCount.set(item.packKey, (lifecycleCount.get(item.packKey) ?? 0) + 1);
+      }
+    }
+    const activeKnowledge = knowledge.filter((k) => k.status === "active");
+    const lastCheckBySource = new Map<string, number>();
+    for (const c of checks) {
+      const prev = lastCheckBySource.get(c.sourceId) ?? 0;
+      if (c.checkedAt > prev) lastCheckBySource.set(c.sourceId, c.checkedAt);
+    }
+    const norm = (s?: string | null) => (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+    const excellence = packs
+      .filter((p) => (packKey ? p.key === packKey : true))
+      .map((p) => {
+        const key = norm(p.name.replace(/industry|pack|services/gi, "").trim());
+        const industrySources = sources.filter((s) => norm(s.industry) === key || norm(s.industry) === norm(p.name));
+        const sourceLastCheck = industrySources.map((s) => ({
+          lastCheckedAt: lastCheckBySource.get(s.sourceId) ?? s.lastCheckedAt,
+          updateFrequency: s.updateFrequency,
+          status: s.active ? "active" : "expired",
+        }));
+        const engine = valueEngineFor(p.key);
+        return {
+          ...deriveExcellence({
+            packKey: p.key,
+            name: p.name,
+            packType: p.packType,
+            itemTypes: itemsByPack.get(p.key) ?? [],
+            lifecycleItemCount: lifecycleCount.get(p.key) ?? 0,
+            authorityKnowledgeCount: activeKnowledge.filter((k) => norm(k.industry) === key).length,
+            sourceCount: industrySources.length,
+            industrySources: sourceLastCheck,
+            hasValueEngine: !!engine,
+            valueEngineStatus: engine?.implementationStatus ?? null,
+            now,
+          }),
+          valueEngine: engine ?? null,
+        };
+      });
+
+    return { excellence, generatedAt: now };
+  },
+});
+
+/** Value engines + ranked discovery for one pack. */
+export const getValueIntelligence = query({
+  args: { packKey: v.string() },
+  handler: async (ctx, { packKey }) => {
+    await requireUser(ctx);
+    const engine = valueEngineFor(packKey);
+    return {
+      engine,
+      allEngines: VALUE_ENGINES,
+      opportunities: discoverOpportunities(packKey),
+    };
   },
 });

@@ -787,13 +787,27 @@ const schema = defineSchema(
         v.literal("tier5_general"),
       ),
       industry: v.optional(v.string()),
+      industries: v.optional(v.array(v.string())),
+      subjects: v.optional(v.array(v.string())),
       jurisdiction: v.optional(v.string()),
       /** statute | regulation | standard | guidance | official_publication | industry_body | academic | general_web */
       sourceType: v.string(),
       canonicalUrl: v.optional(v.string()),
+      /** official_api | official_feed | official_rss | official_publication | official_html | official_document | standards_publisher | governing_body */
+      retrievalMethod: v.optional(v.string()),
       updateFrequency: v.optional(v.string()),
+      /** declared | implemented | requires_credentials | not_implemented — never claim synced until actually retrieved. */
+      implementationStatus: v.optional(v.string()),
+      enabled: v.optional(v.boolean()),
       lastCheckedAt: v.optional(v.number()),
       lastChangedAt: v.optional(v.number()),
+      lastSuccessfulSyncAt: v.optional(v.number()),
+      lastKnownVersion: v.optional(v.string()),
+      contentHash: v.optional(v.string()),
+      lastChangeType: v.optional(v.string()),
+      lastFetchError: v.optional(v.string()),
+      consecutiveFailures: v.optional(v.number()),
+      lastLatencyMs: v.optional(v.number()),
       currentVersion: v.optional(v.string()),
       effectiveDate: v.optional(v.number()),
       active: v.boolean(),
@@ -820,17 +834,115 @@ const schema = defineSchema(
         v.literal("expired"),
         v.literal("draft"),
       ),
+      /** pending_review | approved | rejected | superseded | disputed */
+      reviewStatus: v.optional(v.string()),
       publicationDate: v.optional(v.number()),
       retrievalDate: v.optional(v.number()),
       effectiveDate: v.optional(v.number()),
       expirationDate: v.optional(v.number()),
       version: v.optional(v.string()),
+      contentHash: v.optional(v.string()),
+      normalizedFact: v.optional(v.string()),
+      lastCheckedAt: v.optional(v.number()),
+      lastChangeType: v.optional(v.string()),
+      freshness: v.optional(v.string()),
+      supersedesId: v.optional(v.string()),
+      supersededById: v.optional(v.string()),
       supersedes: v.optional(v.array(v.string())),
       supersededBy: v.optional(v.array(v.string())),
       confidence: v.number(),
     })
       .index("by_source", ["sourceId"])
       .index("by_knowledge_id", ["knowledgeId"]),
+
+    /** Immutable version history of authoritative knowledge. Never overwritten. */
+    knowledgeVersions: defineTable({
+      versionId: v.string(),
+      knowledgeId: v.string(),
+      sourceId: v.string(),
+      version: v.optional(v.string()),
+      contentHash: v.string(),
+      /** Sanitized, size-capped source content captured at retrieval time. */
+      sourceContent: v.optional(v.string()),
+      /** What the source actually states (extracted/normalized). */
+      normalizedFact: v.string(),
+      atlasInterpretation: v.optional(v.string()),
+      knowledgeType: v.string(),
+      jurisdiction: v.optional(v.string()),
+      industry: v.optional(v.string()),
+      publishedAt: v.optional(v.number()),
+      effectiveAt: v.optional(v.number()),
+      expiresAt: v.optional(v.number()),
+      retrievedAt: v.number(),
+      status: v.union(
+        v.literal("active"),
+        v.literal("superseded"),
+        v.literal("expired"),
+      ),
+      changeType: v.optional(v.string()),
+      supersedesId: v.optional(v.string()),
+      supersededById: v.optional(v.string()),
+      confidence: v.number(),
+    })
+      .index("by_knowledge", ["knowledgeId"])
+      .index("by_source", ["sourceId"])
+      .index("by_version_id", ["versionId"]),
+
+    /** One recorded retrieval/check attempt per source — the health record. */
+    authorityChecks: defineTable({
+      sourceId: v.string(),
+      checkedAt: v.number(),
+      success: v.boolean(),
+      ok: v.boolean(),
+      statusCode: v.optional(v.number()),
+      latencyMs: v.optional(v.number()),
+      contentHash: v.optional(v.string()),
+      version: v.optional(v.string()),
+      changeType: v.optional(v.string()),
+      error: v.optional(v.string()),
+      createdVersionIds: v.optional(v.array(v.string())),
+    })
+      .index("by_source_checked", ["sourceId", "checkedAt"])
+      .index("by_checked", ["checkedAt"]),
+
+    /** Structured impact analysis of an authority change. Tenant-scoped where
+     *  applicability is detected; never claims compliance status. */
+    impactAssessments: defineTable({
+      sourceId: v.string(),
+      sourceName: v.optional(v.string()),
+      authorityTier: v.optional(v.string()),
+      knowledgeId: v.optional(v.string()),
+      knowledgeTitle: v.optional(v.string()),
+      versionId: v.optional(v.string()),
+      changeType: v.string(),
+      affectedJurisdictions: v.optional(v.array(v.string())),
+      affectedIndustries: v.optional(v.array(v.string())),
+      /** Tenants where applicability was detected (fail-closed). */
+      affectedTenantIds: v.optional(v.array(v.id("tenants"))),
+      affectedWorkflowIds: v.optional(v.array(v.string())),
+      affectedPolicyIds: v.optional(v.array(v.string())),
+      affectedEntityIds: v.optional(v.array(v.string())),
+      evidence: v.optional(v.any()),
+      confidence: v.number(),
+      severity: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+      urgency: v.union(v.literal("immediate"), v.literal("soon"), v.literal("scheduled")),
+      recommendedAction: v.string(),
+      requiresHumanReview: v.boolean(),
+      status: v.union(
+        v.literal("pending_review"),
+        v.literal("approved"),
+        v.literal("rejected"),
+        v.literal("superseded"),
+        v.literal("disputed"),
+      ),
+      reviewNote: v.optional(v.string()),
+      decidedBy: v.optional(v.id("users")),
+      decidedAt: v.optional(v.number()),
+      createdAt: v.number(),
+    })
+      .index("by_created", ["createdAt"])
+      .index("by_status", ["status"])
+      .index("by_source", ["sourceId"]),
 
     // ------------------------------------------------------------------
     // Audit

@@ -5,9 +5,13 @@
 // claim generally involves, what entities it contains, what evidence is
 // commonly expected, and what normally happens at each stage. Company-specific
 // knowledge remains a separate, tenant-scoped concern.
+//
+// DOMAIN vs ORGANIZATION: everything here is domain-level knowledge — what is
+// generally true in the industry. Atlas never states an organization-specific
+// fact (e.g. "this claim is at stage 7") unless evidence supports it.
 // ---------------------------------------------------------------------------
 
-// --- 37. Generalized claim lifecycle -----------------------------------------
+// --- Generalized claim lifecycle (17 stages) ---------------------------------
 
 export interface ClaimStage {
   stage: string;
@@ -18,24 +22,26 @@ export interface ClaimStage {
 
 /** Generalized model — tenant workflows may override or specialize it. */
 export const CLAIM_LIFECYCLE: ClaimStage[] = [
-  { stage: "Loss", description: "A loss event occurs (water, fire, wind, storm…).", typicalInputs: ["Event report"], typicalOutputs: ["Loss details"] },
+  { stage: "Lead / Loss", description: "A loss event or incoming lead is captured.", typicalInputs: ["Event report", "Lead intake"], typicalOutputs: ["Loss details"] },
   { stage: "FNOL", description: "First notice of loss filed with the carrier.", typicalInputs: ["Loss report", "Policy info"], typicalOutputs: ["Claim number"] },
-  { stage: "Claim setup", description: "The claim is opened and assigned.", typicalInputs: ["Claim number", "Policy"], typicalOutputs: ["Claim file", "Assignee"] },
-  { stage: "Inspection", description: "Damage is inspected and documented.", typicalInputs: ["Inspection photos", "Adjuster notes"], typicalOutputs: ["Damage documentation"] },
+  { stage: "Coverage / Claim", description: "Coverage is confirmed and the claim is opened.", typicalInputs: ["Policy", "Claim number"], typicalOutputs: ["Claim file"] },
+  { stage: "Inspection", description: "Damage is inspected and documented on site.", typicalInputs: ["Inspection photos", "Adjuster notes"], typicalOutputs: ["Damage documentation"] },
   { stage: "Documentation", description: "Evidence is gathered and organized.", typicalInputs: ["Photos", "Measurements", "Reports"], typicalOutputs: ["Evidence set"] },
   { stage: "Estimate", description: "Scope is priced into an estimate.", typicalInputs: ["Scope of work", "Pricing references"], typicalOutputs: ["Estimate"] },
-  { stage: "Scope review", description: "Scope is reviewed for completeness and accuracy.", typicalInputs: ["Estimate", "Inspection docs"], typicalOutputs: ["Reviewed scope"] },
-  { stage: "Carrier / adjuster review", description: "The carrier reviews and responds.", typicalInputs: ["Estimate", "Supporting docs"], typicalOutputs: ["Carrier response"] },
-  { stage: "Payment", description: "Approved amounts are paid.", typicalInputs: ["Approval", "Invoices"], typicalOutputs: ["Payment"] },
-  { stage: "Supplement opportunity", description: "Undocumented scope surfaces a potential supplement.", typicalInputs: ["New conditions", "Photos"], typicalOutputs: ["Supplement opportunity"] },
-  { stage: "Supplement submission", description: "Supplement is submitted for review.", typicalInputs: ["Supplement scope", "Evidence"], typicalOutputs: ["Submitted supplement"] },
-  { stage: "Review", description: "Carrier reviews the supplement.", typicalInputs: ["Supplement", "Evidence"], typicalOutputs: ["Review decision"] },
-  { stage: "Approval / partial / denial", description: "The claim is approved, partially approved or denied.", typicalInputs: ["Review decision"], typicalOutputs: ["Approval / denial"] },
-  { stage: "Recovery", description: "Outstanding legitimate amounts are pursued.", typicalInputs: ["Denial / underpayment", "Evidence"], typicalOutputs: ["Recovery actions"] },
-  { stage: "Closure", description: "The claim is closed.", typicalInputs: ["Final payment", "Closeout docs"], typicalOutputs: ["Closed file"] },
+  { stage: "Scope comparison", description: "Documented scope is compared against the actual work.", typicalInputs: ["Estimate", "Actual scope"], typicalOutputs: ["Scope gaps"] },
+  { stage: "Carrier review", description: "The carrier reviews the estimate and evidence.", typicalInputs: ["Estimate", "Supporting docs"], typicalOutputs: ["Carrier response"] },
+  { stage: "Supplement identification", description: "Undocumented scope surfaces a potential supplement.", typicalInputs: ["New conditions", "Photos"], typicalOutputs: ["Supplement opportunity"] },
+  { stage: "Supplement preparation", description: "The supplement scope and evidence are assembled.", typicalInputs: ["Supplement scope", "Evidence"], typicalOutputs: ["Draft supplement"] },
+  { stage: "Submission", description: "The supplement is submitted for review.", typicalInputs: ["Draft supplement", "Evidence"], typicalOutputs: ["Submitted supplement"] },
+  { stage: "Carrier response", description: "The carrier responds to the supplement.", typicalInputs: ["Supplement", "Evidence"], typicalOutputs: ["Response / revision request"] },
+  { stage: "Negotiation / revision", description: "Disputed items are negotiated or revised.", typicalInputs: ["Response", "Supporting data"], typicalOutputs: ["Agreed scope"] },
+  { stage: "Approval", description: "The agreed scope is approved.", typicalInputs: ["Agreed scope"], typicalOutputs: ["Approval"] },
+  { stage: "Work completion", description: "Approved work is completed.", typicalInputs: ["Approval", "Job plan"], typicalOutputs: ["Completion docs"] },
+  { stage: "Final billing", description: "Final invoice is issued against the approved scope.", typicalInputs: ["Approved scope", "Completion docs"], typicalOutputs: ["Final invoice"] },
+  { stage: "Revenue reconciliation", description: "Payments are reconciled against the final billing.", typicalInputs: ["Invoice", "Payments"], typicalOutputs: ["Reconciled revenue"] },
 ];
 
-// --- 38. Claim evidence model -------------------------------------------------
+// --- Claim evidence model -----------------------------------------------------
 
 export interface EvidenceCategory {
   key: string;
@@ -84,7 +90,7 @@ export const CLAIM_EVIDENCE_CATEGORIES: EvidenceCategory[] = [
   },
 ];
 
-// --- 39. Claim knowledge before any customer-uploaded claim --------------------
+// --- Claim knowledge before any customer-uploaded claim ------------------------
 
 export const CLAIM_BASELINE = {
   entities: [
@@ -104,9 +110,23 @@ export const CLAIM_BASELINE = {
     "Official requirements may apply (licensing, records, lead/RRP, workplace safety). Applicability is evaluated per jurisdiction and industry — Atlas never presents unverified guidance as law.",
   companySpecific:
     "What this particular company does (roles, pricing, software, carrier relationships) is tenant-scoped knowledge — never assumed from the baseline.",
+  /** Explicit knowledge-kind labels: domain vs organization vs evidence. */
+  knowledgeKinds: {
+    domain: [
+      "A claim generally progresses through defined operational stages.",
+      "Carriers commonly reduce or deny amounts that lack supporting evidence.",
+      "Estimates typically expire or need revision beyond 90 days.",
+    ],
+    organization: [
+      "This company's claims, stages, amounts and carriers are organization facts — only ever asserted from actual records.",
+    ],
+    evidence: [
+      "Photographs, inspection notes, measurements, drying logs and pricing references are the evidence that proves organization-specific facts.",
+    ],
+  },
 };
 
-// --- 40. Insurance revenue recovery intelligence ------------------------------
+// --- Revenue recovery intelligence ----------------------------------------------
 
 export interface ClaimFacts {
   /** Line items present in the documented/expected scope. */
@@ -117,10 +137,14 @@ export interface ClaimFacts {
   evidenceSummary?: string[];
   /** The priced estimate amount (dollars). */
   estimateAmount?: number;
+  /** The estimate's line-item count (for line-item-level checks). */
+  estimateLineItemCount?: number;
   /** Carrier's latest response (approved / partial / denied / pending…). */
   carrierResponse?: string;
   /** Amount the carrier paid (dollars). */
   paymentAmount?: number;
+  /** Amount actually invoiced (dollars). */
+  invoicedAmount?: number;
   /** Stage the claim currently sits in. */
   currentStage?: string;
   /** How long the claim has been at the current stage (days). */
@@ -135,7 +159,10 @@ export interface RecoveryOpportunity {
     | "unresolved_carrier_response"
     | "potential_underpayment"
     | "workflow_delay"
-    | "supplement_opportunity";
+    | "supplement_opportunity"
+    | "estimate_inconsistency"
+    | "overlooked_line_item"
+    | "billing_reconciliation";
   severity: "high" | "medium" | "low";
   title: string;
   /** The evidence behind the finding — never fabricated. */
@@ -144,6 +171,8 @@ export interface RecoveryOpportunity {
   explanation: string;
   financialRelevance: string;
   recommendedNextStep: string;
+  /** Honest caveat about what this finding cannot claim. */
+  limitation: string;
 }
 
 const EVIDENCE_CATEGORIES = CLAIM_EVIDENCE_CATEGORIES.map((c) => c.key);
@@ -151,8 +180,8 @@ const EVIDENCE_CATEGORIES = CLAIM_EVIDENCE_CATEGORIES.map((c) => c.key);
 /**
  * Compare expected/documented scope vs actual scope vs evidence vs estimate
  * vs carrier response vs payment, then surface POTENTIAL recovery
- * opportunities. Every finding is deterministic, evidence-labeled, and worded
- * as a possibility — never a guarantee.
+ * opportunities. Every finding is deterministic, evidence-labeled, carries a
+ * limitation, and is worded as a possibility — never a guarantee.
  */
 export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportunity[] {
   const out: RecoveryOpportunity[] = [];
@@ -174,23 +203,24 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
         "Work appears to have been performed or observed that is not present in the documented scope.",
       financialRelevance: "Unbilled work is unrecovered revenue if not documented and submitted.",
       recommendedNextStep: "Document the additional items with evidence and submit a supplement.",
+      limitation: "Atlas cannot confirm the work was performed — it only reports the discrepancy between the documented and actual scope records.",
     });
   }
 
   // Documentation gaps: expected evidence categories with no material.
   const gaps = EVIDENCE_CATEGORIES.filter((c) => !evidenceSet.has(c));
-  if (gaps.length > 0 && evidence.length >= 0) {
-    const gapList = gaps.join(", ");
+  if (gaps.length > 0) {
     out.push({
       type: "documentation_gap",
       severity: gaps.length >= 3 ? "high" : "medium",
       title: "Documentation gaps",
-      evidence: [`Evidence set missing: ${gapList}`],
+      evidence: [`Evidence set missing: ${gaps.join(", ")}`],
       confidence: 0.6,
       explanation:
         "Expected evidence categories have no material on file. Carriers commonly reduce or deny amounts that lack supporting evidence.",
       financialRelevance: "Gaps directly weaken every line item they touch.",
       recommendedNextStep: "Close the gaps before the next carrier review or supplement.",
+      limitation: "Absence of material in Atlas does not prove the material does not exist elsewhere.",
     });
   }
 
@@ -207,6 +237,7 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
         "Items in the documented scope have no corresponding record in the actual scope — either work wasn't performed or it wasn't documented.",
       financialRelevance: "Unreconciled scope items can be paid, disputed or written off depending on the record.",
       recommendedNextStep: "Reconcile the documented scope against actual work and evidence.",
+      limitation: "Atlas cannot determine which side of the record is correct without the underlying evidence.",
     });
   }
 
@@ -223,6 +254,7 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
         "The carrier's latest response is not an approval or payment — an open response that needs action or escalation.",
       financialRelevance: "Every open response is outstanding revenue.",
       recommendedNextStep: "Review the response, respond in writing, and track the follow-up deadline.",
+      limitation: "The response text is taken at face value from the record; its full context may require the original correspondence.",
     });
   }
 
@@ -242,6 +274,7 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
         "Payment is materially below the estimate. This can be legitimate (deductible, depreciation, negotiated cuts) — it must be reconciled before any claim.",
       financialRelevance: "Recoverable depreciation and deducted amounts are commonly recoverable.",
       recommendedNextStep: "Reconcile the payment against the estimate; document the difference and recover what is legitimate.",
+      limitation: "The gap may be fully explained by deductible, depreciation or negotiated adjustments not visible in these fields.",
     });
   }
 
@@ -257,10 +290,11 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
         "The claim has been in the same stage unusually long, which typically signals an unhandled dependency.",
       financialRelevance: "Delays push revenue out and can cause supplements to be missed entirely.",
       recommendedNextStep: "Identify the blocking step and assign an owner with a deadline.",
+      limitation: "Long stage duration may be intentional (waiting on carrier or homeowner); it flags review, not fault.",
     });
   }
 
-  // Supplement opportunity — from either missing scope or price/condition drift.
+  // Supplement opportunity — from missing scope or age drift.
   if (missing.length > 0 || (typeof facts.stageAgeDays === "number" && facts.stageAgeDays > 90)) {
     const already = out.some((o) => o.type === "supplement_opportunity" || o.type === "missing_scope");
     if (!already) {
@@ -274,11 +308,82 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
           "Conditions (hidden damage, price movement, elapsed time) may mean the original estimate no longer covers the actual scope.",
         financialRelevance: "Supplements are typically 15–40% of original scope when properly documented.",
         recommendedNextStep: "Review conditions against the original estimate and prepare a documented supplement.",
+        limitation: "Age alone is not proof of a supplement — conditions must be documented.",
       });
     }
   }
 
-  return out.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "high" ? -1 : b.severity === "high" ? 1 : a.severity === "medium" ? -1 : 1));
+  // Estimate inconsistencies: estimate amount vs invoiced amount disagree.
+  if (
+    typeof facts.estimateAmount === "number" &&
+    typeof facts.invoicedAmount === "number" &&
+    facts.invoicedAmount !== facts.estimateAmount
+  ) {
+    out.push({
+      type: "estimate_inconsistency",
+      severity: "medium",
+      title: "Estimate vs billing inconsistency",
+      evidence: [`Estimate $${facts.estimateAmount.toLocaleString()}`, `Invoiced $${facts.invoicedAmount.toLocaleString()}`],
+      confidence: 0.55,
+      explanation:
+        "The final invoice differs from the estimate. Differences can be supplements, allowances or deductions — each needs a documented reason.",
+      financialRelevance: "Unreconciled estimate-to-billing differences hide both over- and under-collection.",
+      recommendedNextStep: "Reconcile invoice line items against the approved estimate and document every variance.",
+      limitation: "A difference is not automatically an error — supplements and allowances are legitimate causes.",
+    });
+  }
+
+  // Overlooked line items: estimate lines vs expected scope concepts.
+  if (
+    typeof facts.estimateLineItemCount === "number" &&
+    expected.length > 0 &&
+    facts.estimateLineItemCount < expected.length
+  ) {
+    out.push({
+      type: "overlooked_line_item",
+      severity: "medium",
+      title: "Potentially overlooked line items",
+      evidence: [`Estimate line items: ${facts.estimateLineItemCount}`, `Documented scope items: ${expected.length}`],
+      confidence: 0.45,
+      explanation:
+        "The estimate contains fewer line items than the documented scope suggests — items may have been consolidated or missed.",
+      financialRelevance: "Missed line items are unrecovered revenue.",
+      recommendedNextStep: "Compare the estimate line-item list against the scope item by item.",
+      limitation: "Scope items are often legitimately consolidated into a single estimate line — this is a flag to verify, not a finding of error.",
+    });
+  }
+
+  // Billing / reconciliation issues: invoiced vs paid mismatch beyond estimate logic.
+  if (
+    typeof facts.invoicedAmount === "number" &&
+    typeof facts.paymentAmount === "number" &&
+    facts.paymentAmount < facts.invoicedAmount * 0.95
+  ) {
+    out.push({
+      type: "billing_reconciliation",
+      severity: "medium",
+      title: "Billing reconciliation gap",
+      evidence: [`Invoiced $${facts.invoicedAmount.toLocaleString()}`, `Paid $${facts.paymentAmount.toLocaleString()}`],
+      confidence: 0.5,
+      explanation:
+        "Payment is materially below the final invoice. The difference may be outstanding, disputed, or already adjusted.",
+      financialRelevance: "Unreconciled invoice-to-payment gaps are outstanding cash.",
+      recommendedNextStep: "Trace the payment to the invoice and chase or write off the difference deliberately.",
+      limitation: "Partial payments in progress or agreed adjustments can explain the gap.",
+    });
+  }
+
+  return out.sort((a, b) =>
+    a.severity === b.severity
+      ? 0
+      : a.severity === "high"
+        ? -1
+        : b.severity === "high"
+          ? 1
+          : a.severity === "medium"
+            ? -1
+            : 1,
+  );
 }
 
 /** Insurance intelligence bundle served to the UI and Ask Atlas. */

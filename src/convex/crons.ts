@@ -34,4 +34,24 @@ crons.interval(
   {},
 );
 
+// Authority ingestion sweep — checks enabled authoritative sources (safe,
+// allowlisted retrieval), publishes immutable versions on change, assesses
+// impact and marks stale knowledge honestly. Never fabricates changes.
+crons.interval(
+  "authority-check-sweep",
+  { hours: 12 },
+  internal.everest.sweep.runAuthoritySweep,
+  {},
+);
+
+// Proactive temporal intelligence — real-data notifications only: approvals
+// waiting beyond business-day thresholds, approval deadlines approaching,
+// and requirements becoming effective soon (applicability-checked).
+crons.interval(
+  "proactive-temporal-checks",
+  { hours: 1 },
+  internal.everest.syncDb.runProactiveTemporalChecks,
+  {},
+);
+
 export default crons;

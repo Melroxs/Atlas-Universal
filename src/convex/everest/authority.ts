@@ -261,6 +261,42 @@ export const AUTHORITATIVE_SOURCE_SEEDS: AuthoritativeSourceSeed[] = [
   },
 ];
 
+/**
+ * Retrieval metadata per source. implementationStatus is HONEST: sources
+ * whose pages Atlas can safely fetch (allowlisted official HTML) are
+ * "implemented"; paywalled/standards-publisher content is declared but never
+ * claimed synchronized. enabled=false keeps a source registered but out of
+ * the check loop.
+ */
+export const SOURCE_RETRIEVAL_META: Record<
+  string,
+  {
+    retrievalMethod: string;
+    implementationStatus: string;
+    enabled: boolean;
+    subjects: string[];
+    industries?: string[];
+  }
+> = {
+  "osha-general-industry": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["workplace safety", "general industry", "exposure limits"], industries: ["manufacturing", "insurance restoration"] },
+  "osha-construction": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["construction safety", "excavation", "fall protection"], industries: ["construction", "insurance restoration"] },
+  "epa-lead-rrp": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["lead safety", "renovation", "certification"], industries: ["construction", "insurance restoration"] },
+  "irs-recordkeeping": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["recordkeeping", "tax records", "deductions"] },
+  "ftc-privacy": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["data security", "consumer privacy"] },
+  "fl-dbpr-contractor": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["contractor licensing", "florida"], industries: ["construction", "insurance restoration"] },
+  "tx-tdlr-contractor": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["contractor licensing", "texas"], industries: ["construction"] },
+  nfpa: { retrievalMethod: "official_document", implementationStatus: "not_implemented", enabled: true, subjects: ["fire codes", "standards"] },
+  "iso-9001": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["quality management"] },
+  "iicrc-s500": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["water damage restoration"], industries: ["insurance restoration"] },
+  "iicrc-s520": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["mold remediation"], industries: ["insurance restoration"] },
+  "iicrc-s100": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["cleaning standards"], industries: ["insurance restoration"] },
+  "ashrae-62": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["ventilation", "indoor air quality"] },
+  "icc-building-codes": { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["building codes"] },
+  gaap: { retrievalMethod: "standards_publisher", implementationStatus: "not_implemented", enabled: false, subjects: ["accounting standards"] },
+  "restoration-industry-association": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["restoration industry", "best practices"], industries: ["insurance restoration"] },
+  "crc-claims-process": { retrievalMethod: "official_html", implementationStatus: "implemented", enabled: true, subjects: ["claims management"], industries: ["insurance restoration"] },
+};
+
 // --- Knowledge seed ----------------------------------------------------------
 
 export interface AuthoritativeKnowledgeSeed {

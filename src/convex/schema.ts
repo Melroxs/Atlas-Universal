@@ -496,6 +496,18 @@ const schema = defineSchema(
       requestText: v.optional(v.string()),
       /** Structured rationale for the action (why, based on what, with what result). */
       explanation: v.optional(v.any()),
+      /** Closed-loop outcome: what actually happened after execution+verification. */
+      outcome: v.optional(
+        v.union(
+          v.literal("successful"),
+          v.literal("partially_successful"),
+          v.literal("failed"),
+          v.literal("reversed"),
+          v.literal("superseded"),
+          v.literal("unknown"),
+        ),
+      ),
+      outcomeNote: v.optional(v.string()),
     })
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_status", ["tenantId", "status"])
@@ -943,6 +955,54 @@ const schema = defineSchema(
       .index("by_created", ["createdAt"])
       .index("by_status", ["status"])
       .index("by_source", ["sourceId"]),
+
+    // ------------------------------------------------------------------
+    // Decisions (universal decision engine)
+    // ------------------------------------------------------------------
+
+    decisions: defineTable({
+      tenantId: v.id("tenants"),
+      /** Stable human-readable id: "<type>-<subject-hash>" — dedupes re-evaluation. */
+      decisionId: v.string(),
+      type: v.string(),
+      subject: v.string(),
+      title: v.string(),
+      summary: v.string(),
+      context: v.optional(v.any()),
+      evidence: v.optional(v.any()),
+      entityContext: v.optional(v.any()),
+      businessContext: v.optional(v.any()),
+      industryContext: v.optional(v.any()),
+      authorityContext: v.optional(v.any()),
+      temporalContext: v.optional(v.any()),
+      options: v.optional(v.any()),
+      recommendation: v.optional(v.string()),
+      /** verified | high | moderate | low | uncertain | conflicting | insufficient_evidence */
+      confidenceState: v.string(),
+      confidence: v.number(),
+      riskLevel: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+      riskReason: v.optional(v.string()),
+      impact: v.optional(v.string()),
+      urgency: v.union(v.literal("low"), v.literal("medium"), v.literal("high")),
+      policyResult: v.optional(v.any()),
+      /** none | confirmation | manager_approval | owner_approval */
+      approvalRequirement: v.string(),
+      status: v.union(
+        v.literal("open"),
+        v.literal("resolved"),
+        v.literal("dismissed"),
+        v.literal("expired"),
+      ),
+      resolution: v.optional(v.string()),
+      feedback: v.optional(v.any()),
+      dedupeKey: v.string(),
+      createdAt: v.number(),
+      resolvedAt: v.optional(v.number()),
+      resolvedBy: v.optional(v.id("users")),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_dedupe", ["dedupeKey"]),
 
     // ------------------------------------------------------------------
     // Audit

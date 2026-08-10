@@ -1,4 +1,5 @@
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   ConfidenceBar,
   EmptyPanel,
@@ -7,6 +8,7 @@ import {
   formatDate,
 } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
+import { useVoice } from "@/hooks/use-voice";
 import { useAction, useQuery } from "convex/react";
 import {
   ArrowRight,
@@ -20,6 +22,8 @@ import {
   Lightbulb,
   Loader2,
   MessageSquareText,
+  Mic,
+  MicOff,
   Zap,
   Network,
   Radar,
@@ -56,6 +60,13 @@ interface AuthorityAnswer {
   sourceUrl?: string;
 }
 
+interface PendingState {
+  kind: string;
+  message?: string;
+  title?: string;
+  options?: Array<{ id?: string; label: string }>;
+}
+
 interface Turn {
   id: string;
   role: "user" | "assistant";
@@ -69,6 +80,8 @@ interface Turn {
   toolPlan?: ToolPlan | null;
   questionType?: string;
   authorityAnswers?: AuthorityAnswer[];
+  intent?: string;
+  pending?: PendingState | null;
   timestamp: number;
 }
 
@@ -101,13 +114,21 @@ const SUGGESTIONS = [
 export default function Ask() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const askAtlas = useAction(api.ask.askAtlas);
+  // Phase 10 — text and voice route through the SAME conversational brain
+  // (api.conversation.converse), which delegates to Ask Atlas internally and
+  // keeps multi-turn context in a tenant-scoped session.
+  const converse = useAction(api.conversation.converse);
   const history = useQuery(api.history.listAskSessions);
 
   const [input, setInput] = useState("");
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const voice = useVoice({
+    onTranscript: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
+  });
 
   // Prefill from home quick-ask.
   useEffect(() => {
@@ -134,7 +155,12 @@ export default function Ask() {
     setTurns((t) => [...t, userTurn]);
     setBusy(true);
     try {
-      const res = await askAtlas({ question: q });
+      const res = await converse({
+        sessionId: (sessionId ?? undefined) as Id<"conversationSessions"> | undefined,
+        transcript: q,
+        pageContext: "Ask Atlas",
+      });
+      setSessionId(res.sessionId);
       setTurns((t) => [
         ...t,
         {
@@ -146,10 +172,12 @@ export default function Ask() {
           mode: res.mode,
           limitations: res.limitations,
           suggestedActions: res.suggestedActions,
-          evidence: res.evidence as Evidence[],
-          toolPlan: res.toolPlan ?? null,
+          evidence: res.evidence as unknown as Evidence[],
+          toolPlan: (res.toolPlan as ToolPlan | null) ?? null,
           questionType: res.questionType,
-          authorityAnswers: res.authorityAnswers,
+          authorityAnswers: res.authorityAnswers as unknown as AuthorityAnswer[] | undefined,
+          intent: res.intent,
+          pending: res.pending,
           timestamp: Date.now(),
         },
       ]);
@@ -262,6 +290,69 @@ export default function Ask() {
                     </div>
                     <div className="rounded-2xl rounded-tl-sm border border-border/70 bg-card px-4 py-3 text-sm leading-6 text-foreground">
                       <p className="whitespace-pre-wrap">{t.text}</p>
+                      {(t.pending?.kind === "confirm_action" ||
+                        t.pending?.kind === "confirm_workflow") && (
+                        <div className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/5 p-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-300">
+                            Awaiting your confirmation
+                          </p>
+                          {t.pending.message && (
+                            <p className="mt-1 text-xs leading-5 text-foreground">
+                              {t.pending.message}
+                            </p>
+                          )}
+                          <div className="mt-2 flex gap-2">
+                            <Button
+                              size="sm"
+                              className="h-7 gap-1 text-[11px]"
+                              onClick={() => void submit("yes, proceed")}
+                            >
+                              Proceed
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 gap-1 text-[11px]"
+                              onClick={() => void submit("no, cancel")}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {(t.pending?.kind === "clarify_entity" ||
+                        t.pending?.kind === "clarify_general") && (
+                        <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-400/5 p-3">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-300">
+                            Which one do you mean?
+                          </p>
+                          {(t.pending?.options ?? []).length > 0 ? (
+                            <div className="mt-2 flex flex-col gap-1.5">
+                              {(t.pending?.options ?? []).map((o, i) => (
+                                <button
+                                  key={o.id ?? o.label}
+                                  type="button"
+                                  onClick={() =>
+                                    void submit(
+                                      `the ${i + 1 === 1 ? "first" : i + 1 === 2 ? "second" : i + 1 === 3 ? "third" : `${i + 1}th`} one`,
+                                    )
+                                  }
+                                  className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:border-violet-400/40"
+                                >
+                                  <span className="mr-1.5 font-mono text-[10px] text-muted-foreground">
+                                    {i + 1}.
+                                  </span>
+                                  {o.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                              {t.pending?.message ?? "Could you rephrase that?"}
+                            </p>
+                          )}
+                        </div>
+                      )}
                       {t.toolPlan?.status === "ready" && t.toolPlan.toolId && (
                         <div className="mt-3 rounded-lg border border-violet-400/25 bg-violet-400/5 p-3">
                           <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-300">
@@ -449,6 +540,16 @@ export default function Ask() {
 
           {/* Input */}
           <div className="relative">
+            {voice.interim && voice.status === "listening" && (
+              <p className="mb-1.5 px-1 text-xs italic text-muted-foreground">
+                “{voice.interim}”
+              </p>
+            )}
+            {voice.error && (
+              <p className="mb-1.5 rounded-lg border border-rose-400/25 bg-rose-400/5 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-200">
+                {voice.error}
+              </p>
+            )}
             <textarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -460,16 +561,32 @@ export default function Ask() {
               }}
               rows={2}
               placeholder="Ask about documents, claims, invoices, policies… (Enter to send)"
-              className="w-full resize-none rounded-xl border border-border/70 bg-card/70 p-3.5 pr-14 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20"
+              className="w-full resize-none rounded-xl border border-border/70 bg-card/70 p-3.5 pr-24 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20"
             />
-            <button
-              type="button"
-              onClick={() => void submit()}
-              disabled={busy || !input.trim()}
-              className="absolute bottom-3 right-3 flex size-9 items-center justify-center rounded-lg bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-40"
-            >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            </button>
+            <div className="absolute bottom-3 right-3 flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => voice.toggle()}
+                title={voice.status === "listening" ? "Stop listening" : "Press to talk"}
+                className={`flex size-9 items-center justify-center rounded-lg border transition-colors ${
+                  voice.status === "listening"
+                    ? "animate-pulse border-rose-400/40 bg-rose-500 text-white"
+                    : voice.supported
+                      ? "border-border/70 bg-muted/40 text-muted-foreground hover:border-teal-400/40 hover:text-teal-600 dark:hover:text-teal-300"
+                      : "border-border/50 bg-muted/20 text-muted-foreground/50"
+                }`}
+              >
+                {voice.status === "listening" ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => void submit()}
+                disabled={busy || !input.trim()}
+                className="flex size-9 items-center justify-center rounded-lg bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-40"
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -484,7 +601,10 @@ export default function Ask() {
               variant="ghost"
               size="sm"
               className="text-xs"
-              onClick={() => setTurns([])}
+              onClick={() => {
+                setTurns([]);
+                setSessionId(null);
+              }}
               disabled={turns.length === 0}
             >
               Clear

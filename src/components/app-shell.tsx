@@ -1,3 +1,4 @@
+import { AtlasAssistant } from "@/components/atlas-assistant";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
@@ -352,6 +353,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </main>
       </SidebarInset>
+
+      {/* Phase 10 — persistent Atlas assistant, available across the app. */}
+      <AtlasAssistant pageContext={location.pathname} />
     </SidebarProvider>
   );
 }

@@ -1151,6 +1151,38 @@ const schema = defineSchema(
       targetId: v.optional(v.string()),
       metadata: v.optional(v.any()),
     }).index("by_tenant", ["tenantId"]),
+
+    // ------------------------------------------------------------------
+    // Phase 10 — Conversational Voice OS
+    // ------------------------------------------------------------------
+    // One multi-turn conversation session per (tenant, user). Text and voice
+    // both route through the SAME `converse` orchestration action; this table
+    // holds the transcript plus a minimal context payload (entity refs,
+    // pending confirmation/clarification) — never credentials or audio.
+
+    conversationSessions: defineTable({
+      tenantId: v.id("tenants"),
+      userId: v.id("users"),
+      title: v.string(),
+      messages: v.array(
+        v.object({
+          role: v.union(v.literal("user"), v.literal("assistant")),
+          text: v.string(),
+          /** Concise voice rendering of the assistant turn (if any). */
+          spoken: v.optional(v.string()),
+          /** Conversation intent that produced the turn. */
+          intent: v.optional(v.string()),
+          /** answer | confirmation_request | clarification_request | error | executed */
+          kind: v.optional(v.string()),
+          ts: v.number(),
+        }),
+      ),
+      /** Minimal conversational context — entity refs, pending state. */
+      context: v.optional(v.any()),
+      updatedAt: v.number(),
+    })
+      .index("by_tenant_user", ["tenantId", "userId"])
+      .index("by_tenant", ["tenantId"]),
   },
   {
     schemaValidation: false,

@@ -1,0 +1,643 @@
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { KnowledgeBadge, formatDate } from "@/components/atlas-ui";
+import { Button } from "@/components/ui/button";
+import { useVoice } from "@/hooks/use-voice";
+import { useAction, useMutation } from "convex/react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Bot,
+  Check,
+  CircleStop,
+  FileText,
+  Landmark,
+  Loader2,
+  MessageSquareText,
+  Mic,
+  MicOff,
+  Plus,
+  Radar,
+  Send,
+  ShieldAlert,
+  Sparkles,
+  Volume2,
+  VolumeX,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
+// ---------------------------------------------------------------------------
+// Client-side types (mirror of the conversation API surface)
+// ---------------------------------------------------------------------------
+
+interface PendingState {
+  kind: string;
+  message?: string;
+  title?: string;
+  options?: Array<{ id?: string; label: string }>;
+}
+
+interface EntityRef {
+  id: string;
+  name: string;
+  entityTypeKey?: string;
+  status?: string;
+}
+
+interface AssistantTurn {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  intent?: string;
+  kind?: string;
+  ts: number;
+  spoken?: string;
+  pending?: PendingState | null;
+  evidence?: Array<Record<string, unknown>>;
+  authorityAnswers?: Array<Record<string, unknown>>;
+  entityRefs?: EntityRef[];
+  suggestedActions?: string[];
+  memoryNote?: string;
+  limitations?: string;
+}
+
+interface ConverseResponse {
+  sessionId: string;
+  answer: string;
+  spoken: string;
+  intent: string;
+  intentLabel: string;
+  confidence: number;
+  classification?: string;
+  mode?: string;
+  limitations?: string;
+  suggestedActions: string[];
+  questionType?: string;
+  authorityAnswers?: Array<Record<string, unknown>>;
+  evidence?: Array<Record<string, unknown>>;
+  toolPlan?: Record<string, unknown> | null;
+  entityRefs?: EntityRef[];
+  temporal?: { label?: string };
+  pending?: PendingState;
+  memoryNote?: string;
+}
+
+const SESSION_KEY = "atlas-conversation-session";
+
+const INTENT_TONE: Record<string, string> = {
+  organizational: "text-cyan-700 dark:text-cyan-200 border-cyan-400/30 bg-cyan-400/10",
+  investigative: "text-violet-700 dark:text-violet-200 border-violet-400/30 bg-violet-400/10",
+  workflow: "text-amber-700 dark:text-amber-200 border-amber-400/30 bg-amber-400/10",
+  action: "text-rose-700 dark:text-rose-200 border-rose-400/30 bg-rose-400/10",
+  regulatory: "text-emerald-700 dark:text-emerald-200 border-emerald-400/30 bg-emerald-400/10",
+};
+
+function intentChip(intent?: string) {
+  if (!intent) return null;
+  const tone = INTENT_TONE[intent] ?? "text-muted-foreground border-border/70 bg-muted/30";
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${tone}`}
+    >
+      <Sparkles className="size-3" />
+      {intent.replace(/_/g, " ")}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+export function AtlasAssistant({
+  pageContext,
+  entityContextId,
+}: {
+  pageContext?: string;
+  entityContextId?: string;
+}) {
+  const converse = useAction(api.conversation.converse);
+  const deleteSession = useMutation(api.conversation.deleteConversationSession);
+
+  const [open, setOpen] = useState(false);
+  const [turns, setTurns] = useState<AssistantTurn[]>([]);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(false);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  // Restore the conversation across pages/navigation.
+  useEffect(() => {
+    const saved = localStorage.getItem(SESSION_KEY);
+    if (saved) setSessionId(saved);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    }
+  }, [turns, busy, open]);
+
+  const voice = useVoice({
+    onTranscript: (text) => {
+      setInput((prev) => (prev ? `${prev} ${text}` : text));
+    },
+  });
+
+  const send = async (text?: string) => {
+    const q = (text ?? input).trim();
+    if (!q || busyRef.current) return;
+    setInput("");
+    const userTurn: AssistantTurn = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: q,
+      ts: Date.now(),
+    };
+    setTurns((t) => [...t, userTurn]);
+    setBusy(true);
+    voice.stopSpeaking();
+    try {
+      const res = (await converse({
+        sessionId: (sessionId ?? undefined) as Id<"conversationSessions"> | undefined,
+        transcript: q,
+        pageContext,
+        entityContextId: entityContextId as Id<"entities"> | undefined,
+      })) as unknown as ConverseResponse;
+      setSessionId(res.sessionId);
+      localStorage.setItem(SESSION_KEY, res.sessionId);
+      setTurns((t) => [
+        ...t,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          text: res.answer,
+          spoken: res.spoken || res.answer,
+          intent: res.intent,
+          kind: res.pending?.kind?.startsWith("clarify")
+            ? "clarification_request"
+            : res.pending?.kind === "confirm_action" || res.pending?.kind === "confirm_workflow"
+              ? "confirmation_request"
+              : "answer",
+          pending: res.pending ?? null,
+          evidence: res.evidence,
+          authorityAnswers: res.authorityAnswers,
+          entityRefs: res.entityRefs,
+          suggestedActions: res.suggestedActions,
+          memoryNote: res.memoryNote,
+          limitations: res.limitations,
+          ts: Date.now(),
+        },
+      ]);
+      if (autoSpeak && (res.spoken || res.answer)) {
+        void voice.speak(res.spoken || res.answer);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Atlas couldn't respond");
+      setTurns((t) => [
+        ...t,
+        {
+          id: `e-${Date.now()}`,
+          role: "assistant",
+          text: "I hit a problem responding to that — please try again.",
+          ts: Date.now(),
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const newSession = async () => {
+    if (sessionId) {
+      await deleteSession({ sessionId: sessionId as Id<"conversationSessions"> }).catch(
+        () => undefined,
+      );
+      localStorage.removeItem(SESSION_KEY);
+    }
+    setSessionId(null);
+    setTurns([]);
+    voice.stopSpeaking();
+  };
+
+  const voiceLabel = (() => {
+    const p = voice.providerStatus;
+    if (!p) return "Voice: checking provider…";
+    const stt = p.stt === "server" ? `server STT (${p.sttProvider})` : "browser STT";
+    const tts = p.tts === "server" ? `server TTS (${p.ttsProvider})` : "browser TTS";
+    return `Voice: ${stt} · ${tts}`;
+  })();
+
+  const micState = (() => {
+    switch (voice.status) {
+      case "listening":
+      case "transcribing":
+        return "listening";
+      case "speaking":
+        return "speaking";
+      case "thinking":
+        return "thinking";
+      case "error":
+      case "unavailable":
+        return "error";
+      default:
+        return "idle";
+    }
+  })();
+
+  return (
+    <>
+      {/* Floating launcher */}
+      {!open && (
+        <motion.button
+          type="button"
+          onClick={() => setOpen(true)}
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.4 }}
+          className="fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center rounded-2xl border border-teal-400/30 bg-gradient-to-br from-teal-500/90 to-cyan-600/90 text-white shadow-lg shadow-teal-500/25 transition-transform hover:scale-105 hover:shadow-xl"
+          aria-label="Open Atlas assistant"
+        >
+          <Radar className="size-6" />
+          <span className="absolute -right-0.5 -top-0.5 flex size-3">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-teal-400 opacity-60" />
+            <span className="relative inline-flex size-3 rounded-full border border-white/60 bg-teal-400" />
+          </span>
+        </motion.button>
+      )}
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, x: 60 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 60 }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+            className="fixed bottom-4 right-4 z-50 flex h-[min(720px,calc(100vh-2rem))] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-border/70 bg-background shadow-2xl"
+          >
+            {/* Header */}
+            <div className="flex items-center gap-2 border-b border-border/60 bg-gradient-to-r from-teal-500/10 via-cyan-500/5 to-transparent px-4 py-3">
+              <div className="flex size-9 items-center justify-center rounded-xl border border-teal-400/25 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                <Radar className="size-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Atlas Assistant</p>
+                <p className="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+                  <span
+                    className={`inline-block size-1.5 rounded-full ${
+                      busy
+                        ? "bg-amber-400"
+                        : micState === "listening"
+                          ? "animate-pulse bg-rose-500"
+                          : micState === "speaking"
+                            ? "animate-pulse bg-teal-400"
+                            : "bg-teal-500"
+                    }`}
+                  />
+                  {busy
+                    ? "Thinking…"
+                    : micState === "listening"
+                      ? "Listening…"
+                      : micState === "speaking"
+                        ? "Speaking…"
+                        : "Online"}
+                  <span className="hidden truncate text-muted-foreground/60 sm:inline">
+                    · {voiceLabel}
+                  </span>
+                </p>
+              </div>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => void newSession()} title="New conversation">
+                <Plus className="size-4" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOpen(false)} title="Close">
+                <X className="size-4" />
+              </Button>
+            </div>
+
+            {/* Transcript */}
+            <div ref={scrollRef} className="atlas-scroll flex-1 space-y-4 overflow-y-auto p-4">
+              {turns.length === 0 && (
+                <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+                  <div className="flex size-12 items-center justify-center rounded-2xl border border-teal-400/25 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                    <MessageSquareText className="size-6" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">Talk to Atlas like your ops assistant</p>
+                    <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                      Try “What's going on?”, “Why hasn't the Johnson project moved?”, or
+                      “Start the document review workflow”. Voice works in Chrome, Edge and
+                      Safari — or just type.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {["What's going on?", "What's waiting on me?", "What changed today?"].map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => void send(s)}
+                        className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-teal-400/40 hover:text-teal-700 dark:hover:text-teal-200"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {turns.map((t) =>
+                t.role === "user" ? (
+                  <div key={t.id} className="flex justify-end gap-2">
+                    <div className="max-w-[85%] rounded-2xl rounded-tr-sm border border-teal-400/25 bg-teal-400/10 px-3.5 py-2 text-sm leading-6 text-teal-800 dark:text-teal-50">
+                      {t.text}
+                    </div>
+                  </div>
+                ) : (
+                  <div key={t.id} className="flex gap-2">
+                    <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
+                      <Bot className="size-3.5" />
+                    </div>
+                    <div className="min-w-0 max-w-[88%] flex-1">
+                      <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                        {intentChip(t.intent)}
+                        <span className="font-mono text-[10px] text-muted-foreground/60">
+                          {formatDate(t.ts)}
+                        </span>
+                      </div>
+                      <div className="rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3.5 py-2.5 text-sm leading-6 text-foreground">
+                        <p className="whitespace-pre-wrap">{t.text}</p>
+
+                        {t.memoryNote && (
+                          <p className="mt-2.5 rounded-lg border border-amber-400/25 bg-amber-400/5 px-2.5 py-1.5 text-[11px] leading-5 text-amber-700 dark:text-amber-200">
+                            <ShieldAlert className="mr-1 inline size-3 -translate-y-px" />
+                            {t.memoryNote}
+                          </p>
+                        )}
+
+                        {t.limitations && (
+                          <p className="mt-2 text-[11px] italic text-muted-foreground">
+                            ⚠ {t.limitations}
+                          </p>
+                        )}
+
+                        {t.entityRefs && t.entityRefs.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {t.entityRefs.map((e) => (
+                              <span
+                                key={e.id}
+                                className="rounded-md border border-cyan-400/25 bg-cyan-400/5 px-2 py-0.5 text-[11px] text-cyan-700 dark:text-cyan-200"
+                              >
+                                {e.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Confirmation */}
+                        {t.pending?.kind === "confirm_action" ||
+                        t.pending?.kind === "confirm_workflow" ? (
+                          <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-amber-600 dark:text-amber-300">
+                              Awaiting your confirmation
+                            </p>
+                            {t.pending.message && (
+                              <p className="mt-1 text-xs leading-5 text-foreground">
+                                {t.pending.message}
+                              </p>
+                            )}
+                            <div className="mt-2.5 flex gap-2">
+                              <Button
+                                size="sm"
+                                className="h-8 gap-1.5 text-xs"
+                                onClick={() => void send("yes, proceed")}
+                              >
+                                <Check className="size-3.5" />
+                                Proceed
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 gap-1.5 text-xs"
+                                onClick={() => void send("no, cancel")}
+                              >
+                                <CircleStop className="size-3.5" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Clarification */}
+                        {t.pending?.kind === "clarify_entity" ||
+                        t.pending?.kind === "clarify_general" ? (
+                          <div className="mt-3 rounded-xl border border-violet-400/25 bg-violet-400/5 p-3">
+                            <p className="text-[11px] font-medium uppercase tracking-wide text-violet-600 dark:text-violet-300">
+                              Which one do you mean?
+                            </p>
+                            {(t.pending?.options ?? []).length > 0 ? (
+                              <div className="mt-2 flex flex-col gap-1.5">
+                                {(t.pending?.options ?? []).map((o, i) => (
+                                  <button
+                                    key={o.id ?? o.label}
+                                    type="button"
+                                    onClick={() => void send(`the ${i + 1 === 1 ? "first" : i + 1 === 2 ? "second" : i + 1 === 3 ? "third" : `${i + 1}th`} one`)}
+                                    className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-1.5 text-left text-xs text-foreground transition-colors hover:border-violet-400/40"
+                                  >
+                                    <span className="mr-1.5 font-mono text-[10px] text-muted-foreground">
+                                      {i + 1}.
+                                    </span>
+                                    {o.label}
+                                  </button>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                {t.pending?.message ?? "Could you rephrase that?"}
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+
+                        {/* Suggested actions */}
+                        {t.suggestedActions && t.suggestedActions.length > 0 && (
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {t.suggestedActions.map((a) => (
+                              <span
+                                key={a}
+                                className="rounded-md border border-amber-400/25 bg-amber-400/5 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-200"
+                              >
+                                {a}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Authority answers */}
+                        {t.authorityAnswers && t.authorityAnswers.length > 0 && (
+                          <div className="mt-2.5 space-y-1.5">
+                            <p className="flex items-center gap-1 text-[11px] font-medium uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                              <Landmark className="size-3" />
+                              Authoritative sources
+                            </p>
+                            {t.authorityAnswers.slice(0, 2).map((a, i) => (
+                              <details
+                                key={i}
+                                className="rounded-lg border border-emerald-400/20 bg-emerald-400/5"
+                              >
+                                <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2.5 py-1.5 text-[11px]">
+                                  <FileText className="size-3 shrink-0 text-emerald-600 dark:text-emerald-300" />
+                                  <span className="truncate font-medium">
+                                    {String(a.source ?? a.organization ?? "Source")}
+                                  </span>
+                                </summary>
+                                <p className="px-2.5 pb-2 text-[11px] leading-5 text-muted-foreground">
+                                  {String(a.sourceFact ?? "")}
+                                </p>
+                              </details>
+                            ))}
+                            <p className="text-[10px] italic text-muted-foreground">
+                              This is not legal advice.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Evidence */}
+                      {t.evidence && t.evidence.length > 0 && (
+                        <div className="mt-1.5 space-y-1">
+                          {t.evidence.slice(0, 4).map((e, i) => (
+                            <details
+                              key={`${t.id}-e${i}`}
+                              className="rounded-lg border border-border/60 bg-muted/20"
+                            >
+                              <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-1.5 text-[11px]">
+                                <FileText className="size-3 shrink-0 text-teal-600 dark:text-teal-300" />
+                                <span className="truncate font-medium">
+                                  {String(e.documentTitle ?? e.title ?? e.kind ?? "Evidence")}
+                                </span>
+                                {e.evidenceType ? (
+                                  <KnowledgeBadge classification={String(e.evidenceType)} />
+                                ) : null}
+                              </summary>
+                              {e.snippet ? (
+                                <p className="px-2.5 pb-2 text-[11px] leading-5 text-muted-foreground">
+                                  {String(e.snippet)}
+                                </p>
+                              ) : null}
+                            </details>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ),
+              )}
+
+              {busy && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <div className="flex size-7 items-center justify-center rounded-full bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
+                    <Bot className="size-3.5" />
+                  </div>
+                  <div className="flex items-center gap-2 rounded-2xl rounded-tl-sm border border-border/70 bg-card px-3.5 py-2.5">
+                    <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
+                    <span className="flex gap-1">
+                      {[0, 1, 2].map((i) => (
+                        <span
+                          key={i}
+                          className="size-1.5 animate-bounce rounded-full bg-teal-500/70"
+                          style={{ animationDelay: `${i * 140}ms` }}
+                        />
+                      ))}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="border-t border-border/60 p-3">
+              {voice.interim && micState === "listening" && (
+                <p className="mb-1.5 px-1 text-[11px] italic text-muted-foreground">
+                  “{voice.interim}”
+                </p>
+              )}
+              {voice.error && (
+                <p className="mb-1.5 rounded-lg border border-rose-400/25 bg-rose-400/5 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-200">
+                  {voice.error}
+                </p>
+              )}
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => voice.toggle()}
+                  title={micState === "listening" ? "Stop listening" : "Press to talk"}
+                  className={`flex size-10 shrink-0 items-center justify-center rounded-xl border transition-colors ${
+                    micState === "listening"
+                      ? "animate-pulse border-rose-400/40 bg-rose-500 text-white"
+                      : micState === "speaking"
+                        ? "border-teal-400/40 bg-teal-400/15 text-teal-600 dark:text-teal-300"
+                        : voice.supported
+                          ? "border-border/70 bg-muted/40 text-muted-foreground hover:border-teal-400/40 hover:text-teal-600 dark:hover:text-teal-300"
+                          : "border-border/50 bg-muted/20 text-muted-foreground/50"
+                  }`}
+                >
+                  {micState === "listening" ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+                </button>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      void send();
+                    }
+                  }}
+                  rows={1}
+                  placeholder="Talk or type to Atlas…"
+                  className="max-h-28 min-h-10 flex-1 resize-none rounded-xl border border-border/70 bg-card/70 px-3 py-2.5 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20"
+                />
+                <button
+                  type="button"
+                  onClick={() => void send()}
+                  disabled={busy || !input.trim()}
+                  className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-40"
+                >
+                  {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                </button>
+              </div>
+              <div className="mt-2 flex items-center justify-between px-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutoSpeak((v) => !v);
+                    if (autoSpeak) voice.stopSpeaking();
+                  }}
+                  className={`flex items-center gap-1.5 text-[11px] transition-colors ${
+                    autoSpeak ? "text-teal-600 dark:text-teal-300" : "text-muted-foreground/60"
+                  }`}
+                >
+                  {autoSpeak ? <Volume2 className="size-3" /> : <VolumeX className="size-3" />}
+                  {autoSpeak ? "Auto-speak on" : "Auto-speak off"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void voice.speak(turns[turns.length - 1]?.spoken ?? "")}
+                  disabled={turns.length === 0}
+                  className="text-[11px] text-muted-foreground/60 transition-colors hover:text-teal-600 dark:hover:text-teal-300 disabled:opacity-40"
+                >
+                  Replay last response
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}

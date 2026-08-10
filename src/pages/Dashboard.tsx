@@ -19,7 +19,9 @@ import {
   ArrowRight,
   BadgeDollarSign,
   ClipboardList,
+  Compass,
   Database,
+  FileSearch,
   FileUp,
   FlaskConical,
   MessageSquareText,
@@ -329,6 +331,80 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+        </div>
+      </Panel>
+
+      {/* Phase 12 — quick commands (restoration MVP) */}
+      <Panel
+        title="Quick commands"
+        description="The restoration demo journey — each command runs against your real claim records."
+      >
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("What money are we leaving on the table?")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-3 text-left transition-all hover:border-emerald-400/50 hover:bg-emerald-400/10"
+          >
+            <BadgeDollarSign className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Find missing revenue</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                “What are we leaving on the table?”
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/revenue-recovery")}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
+          >
+            <ClipboardList className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Review claims</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Claims, packages & supplements
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Build the claim package")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-sky-400/40 hover:bg-muted/40"
+          >
+            <Compass className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Build claim package</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Verified, derived & missing labels
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Find potential supplements")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-left transition-all hover:border-amber-400/50 hover:bg-amber-400/10"
+          >
+            <FileSearch className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Find supplements</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Scan claims for opportunities
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/ask")}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
+          >
+            <MessageSquareText className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Ask Atlas</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Talk or type anything
+              </span>
+            </span>
+          </button>
         </div>
       </Panel>
 

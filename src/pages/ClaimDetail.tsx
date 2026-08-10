@@ -29,10 +29,12 @@ import {
   ClipboardCheck,
   FileText,
   Flame,
+  History,
   Landmark,
   Loader2,
   Radar,
   RefreshCw,
+  ScrollText,
   Search,
   ShieldAlert,
   Sparkles,
@@ -47,6 +49,14 @@ function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
+
+const PACKAGE_TONE: Record<string, string> = {
+  verified: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  derived: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  inferred: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
+  missing: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  conflicting: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+};
 
 const COMPLETENESS_TONE: Record<string, string> = {
   verified: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
@@ -92,6 +102,7 @@ export default function ClaimDetail() {
   const [payAmount, setPayAmount] = useState("");
   const [creating, setCreating] = useState(false);
   const [supForm, setSupForm] = useState({ reason: "", amount: "", justification: "" });
+  const [docSup, setDocSup] = useState<Id<"claimSupplements"> | null>(null);
 
   const submitSupplement = async () => {
     if (!supForm.reason.trim()) {
@@ -154,7 +165,7 @@ export default function ClaimDetail() {
     );
   }
 
-  const { supplements, findings, evidenceDocs, completeness, reconciliation } = pkg;
+  const { supplements, findings, evidenceDocs, completeness, reconciliation, timeline, packageModel } = pkg;
   const openFindings = findings.filter((f) => f.status === "open");
   const scorePct = Math.round(completeness.score * 100);
   // pkg is narrowed non-null above, so the claim always exists here.
@@ -341,6 +352,47 @@ export default function ClaimDetail() {
             </p>
           </Panel>
 
+          {/* Phase 12 — claim package field states */}
+          <Panel
+            title="Claim package"
+            description="Every material field is labeled — verified (source-backed), derived (calculated), missing (not on file) or conflicting (sources disagree). Atlas never presents a missing or inferred value as fact."
+          >
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {(Object.entries(packageModel.states) as Array<[string, number]>)
+                .filter(([, n]) => n > 0)
+                .map(([state, n]) => (
+                  <span
+                    key={state}
+                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${PACKAGE_TONE[state] ?? ""}`}
+                  >
+                    {state} · {n}
+                  </span>
+                ))}
+            </div>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {packageModel.fields.map((f) => (
+                <div
+                  key={f.key}
+                  className="flex items-start justify-between gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-foreground">{f.label}</p>
+                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground">
+                      {f.value ?? "—"}
+                    </p>
+                    <p className="mt-0.5 text-[10px] leading-4 text-muted-foreground/80">{f.note}</p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`shrink-0 font-mono text-[9px] uppercase tracking-wide ${PACKAGE_TONE[f.state] ?? ""}`}
+                  >
+                    {f.state}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </Panel>
+
           {/* Completeness */}
           <Panel
             title="Claim package completeness"
@@ -410,6 +462,42 @@ export default function ClaimDetail() {
               <p className="mt-3 text-[11px] text-muted-foreground">
                 Evidence categories: {claim.evidenceSummary!.join(", ")}
               </p>
+            )}
+          </Panel>
+
+          {/* Phase 12 — claim timeline */}
+          <Panel
+            title="Claim timeline"
+            description="Chronological, evidence-grounded history. Violet markers are Atlas-generated events; teal markers are source-system events."
+          >
+            {timeline.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No timeline events yet — record evidence, findings or supplements and they'll appear here.
+              </p>
+            ) : (
+              <ol className="relative space-y-4 border-l border-border/60 pl-5">
+                {timeline.map((e, i) => (
+                  <li key={`${e.ts}-${i}`} className="relative">
+                    <span
+                      className={`absolute -left-[25px] top-1 size-2.5 rounded-full ring-4 ring-background ${
+                        e.source === "atlas" ? "bg-violet-400" : "bg-teal-400"
+                      }`}
+                    />
+                    <p className="text-xs font-medium text-foreground">{e.label}</p>
+                    {e.detail && (
+                      <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">{e.detail}</p>
+                    )}
+                    <p className="mt-0.5 font-mono text-[10px] text-muted-foreground/60">
+                      {formatDate(e.ts)}
+                      {e.source === "atlas" && (
+                        <span className="ml-1.5 rounded border border-violet-400/30 bg-violet-400/10 px-1 py-px font-mono text-[9px] uppercase tracking-wide text-violet-600 dark:text-violet-300">
+                          Atlas
+                        </span>
+                      )}
+                    </p>
+                  </li>
+                ))}
+              </ol>
             )}
           </Panel>
         </div>
@@ -518,6 +606,16 @@ export default function ClaimDetail() {
                     {s.justification && (
                       <p className="mt-2 text-[11px] leading-5 text-muted-foreground">{s.justification}</p>
                     )}
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 gap-1 text-[11px]"
+                        onClick={() => setDocSup(s._id)}
+                      >
+                        <ScrollText className="size-3" /> View document
+                      </Button>
+                    </div>
                     {(s.status === "draft" || s.status === "ready_for_submission") && (
                       <div className="mt-2.5 flex flex-wrap gap-1.5">
                         {s.status === "draft" && (
@@ -667,6 +765,94 @@ export default function ClaimDetail() {
           </Panel>
         </div>
       </div>
+
+      {/* Phase 12 — structured supplement document for review */}
+      <SupplementDocumentDialog
+        claimId={claimId}
+        supplementId={docSup}
+        open={docSup !== null}
+        onClose={() => setDocSup(null)}
+      />
     </div>
+  );
+}
+
+/** Structured supplement document — sections assembled from verified records. */
+function SupplementDocumentDialog({
+  claimId,
+  supplementId,
+  open,
+  onClose,
+}: {
+  claimId: Id<"insuranceClaims">;
+  supplementId: Id<"claimSupplements"> | null;
+  open: boolean;
+  onClose: () => void;
+}) {
+  const doc = useQuery(
+    api.insurance.claims.getSupplementDocument,
+    supplementId ? { claimId, supplementId } : "skip",
+  );
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Supplement document · draft for review</DialogTitle>
+          <DialogDescription>
+            {doc?.disclaimer ?? "Loading the structured supplement document…"}
+          </DialogDescription>
+        </DialogHeader>
+        {doc === undefined ? (
+          <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
+            Loading document…
+          </p>
+        ) : (
+          <div className="space-y-3 py-1">
+            <div className="flex flex-wrap gap-1.5">
+              <Badge
+                variant="outline"
+                className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
+              >
+                Status: {(doc.status ?? "draft").replace(/_/g, " ")}
+              </Badge>
+              {typeof doc.requestedAmount === "number" && (
+                <Badge
+                  variant="outline"
+                  className="font-mono text-[10px] text-emerald-600 dark:text-emerald-300"
+                >
+                  Requested ${doc.requestedAmount.toLocaleString()}
+                </Badge>
+              )}
+            </div>
+            {doc.sections.map((s) => (
+              <div
+                key={s.title}
+                className="rounded-lg border border-border/60 bg-muted/20 p-3"
+              >
+                <p className="text-xs font-semibold uppercase tracking-wide text-foreground">
+                  {s.title}
+                </p>
+                <div className="mt-1.5 space-y-1">
+                  {s.body.map((line, i) => (
+                    <p key={i} className="text-[11px] leading-5 text-muted-foreground">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[10px] italic leading-4 text-amber-700 dark:text-amber-200">
+              {doc.disclaimer}
+            </p>
+          </div>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

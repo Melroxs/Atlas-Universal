@@ -386,9 +386,108 @@ export function analyzeRecoveryOpportunities(facts: ClaimFacts): RecoveryOpportu
   );
 }
 
+// --- Restoration concept glossary (Phase 12) ----------------------------------
+//
+// Domain vocabulary for the restoration vertical. Every concept carries an
+// honest "context varies" note — Atlas never encodes carrier-, policy- or
+// jurisdiction-specific rules as universal rules. Where a concept varies, the
+// relevant context (carrier, policy, jurisdiction, contract, municipality,
+// project) is named so the claim/package must resolve it.
+// -----------------------------------------------------------------------------
+
+export interface RestorationConcept {
+  term: string;
+  meaning: string;
+  /** Where this concept varies and must be resolved per claim. */
+  contextVaries: string;
+  isUniversal: boolean;
+}
+
+export const RESTORATION_CONCEPTS: RestorationConcept[] = [
+  { term: "First notice of loss (FNOL)", meaning: "The initial report of a loss to the carrier that opens the claim record.", contextVaries: "Notification channel and required details vary by carrier and policy.", isUniversal: false },
+  { term: "Claim documentation", meaning: "The evidence set — photos, logs, reports, correspondence — that supports the claim and each line item.", contextVaries: "Specific required documents vary by carrier, jurisdiction and loss type.", isUniversal: false },
+  { term: "Inspection", meaning: "On-site documentation of damage that feeds the scope and estimate.", contextVaries: "Who inspects and what is recorded varies by carrier and policy.", isUniversal: false },
+  { term: "Scope", meaning: "The documented set of damage and required work that a claim or supplement covers.", contextVaries: "Scope boundaries and conventions vary by project, policy and carrier.", isUniversal: false },
+  { term: "Estimating", meaning: "Pricing the scope into a line-item estimate (commonly Xactimate in this industry).", contextVaries: "Line-item format and pricing references vary by estimating system and carrier.", isUniversal: false },
+  { term: "Mitigation", meaning: "Emergency work that stops further damage (extraction, drying, temporary protection).", contextVaries: "What counts as emergency mitigation varies by policy and carrier guidelines.", isUniversal: false },
+  { term: "Remediation", meaning: "Work that returns the property to a safe, habitable condition (mold, contaminants, deodorization).", contextVaries: "Standards and documentation vary by jurisdiction and applicable regulations.", isUniversal: false },
+  { term: "Repair / reconstruction", meaning: "Replacing or rebuilding damaged components to the pre-loss condition.", contextVaries: "Rebuild scope and payment terms vary by policy and contract.", isUniversal: false },
+  { term: "Depreciation", meaning: "Reduction of payment based on age/wear of damaged items, often recoverable after repairs.", contextVaries: "Depreciation method and recoverability vary by policy, carrier and state.", isUniversal: false },
+  { term: "Deductible", meaning: "The policyholder's out-of-pocket amount that is commonly deducted from payment.", contextVaries: "Deductible amount and who pays it vary by policy and jurisdiction.", isUniversal: false },
+  { term: "Supplement", meaning: "A formal request for additional scope/amount beyond the original estimate.", contextVaries: "Approval requirements, timing and forms vary by carrier and contract.", isUniversal: false },
+  { term: "Change order", meaning: "A contract-level scope change document (project side of a supplement).", contextVaries: "Contract terms define when a change order is required.", isUniversal: false },
+  { term: "Invoice", meaning: "The billing document issued against approved scope.", contextVaries: "Format, references and timing vary by carrier and contract (commonly net-30).", isUniversal: false },
+  { term: "Proof of work", meaning: "Documentation that the work was performed as billed (photos, logs, sign-offs).", contextVaries: "What constitutes acceptable proof varies by carrier.", isUniversal: false },
+  { term: "Proof of loss", meaning: "Formal loss documentation the policyholder submits to the carrier.", contextVaries: "Form and deadline vary by policy and jurisdiction.", isUniversal: false },
+  { term: "Payment reconciliation", meaning: "Matching payments to approved scope, invoices and outstanding balances.", contextVaries: "Reconciliation expectations vary by carrier and accounting practice.", isUniversal: false },
+  { term: "Recoverable amounts", meaning: "Amounts the company may still be entitled to collect (unpaid approved scope, recoverable depreciation, pending supplements).", contextVaries: "Recoverability is determined per policy, carrier response and evidence — never assumed.", isUniversal: false },
+  { term: "Claim closeout", meaning: "Final reconciliation and closure of the claim record after payment.", contextVaries: "Closeout requirements vary by carrier and contract.", isUniversal: false },
+];
+
+/**
+ * Industry authority references for restoration. These are informational
+ * pointers — Atlas keeps SOURCE FACT (what an authority actually says)
+ * separate from ATLAS INTERPRETATION and organization-specific evidence, and
+ * never presents its own interpretation as law or carrier policy.
+ */
+export interface AuthorityReference {
+  name: string;
+  kind: "standards" | "regulator" | "code" | "publication";
+  scope: string;
+  /** Explicit: what an authority may govern varies by state/jurisdiction. */
+  note: string;
+  url?: string;
+}
+
+export const AUTHORITY_REFERENCES: AuthorityReference[] = [
+  {
+    name: "IICRC S500 (water damage restoration)",
+    kind: "standards",
+    scope: "Water damage restoration standard of care — commonly referenced in the industry.",
+    note: "Industry standard, not law; its application varies by project and contract.",
+    url: "https://iicrc.org/standards/",
+  },
+  {
+    name: "IICRC S520 (mold remediation)",
+    kind: "standards",
+    scope: "Mold remediation standard of care.",
+    note: "Industry standard; local and state regulations may impose additional requirements.",
+    url: "https://iicrc.org/standards/",
+  },
+  {
+    name: "State insurance department",
+    kind: "regulator",
+    scope: "Insurance regulation, claims-handling rules and consumer protections in the applicable state.",
+    note: "Each state has its own department and rules — applicable jurisdiction must be resolved per claim.",
+  },
+  {
+    name: "Building codes (applicable municipality/state)",
+    kind: "code",
+    scope: "Construction and repair must meet applicable codes at the property location.",
+    note: "Codes vary by municipality and state; Atlas never asserts a code requirement without the governing source.",
+  },
+  {
+    name: "Contractor licensing authority",
+    kind: "regulator",
+    scope: "Licensing and records requirements for contractors in the applicable state.",
+    note: "Requirements vary by state and trade — verify against the governing authority.",
+  },
+  {
+    name: "EPA RRP rule (lead-safe renovation)",
+    kind: "regulator",
+    scope: "Federal lead-safe work practice requirements for renovation of pre-1978 housing.",
+    note: "Applies where triggered (pre-1978 housing); states may add stricter rules.",
+    url: "https://www.epa.gov/lead/renovation-repair-and-painting-program",
+  },
+];
+
 /** Insurance intelligence bundle served to the UI and Ask Atlas. */
 export const INSURANCE_INTELLIGENCE = {
   lifecycle: CLAIM_LIFECYCLE,
   evidenceCategories: CLAIM_EVIDENCE_CATEGORIES,
   baseline: CLAIM_BASELINE,
+  /** Phase 12 — restoration vocabulary for the vertical. */
+  restorationConcepts: RESTORATION_CONCEPTS,
+  /** Phase 12 — informational authority references (never presented as law). */
+  authorityReferences: AUTHORITY_REFERENCES,
 };

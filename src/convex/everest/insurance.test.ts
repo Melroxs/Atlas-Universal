@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTHORITY_REFERENCES,
   CLAIM_BASELINE,
   CLAIM_EVIDENCE_CATEGORIES,
   CLAIM_LIFECYCLE,
+  INSURANCE_INTELLIGENCE,
+  RESTORATION_CONCEPTS,
   analyzeRecoveryOpportunities,
 } from "./insurance";
 
@@ -197,5 +200,54 @@ describe("revenue recovery intelligence", () => {
       expect(o.recommendedNextStep.length).toBeGreaterThan(10);
       expect(o.limitation.length).toBeGreaterThan(10);
     }
+  });
+});
+
+describe("restoration concept glossary (Phase 12)", () => {
+  it("covers the restoration vocabulary", () => {
+    const terms = RESTORATION_CONCEPTS.map((c) => c.term);
+    for (const t of [
+      "First notice of loss (FNOL)",
+      "Inspection",
+      "Mitigation",
+      "Remediation",
+      "Depreciation",
+      "Deductible",
+      "Supplement",
+      "Change order",
+      "Proof of work",
+      "Proof of loss",
+      "Payment reconciliation",
+      "Recoverable amounts",
+      "Claim closeout",
+    ]) {
+      expect(terms).toContain(t);
+    }
+  });
+
+  it("never encodes carrier- or policy-specific rules as universal rules", () => {
+    for (const c of RESTORATION_CONCEPTS) {
+      expect(c.meaning.length).toBeGreaterThan(10);
+      expect(c.contextVaries.length).toBeGreaterThan(10);
+      expect(c.isUniversal).toBe(false);
+    }
+  });
+});
+
+describe("industry authority references (Phase 12)", () => {
+  it("keeps source facts separate from Atlas interpretation", () => {
+    expect(AUTHORITY_REFERENCES.length).toBeGreaterThanOrEqual(4);
+    for (const a of AUTHORITY_REFERENCES) {
+      expect(a.scope.length).toBeGreaterThan(10);
+      expect(a.note).toMatch(/varies|standard|not law|state|applicable/i);
+    }
+    const kinds = AUTHORITY_REFERENCES.map((a) => a.kind);
+    expect(kinds).toContain("standards");
+    expect(kinds).toContain("regulator");
+  });
+
+  it("bundles the deepened vertical intelligence", () => {
+    expect(INSURANCE_INTELLIGENCE.restorationConcepts).toBe(RESTORATION_CONCEPTS);
+    expect(INSURANCE_INTELLIGENCE.authorityReferences).toBe(AUTHORITY_REFERENCES);
   });
 });

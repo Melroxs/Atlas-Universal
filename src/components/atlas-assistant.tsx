@@ -2,14 +2,24 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { KnowledgeBadge, formatDate } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useVoice } from "@/hooks/use-voice";
 import { useAction, useMutation } from "convex/react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertTriangle,
   Bot,
   Check,
   CircleStop,
   FileText,
+  HelpCircle,
   Landmark,
   Loader2,
   MessageSquareText,
@@ -127,6 +137,10 @@ export function AtlasAssistant({
   const [busy, setBusy] = useState(false);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [voiceIntro, setVoiceIntro] = useState(false);
+  const voiceIntroSeenRef = useRef(
+    typeof localStorage !== "undefined" && !!localStorage.getItem("atlas-voice-intro"),
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const busyRef = useRef(false);
   const navigate = useNavigate();
@@ -140,6 +154,26 @@ export function AtlasAssistant({
     const saved = localStorage.getItem(SESSION_KEY);
     if (saved) setSessionId(saved);
   }, []);
+
+  // Phase 12 — “Meet Atlas Voice” onboarding: shown once on first assistant
+  // open so microphone use is always explicit and explained. Never silently
+  // activates the mic.
+  useEffect(() => {
+    if (open && !voiceIntroSeenRef.current) {
+      const t = setTimeout(() => setVoiceIntro(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
+
+  const closeVoiceIntro = () => {
+    setVoiceIntro(false);
+    voiceIntroSeenRef.current = true;
+    try {
+      localStorage.setItem("atlas-voice-intro", "1");
+    } catch {
+      // best-effort
+    }
+  };
 
   useEffect(() => {
     if (open) {
@@ -680,6 +714,15 @@ export function AtlasAssistant({
                   {autoSpeak ? "Auto-speak on" : "Auto-speak off"}
                 </button>
                 <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setVoiceIntro(true)}
+                    title="Meet Atlas Voice — how listening works"
+                    className="flex items-center gap-1.5 text-[11px] text-muted-foreground/60 transition-colors hover:text-teal-600 dark:hover:text-teal-300"
+                  >
+                    <HelpCircle className="size-3" />
+                    Voice
+                  </button>
                   {/* Phase 11 — ambient mode toggle: “Say Atlas and Atlas is ready.” */}
                   <button
                     type="button"
@@ -712,6 +755,87 @@ export function AtlasAssistant({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Phase 12 — “Meet Atlas Voice” onboarding: explicit, honest mic UX. */}
+      <Dialog open={voiceIntro} onOpenChange={(o) => !o && closeVoiceIntro()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Radar className="size-4 text-teal-600 dark:text-teal-300" />
+              Meet Atlas Voice
+            </DialogTitle>
+            <DialogDescription>
+              Atlas can listen for the wake word “Atlas” and take spoken commands — but only
+              when you enable it, and only in this browser.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-1 text-[12px] leading-5">
+            <div className="flex gap-2.5">
+              <Mic className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">What the microphone is used for</span> —
+                recognizing the wake word and your commands. Audio is processed by your browser's
+                speech recognition; raw audio is not uploaded to Atlas.
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              <Radar className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">When Atlas listens</span> — only when
+                ambient listening is enabled. The status pill above always shows the live state
+                (listening, thinking, speaking).
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              <Sparkles className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">How the wake word works</span> — say
+                “Atlas”, wait for the chime, then give your command. Duplicate triggers are
+                suppressed, and Atlas never wakes itself while speaking.
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              <ShieldAlert className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">Privacy</span> — voice commands go
+                through the same conversation engine, permissions and audit as typed messages.
+                No microphone data is sent to Atlas servers.
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">Browser limits</span> — ambient
+                listening works while this app is open in the active tab. Browsers do not guarantee
+                true background listening, so Atlas never claims otherwise.
+              </p>
+            </div>
+            <div className="flex gap-2.5">
+              <CircleStop className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-300" />
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">How to disable</span> — switch
+                “Ambient” off in the assistant footer, or revoke microphone permission in your
+                browser at any time.
+              </p>
+            </div>
+          </div>
+          <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+            <Button variant="outline" size="sm" onClick={closeVoiceIntro}>
+              Later
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                closeVoiceIntro();
+                if (!voice.ambientEnabled) void voice.enableAmbient();
+              }}
+            >
+              <Mic className="mr-1.5 size-3.5" />
+              Enable ambient listening
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

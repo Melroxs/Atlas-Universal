@@ -64,52 +64,44 @@ const NAV_SECTIONS: Array<{
   }>;
 }> = [
   {
-    label: "Operate",
+    label: "Operations",
     items: [
       { to: "/dashboard", label: "Atlas Home", icon: LayoutGrid },
-      { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
-      { to: "/dashboard/actions", label: "Actions", icon: Zap },
-    ],
-  },
-  {
-    label: "Company knowledge",
-    items: [
-      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
-      { to: "/dashboard/connections", label: "Connections", icon: Cable },
-      { to: "/dashboard/intelligence", label: "Intelligence", icon: Layers },
-      { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
-    ],
-  },
-  {
-    label: "Industry verticals",
-    items: [
       {
         to: "/dashboard/revenue-recovery",
         label: "Revenue Recovery",
         icon: TrendingUp,
       },
+      { to: "/dashboard/workflows", label: "Workflows", icon: Workflow },
     ],
   },
   {
-    label: "Signals & audit",
+    label: "Intelligence",
     items: [
+      { to: "/dashboard/intelligence", label: "Atlas Intelligence", icon: Layers },
+      { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
+      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
+      { to: "/dashboard/events", label: "Events", icon: Activity },
+    ],
+  },
+  {
+    label: "Atlas",
+    items: [
+      { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
+      { to: "/dashboard/actions", label: "Actions", icon: Zap },
       {
         to: "/dashboard/recommendations",
         label: "Recommendations",
         icon: Target,
         badge: "open",
       },
-      { to: "/dashboard/events", label: "Events", icon: Activity },
       { to: "/dashboard/audit", label: "Activity / Audit", icon: ScrollText },
     ],
   },
   {
-    label: "Automation",
-    items: [{ to: "/dashboard/workflows", label: "Workflows", icon: Workflow }],
-  },
-  {
     label: "Workspace",
     items: [
+      { to: "/dashboard/connections", label: "Connections", icon: Cable },
       { to: "/dashboard/team", label: "Team", icon: Users },
       { to: "/dashboard/settings", label: "Settings", icon: Settings2 },
     ],

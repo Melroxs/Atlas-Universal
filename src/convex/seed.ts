@@ -3,6 +3,7 @@ import { mutation } from "./_generated/server";
 import { localEmbed } from "./ai/localEmbed";
 import { chunkText } from "./lib/text";
 import { requireTenant, requireUser } from "./helpers";
+import { buildClaimFindings } from "./insurance/claims";
 
 const SOP_TEXT = `Restoration SOP — Documentation Standards
 Atlas Restoration Services, Inc.
@@ -459,5 +460,273 @@ export const seedDemoData = mutation({
       entities: entitySpecs.length,
       assertions: assertions.length,
     };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 12 — labeled RESTORATION DEMO claims (Insurance Restoration vertical)
+//
+// Realistic but clearly-marked demo records so the MVP story works end-to-end:
+// “What money are we leaving on the table?” → open the top claim → “what's
+// missing?” → “build the claim package” → “find potential supplements” →
+// “draft the supplement”. Every record is explicitly labeled DEMO — never
+// represented as real customer information.
+// ---------------------------------------------------------------------------
+
+const DEMO_CLAIMS = [
+  {
+    claimNumber: "CLM-1042",
+    customer: "Maria Gonzalez (DEMO)",
+    property: "1420 Cedar Lane (DEMO)",
+    carrier: "Northbrook Insurance",
+    policy: "NB-HO-1042",
+    adjuster: "Dan Whitfield",
+    dateOfLoss: Date.UTC(2026, 6, 1),
+    causeOfLoss: "Water damage — supply line burst",
+    lossDescription: "Burst supply line flooded the finished basement; mitigation and reconstruction in progress.",
+    status: "billing",
+    estimateAmount: 4200,
+    estimateLineItemCount: 12,
+    invoicedAmount: 4200,
+    approvedAmount: 4200,
+    collectedAmount: 0,
+    deductible: 1000,
+    policyLimits: 50000,
+    expectedScope: ["extraction", "drying", "demo", "drywall", "paint", "flooring"],
+    actualScope: ["extraction", "drying", "demo", "drywall", "paint", "flooring"],
+    evidenceSummary: ["damage", "scope", "quantity", "pricing", "necessity"],
+    timeline: [
+      { ts: Date.UTC(2026, 6, 3), kind: "note", label: "Inspection completed", detail: "Adjuster Dan Whitfield inspected the loss.", source: "source" },
+      { ts: Date.UTC(2026, 6, 9), kind: "note", label: "Estimate approved", detail: "Carrier approved the $4,200 estimate.", source: "source" },
+      { ts: Date.UTC(2026, 6, 25), kind: "note", label: "Invoice issued", detail: "Invoice INV-1042 for $4,200 — unpaid in accounting.", source: "source" },
+    ],
+  },
+  {
+    claimNumber: "CLM-1187",
+    customer: "James Okafor (DEMO)",
+    property: "88 Willow Court (DEMO)",
+    carrier: "Northbrook Insurance",
+    policy: "NB-HO-1187",
+    adjuster: "Dan Whitfield",
+    dateOfLoss: Date.UTC(2026, 5, 18),
+    causeOfLoss: "Water damage — roof leak",
+    lossDescription: "Roof leak damaged the attic and upper-floor ceilings; drying log has a documentation gap.",
+    status: "supplement_prepared",
+    estimateAmount: 6850,
+    estimateLineItemCount: 9,
+    invoicedAmount: 6850,
+    collectedAmount: 0,
+    deductible: 1000,
+    policyLimits: 50000,
+    expectedScope: ["extraction", "drying", "demo", "drywall", "paint"],
+    actualScope: ["extraction", "drying", "demo", "drywall", "paint", "drying-extension"],
+    evidenceSummary: ["damage", "scope"],
+    timeline: [
+      { ts: Date.UTC(2026, 5, 20), kind: "note", label: "Drying log started", detail: "Moisture readings recorded days 1–3 only; days 4–6 missing.", source: "source" },
+      { ts: Date.UTC(2026, 6, 10), kind: "note", label: "Supplement opportunity identified", detail: "Additional drying equipment days beyond original scope.", source: "atlas" },
+    ],
+  },
+  {
+    claimNumber: "CLM-1210",
+    customer: "Sarah Kim (DEMO)",
+    property: "27 Birch Street (DEMO)",
+    carrier: "Northbrook Insurance",
+    policy: "NB-HO-1210",
+    adjuster: "Dan Whitfield",
+    dateOfLoss: Date.UTC(2026, 3, 5),
+    causeOfLoss: "Water damage — appliance leak",
+    lossDescription: "Washing machine leak — fully mitigated, reconstructed and paid.",
+    status: "closed",
+    estimateAmount: 2750,
+    estimateLineItemCount: 6,
+    invoicedAmount: 2750,
+    approvedAmount: 2750,
+    collectedAmount: 2750,
+    paymentAmount: 2750,
+    deductible: 500,
+    policyLimits: 50000,
+    expectedScope: ["extraction", "drying", "demo", "drywall", "paint"],
+    actualScope: ["extraction", "drying", "demo", "drywall", "paint"],
+    evidenceSummary: ["damage", "scope", "quantity", "pricing", "necessity"],
+    timeline: [
+      { ts: Date.UTC(2026, 3, 12), kind: "note", label: "Estimate approved", detail: "Carrier approved $2,750.", source: "source" },
+      { ts: Date.UTC(2026, 4, 2), kind: "payment", label: "Payment received", detail: "$2,750 collected — claim fully reconciled.", source: "source" },
+    ],
+  },
+  {
+    claimNumber: "CLM-2015",
+    customer: "Harborview Property Group (DEMO)",
+    property: "44 Marina Drive, Bldg B (DEMO)",
+    carrier: "Northbrook Insurance",
+    policy: "NB-CP-2015",
+    adjuster: "Rosa Delgado",
+    dateOfLoss: Date.UTC(2026, 4, 22),
+    causeOfLoss: "Wind and hail — roof and siding",
+    lossDescription: "Storm damage to the roof and siding; invoiced total exceeds the priced estimate.",
+    status: "billing",
+    estimateAmount: 13000,
+    estimateLineItemCount: 4,
+    invoicedAmount: 14500,
+    collectedAmount: 0,
+    deductible: 2500,
+    policyLimits: 100000,
+    expectedScope: ["roof-tarp", "roof-replacement", "siding", "gutters", "windows", "cleanup"],
+    actualScope: ["roof-tarp", "roof-replacement", "siding", "gutters", "windows", "cleanup"],
+    evidenceSummary: ["damage", "scope", "quantity", "necessity"],
+    timeline: [
+      { ts: Date.UTC(2026, 4, 28), kind: "note", label: "Invoice issued", detail: "Invoice INV-2015 for $14,500 — exceeds the $13,000 estimate.", source: "source" },
+    ],
+  },
+  {
+    claimNumber: "CLM-2018",
+    customer: "Brightfield Facilities LLC (DEMO)",
+    property: "310 Commerce Park (DEMO)",
+    carrier: "Northbrook Insurance",
+    policy: "NB-CP-2018",
+    adjuster: "Rosa Delgado",
+    dateOfLoss: Date.UTC(2026, 3, 30),
+    causeOfLoss: "Fire and smoke damage — warehouse office",
+    lossDescription: "Office fire damage; invoiced in full but only partially paid — billing reconciliation needed.",
+    status: "reconciling",
+    estimateAmount: 6300,
+    estimateLineItemCount: 8,
+    invoicedAmount: 6300,
+    paymentAmount: 3000,
+    collectedAmount: 3000,
+    deductible: 1000,
+    policyLimits: 100000,
+    expectedScope: ["demo", "drywall", "paint", "electrical", "flooring"],
+    actualScope: ["demo", "drywall", "paint", "electrical", "flooring"],
+    evidenceSummary: ["damage", "scope", "quantity", "pricing", "necessity"],
+    timeline: [
+      { ts: Date.UTC(2026, 5, 14), kind: "payment", label: "Partial payment received", detail: "$3,000 of the $6,300 invoice — $3,300 remains outstanding.", source: "source" },
+    ],
+  },
+];
+
+/**
+ * Seed labeled demo claims (+ findings and a demo supplement draft).
+ * Idempotent: skips when the workspace already has insurance claims.
+ * All records are explicitly marked DEMO in their labels and provenance.
+ */
+export const seedDemoClaims = mutation({
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const existing = await ctx.db
+      .query("insuranceClaims")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
+    if (existing) {
+      return { seeded: false, claims: 0, findings: 0, supplements: 0 };
+    }
+
+    const now = Date.now();
+    const claims: string[] = [];
+    for (const demo of DEMO_CLAIMS) {
+      const id = await ctx.db.insert("insuranceClaims", {
+        tenantId,
+        claimNumber: demo.claimNumber,
+        customer: demo.customer,
+        property: demo.property,
+        carrier: demo.carrier,
+        policy: demo.policy,
+        adjuster: demo.adjuster,
+        dateOfLoss: demo.dateOfLoss,
+        causeOfLoss: demo.causeOfLoss,
+        lossDescription: demo.lossDescription,
+        status: demo.status,
+        currentStage: demo.status.replace(/_/g, " "),
+        estimateAmount: demo.estimateAmount,
+        estimateLineItemCount: demo.estimateLineItemCount,
+        invoicedAmount: demo.invoicedAmount,
+        paymentAmount: demo.paymentAmount ?? 0,
+        approvedAmount: demo.approvedAmount,
+        collectedAmount: demo.collectedAmount,
+        deductible: demo.deductible,
+        policyLimits: demo.policyLimits,
+        expectedScope: demo.expectedScope,
+        actualScope: demo.actualScope,
+        evidenceSummary: demo.evidenceSummary,
+        evidenceDocumentIds: [],
+        timeline: demo.timeline,
+        provenance: "DEMO DATA — sample claim for the restoration demo journey. Not real customer information.",
+        confidence: 0.8,
+        createdBy: userId,
+        createdAt: now - claims.length * 86_400_000,
+        updatedAt: now - claims.length * 86_400_000,
+      });
+      claims.push(String(id));
+
+      // Persist deterministic findings exactly like runClaimAnalysis would.
+      const drafts = buildClaimFindings({
+        ...demo,
+        _id: String(id),
+        paymentAmount: demo.paymentAmount ?? 0,
+      });
+      for (const d of drafts) {
+        await ctx.db.insert("claimFindings", {
+          tenantId,
+          claimId: id,
+          findingKey: `claim:${String(id)}:${d.category}`,
+          category: d.category,
+          title: d.title,
+          description: d.description,
+          affectedEstimateItem: d.affectedEstimateItem,
+          evidence: d.evidence,
+          source: d.source,
+          confidence: d.confidence,
+          estimatedAmount: d.estimatedAmount,
+          limitation: d.limitation,
+          recommendedNextStep: d.recommendedNextStep,
+          status: "open",
+          createdAt: now - claims.length * 86_400_000,
+          updatedAt: now - claims.length * 86_400_000,
+        });
+      }
+    }
+
+    // One demo supplement draft (James Okafor — additional drying days).
+    const supClaim = await ctx.db
+      .query("insuranceClaims")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .filter((q) => q.eq(q.field("claimNumber"), "CLM-1187"))
+      .first();
+    let supplements = 0;
+    if (supClaim) {
+      await ctx.db.insert("claimSupplements", {
+        tenantId,
+        claimId: supClaim._id,
+        reason: "Additional drying equipment days beyond original scope (DEMO)",
+        affectedLineItems: ["Drying — days 4–6"],
+        requestedItems: ["Drying equipment — extended period"],
+        evidence: [
+          "Drying log days 1–3 on file; days 4–6 require moisture readings",
+          "Documented scope does not include the drying extension",
+        ],
+        estimateDifference: 950,
+        amount: 950,
+        justification:
+          "Draft assembled from documented scope vs performed scope — DEMO. Requires human review; drying-log days 4–6 must be completed first.",
+        status: "draft",
+        provenance: "DEMO DATA — sample supplement draft for the demo journey. Requires human review.",
+        confidence: 0.6,
+        createdBy: userId,
+        createdAt: now - 86_400_000,
+        updatedAt: now - 86_400_000,
+      });
+      supplements = 1;
+    }
+
+    await ctx.runMutation(internal.internal.logAudit, {
+      tenantId,
+      actorType: "user",
+      actorId: userId,
+      actionType: "demo_claims_seeded",
+      targetType: "tenant",
+      metadata: { claims: claims.length, supplements },
+    });
+
+    return { seeded: true, claims: claims.length, findings: claims.length * 3, supplements };
   },
 });

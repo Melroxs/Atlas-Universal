@@ -3,6 +3,9 @@ import {
   CLAIM_STATUSES,
   analyzeClaimCompleteness,
   buildClaimFindings,
+  buildClaimPackage,
+  buildClaimTimeline,
+  buildSupplementDocument,
   pipelineIndexFor,
   reconcileClaim,
 } from "./claims";
@@ -157,3 +160,171 @@ describe("pipelineIndexFor", () => {
   });
 });
 
+describe("buildClaimPackage (Phase 12)", () => {
+  const base = {
+    _id: "c1",
+    claimNumber: "CLM-1",
+    customer: "Jane Doe",
+    estimateAmount: 25000,
+    invoicedAmount: 22000,
+    paymentAmount: 5000,
+  };
+
+  it("labels source-backed fields verified and empty fields missing", () => {
+    const p = buildClaimPackage(base);
+    expect(p.fields.find((f) => f.key === "claimNumber")?.state).toBe("verified");
+    expect(p.fields.find((f) => f.key === "estimate")?.state).toBe("verified");
+    expect(p.fields.find((f) => f.key === "carrier")?.state).toBe("missing");
+    expect(p.fields.find((f) => f.key === "adjuster")?.state).toBe("missing");
+  });
+
+  it("labels the open balance as derived from verified numbers", () => {
+    const p = buildClaimPackage({ estimateAmount: 10000, paymentAmount: 4000 });
+    const outstanding = p.fields.find((f) => f.key === "outstanding");
+    expect(outstanding?.state).toBe("derived");
+    expect(outstanding?.value).toBe("$6,000");
+  });
+
+  it("uses an explicitly recorded open balance as verified", () => {
+    const p = buildClaimPackage({ openBalance: 1234 });
+    expect(p.fields.find((f) => f.key === "outstanding")?.state).toBe("verified");
+  });
+
+  it("flags estimate vs invoice disagreement as conflicting", () => {
+    const p = buildClaimPackage(base);
+    const f = p.fields.find((x) => x.key === "estimateVsInvoice");
+    expect(f?.state).toBe("conflicting");
+    expect(p.states.conflicting).toBe(1);
+  });
+
+  it("never presents a missing value as verified", () => {
+    const p = buildClaimPackage({});
+    expect(p.states.verified).toBe(0);
+    expect(p.fields.filter((f) => f.state === "missing").length).toBeGreaterThan(0);
+    // The open balance is always computable — derived, never verified.
+    expect(p.fields.find((f) => f.key === "outstanding")?.state).toBe("derived");
+  });
+});
+
+describe("buildClaimTimeline (Phase 12)", () => {
+  const createdAt = 1_700_000_000_000;
+
+  it("composes claim, finding, supplement and payment events in chronological order", () => {
+    const tl = buildClaimTimeline(
+      { _id: "c1", createdAt, paymentAmount: 5000, updatedAt: createdAt + 900_000 },
+      [
+        {
+          reason: "Extra drying",
+          createdAt: createdAt + 100_000,
+          status: "approved",
+          approvedAmount: 950,
+          updatedAt: createdAt + 300_000,
+        },
+      ],
+      [{ title: "Potential missing scope", createdAt: createdAt + 200_000 }],
+    );
+    expect(tl.length).toBeGreaterThanOrEqual(4);
+    for (let i = 1; i < tl.length; i++) {
+      expect(tl[i].ts).toBeGreaterThanOrEqual(tl[i - 1].ts);
+    }
+  });
+
+  it("labels Atlas-generated events distinctly from source events", () => {
+    const tl = buildClaimTimeline({
+      _id: "c1",
+      createdAt,
+      timeline: [
+        { ts: createdAt - 1000, kind: "note", label: "Inspection completed", source: "source" },
+      ],
+    });
+    expect(tl.find((e) => e.label === "Inspection completed")?.source).toBe("source");
+    expect(tl.find((e) => e.kind === "claim_created")?.source).toBe("atlas");
+  });
+
+  it("dedupes identical events", () => {
+    const tl = buildClaimTimeline({
+      _id: "c1",
+      createdAt,
+      timeline: [
+        { ts: createdAt, kind: "note", label: "Same", source: "source" },
+        { ts: createdAt, kind: "note", label: "Same", source: "source" },
+      ],
+    });
+    expect(tl.filter((e) => e.label === "Same").length).toBe(1);
+  });
+
+  it("returns empty when no events exist", () => {
+    expect(buildClaimTimeline({})).toEqual([]);
+  });
+});
+
+describe("buildSupplementDocument (Phase 12)", () => {
+  it("produces the required structured sections", () => {
+    const doc = buildSupplementDocument(
+      {
+        claimNumber: "CLM-9",
+        customer: "A",
+        property: "B",
+        carrier: "C",
+        dateOfLoss: 1_700_000_000_000,
+        expectedScope: ["a"],
+        actualScope: ["a", "b"],
+      },
+      {
+        reason: "Hidden damage",
+        amount: 1200,
+        evidence: ["Photos"],
+        affectedLineItems: ["Drywall"],
+        requestedItems: ["Drywall replacement"],
+        justification: "Found during demo",
+        status: "draft",
+        createdAt: 1_700_000_000_000,
+      },
+    );
+    const titles = doc.sections.map((s) => s.title);
+    for (const t of [
+      "Claim information",
+      "Reason for supplement",
+      "Original scope",
+      "Revised scope / items requested",
+      "Supporting evidence",
+      "Affected line items",
+      "Justification",
+      "Requested amount",
+      "Limitations",
+      "Reviewer notes",
+    ]) {
+      expect(titles).toContain(t);
+    }
+    expect(doc.requestedAmount).toBe(1200);
+  });
+
+  it("never invents policy language or hides missing evidence", () => {
+    const doc = buildSupplementDocument({}, { reason: "r" });
+    const evidence = doc.sections.find((s) => s.title === "Supporting evidence");
+    expect(evidence?.body.join(" ")).toContain("No supporting evidence");
+    const lim = doc.sections.find((s) => s.title === "Limitations");
+    const limText = lim?.body.join(" ").toLowerCase() ?? "";
+    // Atlas interpretation is explicitly NOT presented as policy or carrier law.
+    expect(limText).toContain("policy language");
+    expect(limText).not.toContain("guaranteed");
+    expect(doc.disclaimer).toContain("not insurer policy");
+  });
+});
+
+describe("reconcileClaim — Phase 12 depth", () => {
+  it("flags estimate vs invoice mismatches", () => {
+    const r = reconcileClaim(
+      { estimateAmount: 25000, invoicedAmount: 22000, paymentAmount: 22000 },
+      [],
+    );
+    expect(r.notes.join(" ")).toContain("differ");
+    expect(r.hasDiscrepancy).toBe(true);
+  });
+
+  it("flags the unpaid portion of an invoice", () => {
+    const r = reconcileClaim({ invoicedAmount: 10000, paymentAmount: 4000 }, []);
+    expect(r.notes.join(" ")).toContain("$6,000 of the invoiced total remains unpaid");
+    expect(r.hasDiscrepancy).toBe(true);
+  });
+});

@@ -195,6 +195,120 @@ export const WORKFLOW_REGISTRY: WorkflowDefinition[] = [
     createdBy: "atlas-core",
     updatedAt: "2026-08-01",
   },
+
+  // -----------------------------------------------------------------------
+  // Real workflow 3 — New evidence → Revenue review (Insurance Restoration)
+  //
+  // Phase 12: the revenue-recovery vertical's first-class workflow. When a
+  // new document lands in the connected Drive, Atlas retrieves it, decides
+  // whether it could affect open claims/revenue (estimate, invoice, scope,
+  // supplement, photo evidence), verifies its current state through the tool
+  // runtime (READ), and notifies the workspace when it matters. Durable,
+  // read-oriented, no approval, no writes to Drive.
+  // -----------------------------------------------------------------------
+  {
+    id: "revenue.new_evidence_review",
+    name: "New evidence → revenue review",
+    description:
+      "When a new document appears in the connected Drive, Atlas evaluates whether it could affect open claims and revenue (estimate, invoice, scope, supplement or evidence material) and notifies the workspace to review the affected revenue position.",
+    version: "1.0.0",
+    industry: "insurance_restoration",
+    status: "active",
+    trigger: { eventTypes: ["drive.file_created"], connector: "google_drive" },
+    steps: [
+      {
+        id: "retrieve_document",
+        type: "retrieve",
+        source: "document_by_resource",
+        storeKey: "document",
+      },
+      {
+        id: "assess_relevance",
+        type: "decision",
+        storeKey: "decision",
+        defaultNext: "complete",
+        rules: [
+          {
+            if: { op: "exists", path: "document._id" },
+            then: {
+              decision: "revenue_relevant",
+              confidence: 0.7,
+              requiresHumanReview: false,
+              nextStepId: "gate",
+              rationale:
+                "A new supported document was ingested — Atlas checks whether it can affect the revenue position.",
+            },
+          },
+          {
+            if: {
+              op: "contains",
+              path: "document.classification",
+              value: "financial",
+            },
+            then: {
+              decision: "revenue_relevant",
+              confidence: 0.85,
+              requiresHumanReview: false,
+              nextStepId: "gate",
+              rationale:
+                "Financial documents (invoices, statements) directly affect the revenue position and should be reviewed.",
+            },
+          },
+          {
+            if: {
+              op: "contains",
+              path: "document.classification",
+              value: "estimate",
+            },
+            then: {
+              decision: "revenue_relevant",
+              confidence: 0.9,
+              requiresHumanReview: false,
+              nextStepId: "gate",
+              rationale:
+                "Estimates drive claim scope and billing — a new estimate may reveal missing scope or supplement opportunities.",
+            },
+          },
+        ],
+      },
+      {
+        id: "gate",
+        type: "condition",
+        condition: { op: "equals", path: "decision.decision", value: "revenue_relevant" },
+        then: "verify_document",
+        else: "complete",
+      },
+      {
+        id: "verify_document",
+        type: "action",
+        toolId: "drive.get_file_metadata",
+        args: [
+          { key: "fileId", from: "context", path: "triggerEvent.payload.fileId" },
+        ],
+        storeKey: "lastAction",
+      },
+      {
+        id: "notify_revenue_review",
+        type: "notify",
+        severity: "medium",
+        title: "New evidence may affect revenue: {resourceName}",
+        description:
+          "A new document was ingested that could affect open claims or the revenue position. Review the affected claim package and Revenue Recovery before the next submission window.",
+      },
+      { id: "complete", type: "complete" },
+    ],
+    policies: {
+      riskLevel: "READ",
+      requiresApproval: false,
+      maxActions: 2,
+    },
+    requiredConnectors: ["google_drive"],
+    requiredTools: ["drive.get_file_metadata"],
+    timeoutMs: 24 * 60 * 60 * 1000,
+    retryPolicy: { maxAttempts: 3, baseMs: 15_000 },
+    createdBy: "atlas-core",
+    updatedAt: "2026-08-10",
+  },
 ];
 
 export const WORKFLOW_BY_ID: Record<string, WorkflowDefinition> = Object.fromEntries(

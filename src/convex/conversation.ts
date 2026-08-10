@@ -128,14 +128,14 @@ const ORGANIZATIONAL_RE =
 const INVESTIGATIVE_RE =
   /(why (is|has|did|didn|hasn|was|were|does|do|are)|what'?s wrong|what went wrong|what'?s blocking|what'?s holding|blocking|stuck|stalled|stagnant|investigat|root cause|what happened to|why\b)/i;
 const CLAIMS_RE =
-  /(\bclaims?\b|supplement|leaving on the table|revenue recovery|carrier response|date of loss|claim number)/i;
+  /(\bclaims?\b|supplement|leaving on the table|revenue recovery|carrier response|date of loss|claim number|claim package|claim timeline|what happened with (this|the) claim|build the package)/i;
 const ACTION_RE =
   /^(send|email|schedule|create|update|approve|reject|cancel|close|start|stop|remind|notify|invite|post|record|log|file|submit|pay|mark|assign|move|copy|delete|add|set|tag|archive|restore)\b/i;
 
 /** Classify the transcript into a conversation intent. */
 export function classifyIntent(
   text: string,
-  context?: { pending?: PendingState | null } | null,
+  context?: { pending?: PendingState | null; claimContext?: { claimId?: string; supplementId?: string } | null } | null,
 ): IntentResult {
   const q = text.trim();
   const low = q.toLowerCase();
@@ -169,6 +169,16 @@ export function classifyIntent(
   if (WORKFLOW_RE.test(low)) {
     signals.push("workflow request");
     return { intent: "workflow", confidence: 0.9, signals };
+  }
+  // Phase 12 — claim-context follow-ups: with an active claim in this
+  // conversation/page, “what's missing?” or “what are the gaps?” refers to it.
+  if (
+    context?.claimContext?.claimId &&
+    /(missing|missing info|what'?s left|gaps?|completeness|what (am i|do we) still need)/.test(low) &&
+    !INVESTIGATIVE_RE.test(q)
+  ) {
+    signals.push("claim-context follow-up");
+    return { intent: "claims", confidence: 0.85, signals };
   }
   // Insurance restoration vertical — but "why…" phrasing keeps investigating.
   if (CLAIMS_RE.test(low) && !INVESTIGATIVE_RE.test(q)) {
@@ -607,6 +617,12 @@ export const converse = action({
       }
     }
     const context = (doc?.context ?? {}) as ContextShape;
+    // Phase 12 — claim page context: viewing a claim makes it the active
+    // claim in this conversation (voice: “what is missing?” = this claim).
+    if (!context.claimContext && args.pageContext) {
+      const m = args.pageContext.match(/revenue-recovery\/([A-Za-z0-9]+)/);
+      if (m) context.claimContext = { claimId: m[1] };
+    }
     let entityContext = context.entityContext ?? null;
 
     if (args.entityContextId) {
@@ -643,7 +659,10 @@ export const converse = action({
     }
 
     // ---- Classify ---------------------------------------------------------
-    const intentResult = classifyIntent(q, { pending: context.pending ?? EMPTY_PENDING });
+    const intentResult = classifyIntent(q, {
+      pending: context.pending ?? EMPTY_PENDING,
+      claimContext: context.claimContext ?? null,
+    });
     const intent = intentResult.intent;
     const temporalWindows = resolveTemporalWindow(q, now, timezone);
     const temporal: TemporalInfo | undefined = temporalWindows[0]
@@ -1591,6 +1610,253 @@ async function handleClaims(
         message,
       },
       claimContext: { claimId: String(resolved.row._id), supplementId },
+    };
+  }
+
+  // 7) Claim package (Phase 12) — “build the claim package”.
+  if (/(build|prepare|assemble|generate|show|view|give me).*(claim package|the package)/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim should I build the package for? Say \u201copen the Johnson claim\u201d first, or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const claimId = String(resolved.row._id);
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: claimId as Id<"insuranceClaims">,
+    })) as {
+      completeness: { summary: string; complete: number; total: number };
+      packageModel?: { states?: Record<string, number> };
+      reconciliation?: { outstanding?: number; hasDiscrepancy?: boolean };
+    };
+    const states = pkg.packageModel?.states ?? {};
+    const verified = states.verified ?? 0;
+    const derived = states.derived ?? 0;
+    const missing = states.missing ?? 0;
+    const conflicting = states.conflicting ?? 0;
+    const outstanding = pkg.reconciliation?.outstanding ?? 0;
+    const lines: string[] = [
+      `Claim package for ${claimLabel(resolved.row)} — ${pkg.completeness.summary}`,
+      `Package states: ${verified} verified · ${derived} derived · ${missing} missing${conflicting ? ` · ${conflicting} conflicting` : ""}.`,
+    ];
+    if (conflicting > 0) lines.push("Some recorded sources disagree — review those fields before acting.");
+    if (outstanding > 0) lines.push(`$${outstanding.toLocaleString()} potentially outstanding after payments.`);
+    lines.push("Every field is labeled verified, derived, inferred, missing or conflicting — open the claim package to see why.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`Claim package ready for ${claimLabel(resolved.row)}: ${pkg.completeness.summary}`),
+      suggestedActions: ["Find potential supplements", "Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId },
+    };
+  }
+
+  // 8) Claim timeline (Phase 12) — “what happened with this claim?”
+  if (/(what happened with|timeline|claim history|what'?s the history|chronolog)/.test(low) && /\bclaim\b/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim? Say \u201copen the Johnson claim\u201d first, or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const claimId = String(resolved.row._id);
+    const timeline = (await conv.rq(api.insurance.claims.getClaimTimeline, {
+      claimId: claimId as Id<"insuranceClaims">,
+    })) as Array<{ ts: number; label: string; detail?: string; source: "source" | "atlas" }>;
+    if (!timeline || timeline.length === 0) {
+      const answer = `I don't have timeline events for ${claimLabel(resolved.row)} yet — record evidence, findings or supplements and they'll appear here.`;
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+        claimContext: { claimId },
+      };
+    }
+    const lines = timeline.slice(-8).map((e) => {
+      const who = e.source === "atlas" ? " [Atlas]" : "";
+      return `\u2022 ${new Date(e.ts).toLocaleDateString()}: ${e.label}${who}`;
+    });
+    const answer = [`Chronological history for ${claimLabel(resolved.row)}:`, ...lines].join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`Here's what happened with ${claimLabel(resolved.row)}.`),
+      suggestedActions: ["What's missing?", "Build the claim package"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId },
+    };
+  }
+
+  // 9) Missing information (Phase 12) — “what is missing from this claim?”
+  if (/(missing|gaps?|completeness)/.test(low) && /\bclaim\b/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim? Say \u201copen the Johnson claim\u201d first, or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const claimId = String(resolved.row._id);
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: claimId as Id<"insuranceClaims">,
+    })) as {
+      completeness: { categories: Array<{ label: string; status: string; note: string }>; complete: number; total: number };
+    };
+    const gaps = pkg.completeness.categories.filter((c) => c.status === "missing" || c.status === "needs_review");
+    const answer =
+      gaps.length === 0
+        ? `All ${pkg.completeness.total} required information categories are on file for ${claimLabel(resolved.row)}.`
+        : [
+            `${gaps.length} of ${pkg.completeness.total} required information categories need attention for ${claimLabel(resolved.row)}:`,
+            ...gaps.map((g) => `\u2022 ${g.label}: ${g.note}`),
+          ].join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`For ${claimLabel(resolved.row)}, ${gaps.length} of ${pkg.completeness.total} required information categories need attention.`),
+      suggestedActions: gaps.length > 0 ? ["Build the claim package", "Open Revenue Recovery"] : [],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId },
+    };
+  }
+
+  // 10) Find potential supplements (Phase 12) — “find potential supplements.”
+  if (/(find|identify|detect|look for|scan).*(supplement|opportunit)/.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (resolved.row) {
+      const claimId = String(resolved.row._id);
+      if (!identity) return notSignedInClaimResult();
+      await conv.rm(api.insurance.claims.runClaimAnalysis, { claimId: claimId as Id<"insuranceClaims"> });
+      const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+        claimId: claimId as Id<"insuranceClaims">,
+      })) as {
+        findings: Array<{ title: string; confidence: number; estimatedAmount?: number; status?: string }>;
+      };
+      const usable = (pkg.findings ?? [])
+        .filter((f) => !["addressed", "dismissed", "resolved"].includes(f.status ?? ""))
+        .slice(0, 5);
+      const answer =
+        usable.length === 0
+          ? `I ran the analysis on ${claimLabel(resolved.row)} and found no clear supplement items right now.`
+          : [
+              `I ran the analysis on ${claimLabel(resolved.row)} — ${usable.length} potential item${usable.length === 1 ? "" : "s"}:`,
+              ...usable.map((f) =>
+                `\u2022 ${f.title}${typeof f.estimatedAmount === "number" ? ` — potential $${f.estimatedAmount.toLocaleString()}` : ""} (${Math.round(f.confidence * 100)}% confidence).`,
+              ),
+              "Each item is labeled potential — review the evidence and limitation before drafting anything.",
+            ].join("\n");
+      return {
+        answer,
+        spoken: spokenFor(`I found ${usable.length} potential supplement items on ${claimLabel(resolved.row)}.`),
+        suggestedActions: usable.length > 0 ? ["Draft the supplement"] : [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+        pending: EMPTY_PENDING,
+        claimContext: { claimId },
+      };
+    }
+    const all = await claimsList(conv);
+    if (all.length === 0) {
+      const answer = "There are no claims in Atlas yet, so there's nothing to scan for supplement opportunities.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    const candidates = all.flatMap((c) =>
+      (c.openFindings ?? [])
+        .filter((f) => /supplement|scope|line item|underpayment|reconciliation/i.test(f.title ?? ""))
+        .slice(0, 2)
+        .map((f) => ({ claim: c, finding: f })),
+    );
+    if (candidates.length === 0) {
+      const answer = "I reviewed all claims and found no clear potential supplement opportunities right now. Run analysis after new evidence arrives.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: ["Open Revenue Recovery"],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    const lines = [
+      `I reviewed ${all.length} claims and found ${candidates.length} potential supplement-related item${candidates.length === 1 ? "" : "s"}:`,
+      ...candidates.slice(0, 5).map(({ claim, finding }) =>
+        `\u2022 ${claimLabel(claim)}: ${finding.title}${typeof finding.estimatedAmount === "number" ? ` — potential $${finding.estimatedAmount.toLocaleString()}` : ""} (${Math.round((finding.confidence ?? 0) * 100)}% confidence).`,
+      ),
+      "Each is labeled potential — review the evidence before drafting anything.",
+    ];
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`I reviewed ${all.length} claims and found ${candidates.length} potential supplement items.`),
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: [],
+      toolPlan: null,
+      entityRefs: candidates.slice(0, 5).map(({ claim }) => ({
+        id: claim._id,
+        name: claimLabel(claim),
+        entityTypeKey: "claim",
+        status: claim.status ?? undefined,
+      })),
+      pending: EMPTY_PENDING,
     };
   }
 

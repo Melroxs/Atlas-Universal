@@ -68,6 +68,19 @@ describe("classifyIntent", () => {
     }
   });
 
+  it("claim-context follow-ups route to claims when a claim is active", () => {
+    const ctx = { pending: null, claimContext: { claimId: "c1" } };
+    expect(classifyIntent("What's missing?", ctx).intent).toBe("claims");
+    expect(classifyIntent("What are the gaps?", ctx).intent).toBe("claims");
+    // Without an active claim, generic “what's missing?” stays informational.
+    expect(classifyIntent("What's missing?").intent).not.toBe("claims");
+  });
+
+  it("claim package phrasing routes to claims", () => {
+    expect(classifyIntent("Build the claim package").intent).toBe("claims");
+    expect(classifyIntent("What happened with this claim?").intent).toBe("claims");
+  });
+
   it("investigative questions", () => {
     expect(classifyIntent("Why hasn't the Johnson project moved forward?").intent).toBe("investigative");
     expect(classifyIntent("What went wrong with that workflow?").intent).toBe("investigative");

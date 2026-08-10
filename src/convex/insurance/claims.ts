@@ -141,21 +141,31 @@ export interface ClaimSnapshot {
   dateOfLoss?: number | null;
   property?: string | null;
   causeOfLoss?: string | null;
+  lossDescription?: string | null;
   customer?: string | null;
   carrier?: string | null;
   policy?: string | null;
   adjuster?: string | null;
+  status?: string | null;
   estimateAmount?: number | null;
   estimateLineItemCount?: number | null;
   invoicedAmount?: number | null;
   paymentAmount?: number | null;
+  approvedAmount?: number | null;
+  collectedAmount?: number | null;
+  openBalance?: number | null;
+  deductible?: number | null;
+  policyLimits?: number | null;
   scopeItems?: Array<{ name?: string; inEstimate?: boolean }> | null;
   expectedScope?: string[] | null;
   actualScope?: string[] | null;
   evidenceSummary?: string[] | null;
   evidenceDocumentIds?: unknown[] | null;
+  timeline?: Array<Record<string, unknown>> | null;
   confidence?: number;
   provenance?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
 }
 
 const COMPLETENESS_RULES: Array<{
@@ -398,7 +408,30 @@ export function reconcileClaim(
   if (outstanding > 0) {
     notes.push(`$${outstanding.toLocaleString()} remains potentially outstanding.`);
   }
-  const hasDiscrepancy = outstanding > 0 || (approved > 0 && denied > 0 && approved + denied !== requested);
+  // Estimate vs invoice mismatch (Phase 12 — reconciliation intelligence).
+  if (
+    typeof claim.estimateAmount === "number" &&
+    typeof claim.invoicedAmount === "number" &&
+    Math.abs(claim.estimateAmount - claim.invoicedAmount) > 0.01
+  ) {
+    notes.push(
+      `The estimate ($${claim.estimateAmount.toLocaleString()}) and invoiced amount ($${claim.invoicedAmount.toLocaleString()}) differ — review the billing line items.`,
+    );
+  }
+  // Billed vs paid gap (Phase 12).
+  if (
+    typeof claim.invoicedAmount === "number" &&
+    paid > 0 &&
+    claim.invoicedAmount - paid > 0.01
+  ) {
+    notes.push(
+      `$${(claim.invoicedAmount - paid).toLocaleString()} of the invoiced total remains unpaid.`,
+    );
+  }
+  const hasDiscrepancy =
+    outstanding > 0 ||
+    (approved > 0 && denied > 0 && approved + denied !== requested) ||
+    notes.some((n) => /differ|remains unpaid/i.test(n));
   if (hasDiscrepancy && notes.length === 0) {
     notes.push("Recorded amounts do not fully reconcile to a zero balance.");
   }
@@ -412,6 +445,370 @@ export function reconcileClaim(
     outstanding,
     notes,
     hasDiscrepancy,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 12 — Claim package, timeline & supplement document builders (pure)
+// ---------------------------------------------------------------------------
+
+export type PackageFieldState =
+  | "verified"
+  | "derived"
+  | "inferred"
+  | "missing"
+  | "conflicting";
+
+export interface PackageField {
+  key: string;
+  label: string;
+  value?: string | number | null;
+  state: PackageFieldState;
+  note: string;
+}
+
+export interface ClaimPackageModel {
+  fields: PackageField[];
+  states: Record<PackageFieldState, number>;
+}
+
+/**
+ * Canonical claim package. Every material field is labeled:
+ *  verified  — directly supported by source evidence / user entry
+ *  derived   — calculated from verified information
+ *  inferred  — reasonable interpretation that requires review
+ *  missing   — not available
+ *  conflicting — recorded sources disagree
+ * Atlas never presents an inferred or missing value as fact.
+ */
+export function buildClaimPackage(
+  claim: ClaimSnapshot,
+  supplements: Array<{ amount?: number | null; approvedAmount?: number | null }> = [],
+): ClaimPackageModel {
+  const fields: PackageField[] = [];
+  const num = (n?: number | null) =>
+    typeof n === "number" ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : undefined;
+  const date = (n?: number | null) =>
+    typeof n === "number" ? new Date(n).toLocaleDateString() : undefined;
+  const push = (key: string, label: string, value: string | number | undefined, state: PackageFieldState, note: string) =>
+    fields.push({ key, label, value, state, note });
+
+  push("claimNumber", "Claim number", claim.claimNumber ?? undefined, claim.claimNumber ? "verified" : "missing", claim.claimNumber ? "From claim records." : "No claim number recorded.");
+  push("insured", "Insured / customer", claim.customer ?? undefined, claim.customer ? "verified" : "missing", claim.customer ? "From claim records." : "No insured recorded.");
+  push("property", "Property", claim.property ?? undefined, claim.property ? "verified" : "missing", claim.property ? "From claim records." : "No property recorded.");
+  push("carrier", "Carrier", claim.carrier ?? undefined, claim.carrier ? "verified" : "missing", claim.carrier ? "From claim records." : "No carrier recorded.");
+  push("policy", "Policy", claim.policy ?? undefined, claim.policy ? "verified" : "missing", claim.policy ? "From claim records." : "No policy recorded.");
+  push("adjuster", "Adjuster", claim.adjuster ?? undefined, claim.adjuster ? "verified" : "missing", claim.adjuster ? "From claim records." : "No adjuster recorded.");
+  push("dateOfLoss", "Date of loss", date(claim.dateOfLoss), typeof claim.dateOfLoss === "number" ? "verified" : "missing", typeof claim.dateOfLoss === "number" ? "From claim records." : "No date of loss recorded.");
+  push("causeOfLoss", "Cause of loss", claim.causeOfLoss ?? undefined, claim.causeOfLoss ? "verified" : "missing", claim.causeOfLoss ? "From claim records." : "No cause of loss recorded.");
+  push("estimate", "Estimate", num(claim.estimateAmount), typeof claim.estimateAmount === "number" ? "verified" : "missing", typeof claim.estimateAmount === "number" ? "From the priced estimate." : "No estimate ingested yet.");
+  push("approved", "Approved by carrier", num(claim.approvedAmount), typeof claim.approvedAmount === "number" ? "verified" : "missing", typeof claim.approvedAmount === "number" ? "Carrier-approved total on record." : "No carrier approval amount recorded.");
+  push("invoiced", "Invoiced", num(claim.invoicedAmount), typeof claim.invoicedAmount === "number" ? "verified" : "missing", typeof claim.invoicedAmount === "number" ? "From invoice records." : "No invoice recorded.");
+  push("paid", "Payment received", num(claim.paymentAmount), typeof claim.paymentAmount === "number" ? "verified" : "missing", typeof claim.paymentAmount === "number" ? "From recorded payments." : "No payment recorded.");
+  push("collected", "Collected", num(claim.collectedAmount), typeof claim.collectedAmount === "number" ? "verified" : "missing", typeof claim.collectedAmount === "number" ? "Cash collected on record." : "Not separately recorded.");
+  push("deductible", "Deductible", num(claim.deductible), typeof claim.deductible === "number" ? "verified" : "missing", typeof claim.deductible === "number" ? "From policy context." : "Deductible not recorded — varies by policy.");
+  push("policyLimits", "Policy limits", num(claim.policyLimits), typeof claim.policyLimits === "number" ? "verified" : "missing", typeof claim.policyLimits === "number" ? "From policy context." : "Policy limits not recorded.");
+
+  // Derived: outstanding balance = approved baseline − payments.
+  const approvedBaseline = supplements.reduce((s, x) => s + (x.approvedAmount ?? 0), 0);
+  const baseline = approvedBaseline > 0 ? approvedBaseline : (claim.approvedAmount ?? claim.estimateAmount ?? 0);
+  const outstanding =
+    typeof claim.openBalance === "number"
+      ? claim.openBalance
+      : Math.max(0, baseline - (claim.paymentAmount ?? 0));
+  push(
+    "outstanding",
+    "Open balance",
+    num(outstanding),
+    typeof claim.openBalance === "number" ? "verified" : "derived",
+    typeof claim.openBalance === "number"
+      ? "Recorded on the claim."
+      : "Computed as approved/estimate baseline minus payments — verify against the carrier statement.",
+  );
+
+  // Conflicting: estimate vs invoice disagree.
+  if (
+    typeof claim.estimateAmount === "number" &&
+    typeof claim.invoicedAmount === "number" &&
+    Math.abs(claim.estimateAmount - claim.invoicedAmount) > 0.01
+  ) {
+    push(
+      "estimateVsInvoice",
+      "Estimate vs invoice",
+      undefined,
+      "conflicting",
+      `Estimate ${num(claim.estimateAmount)} differs from invoiced ${num(claim.invoicedAmount)} — sources disagree; review before billing.`,
+    );
+  }
+
+  const states: Record<PackageFieldState, number> = {
+    verified: 0,
+    derived: 0,
+    inferred: 0,
+    missing: 0,
+    conflicting: 0,
+  };
+  for (const f of fields) states[f.state] += 1;
+  return { fields, states };
+}
+
+export interface ClaimTimelineEvent {
+  ts: number;
+  kind:
+    | "claim_created"
+    | "claim_updated"
+    | "document"
+    | "analysis"
+    | "finding"
+    | "supplement_drafted"
+    | "supplement_submitted"
+    | "supplement_response"
+    | "payment"
+    | "note";
+  label: string;
+  detail?: string;
+  /** source = happened outside Atlas; atlas = Atlas-generated event. */
+  source: "source" | "atlas";
+}
+
+export interface TimelineSupplementInput {
+  _id?: string;
+  reason?: string | null;
+  status?: string | null;
+  createdAt?: number | null;
+  updatedAt?: number | null;
+  submissionDate?: number | null;
+  approvedAmount?: number | null;
+  deniedAmount?: number | null;
+}
+
+export interface TimelineFindingInput {
+  _id?: string;
+  title?: string | null;
+  status?: string | null;
+  createdAt?: number | null;
+  estimatedAmount?: number | null;
+}
+
+/**
+ * Chronological, evidence-grounded claim timeline composed from actual
+ * records: persisted source events, claims, findings, supplements and
+ * payments. Atlas-generated events are explicitly labeled vs source events.
+ */
+export function buildClaimTimeline(
+  claim: ClaimSnapshot,
+  supplements: TimelineSupplementInput[] = [],
+  findings: TimelineFindingInput[] = [],
+): ClaimTimelineEvent[] {
+  const events: ClaimTimelineEvent[] = [];
+  if (typeof claim.createdAt === "number") {
+    events.push({
+      ts: claim.createdAt,
+      kind: "claim_created",
+      label: "Claim created",
+      detail: claim.provenance ?? undefined,
+      source: "atlas",
+    });
+  }
+  // Persisted source/workspace events recorded on the claim.
+  for (const raw of claim.timeline ?? []) {
+    const t = raw as Record<string, unknown>;
+    if (typeof t.ts !== "number") continue;
+    events.push({
+      ts: t.ts as number,
+      kind: (t.kind as ClaimTimelineEvent["kind"]) ?? "note",
+      label: String(t.label ?? "Event"),
+      detail: typeof t.detail === "string" ? t.detail : undefined,
+      source: t.source === "source" ? "source" : "atlas",
+    });
+  }
+  for (const f of findings) {
+    if (typeof f.createdAt !== "number") continue;
+    events.push({
+      ts: f.createdAt,
+      kind: "finding",
+      label: `Finding: ${f.title ?? "analysis item"}`,
+      detail:
+        typeof f.estimatedAmount === "number"
+          ? `Potential amount $${f.estimatedAmount.toLocaleString()} — not guaranteed.`
+          : undefined,
+      source: "atlas",
+    });
+  }
+  for (const s of supplements) {
+    if (typeof s.createdAt === "number") {
+      events.push({
+        ts: s.createdAt,
+        kind: "supplement_drafted",
+        label: `Supplement drafted: ${s.reason ?? "no reason recorded"}`,
+        detail: "Draft requires human review before submission.",
+        source: "atlas",
+      });
+    }
+    if (typeof s.submissionDate === "number") {
+      events.push({
+        ts: s.submissionDate,
+        kind: "supplement_submitted",
+        label: "Supplement marked for submission",
+        detail: s.status ?? undefined,
+        source: "source",
+      });
+    }
+    if (
+      typeof s.updatedAt === "number" &&
+      (s.approvedAmount != null || s.deniedAmount != null) &&
+      ["approved", "partially_approved", "denied"].includes(s.status ?? "")
+    ) {
+      const parts: string[] = [];
+      if (s.approvedAmount != null) parts.push(`approved $${s.approvedAmount.toLocaleString()}`);
+      if (s.deniedAmount != null) parts.push(`denied $${s.deniedAmount.toLocaleString()}`);
+      events.push({
+        ts: s.updatedAt,
+        kind: "supplement_response",
+        label: "Carrier response recorded",
+        detail: parts.join(" · ") || undefined,
+        source: "source",
+      });
+    }
+  }
+  if (typeof claim.paymentAmount === "number" && claim.paymentAmount > 0 && typeof claim.updatedAt === "number") {
+    events.push({
+      ts: claim.updatedAt,
+      kind: "payment",
+      label: `Payment recorded: $${claim.paymentAmount.toLocaleString()}`,
+      detail: "Total recorded payments on the claim.",
+      source: "source",
+    });
+  }
+  // Dedupe (same ts + label) and sort chronologically.
+  const seen = new Set<string>();
+  return events
+    .filter((e) => {
+      const key = `${e.ts}:${e.kind}:${e.label}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => a.ts - b.ts);
+}
+
+export interface SupplementDocument {
+  claimNumber: string | null;
+  customer: string | null;
+  property: string | null;
+  carrier: string | null;
+  reason: string;
+  status: string;
+  requestedAmount?: number;
+  sections: Array<{ title: string; body: string[] }>;
+  preparedAt: number;
+  disclaimer: string;
+}
+
+/**
+ * Structured supplement document. Never invents policy language or carrier
+ * requirements — missing information is stated as missing and the document
+ * always requires human review before submission.
+ */
+export function buildSupplementDocument(
+  claim: ClaimSnapshot,
+  supplement: {
+    reason?: string | null;
+    amount?: number | null;
+    affectedLineItems?: string[] | null;
+    requestedItems?: string[] | null;
+    evidence?: string[] | null;
+    justification?: string | null;
+    status?: string | null;
+    createdAt?: number | null;
+  },
+): SupplementDocument {
+  const sec = (title: string, body: string[]): { title: string; body: string[] } => ({ title, body });
+  const money = (n?: number | null) =>
+    typeof n === "number" ? `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : undefined;
+  const sections: Array<{ title: string; body: string[] }> = [];
+
+  sections.push(
+    sec("Claim information", [
+      `Claim number: ${claim.claimNumber ?? "—"}`,
+      `Insured: ${claim.customer ?? "—"}`,
+      `Property: ${claim.property ?? "—"}`,
+      `Carrier: ${claim.carrier ?? "—"}`,
+      `Date of loss: ${typeof claim.dateOfLoss === "number" ? new Date(claim.dateOfLoss).toLocaleDateString() : "—"}`,
+      `Adjuster: ${claim.adjuster ?? "—"}`,
+    ]),
+  );
+  sections.push(
+    sec("Reason for supplement", [
+      supplement.reason ?? "Reason not recorded — requires review before submission.",
+    ]),
+  );
+  sections.push(
+    sec("Original scope", [
+      (claim.expectedScope?.length ?? 0) > 0
+        ? claim.expectedScope!.join("; ")
+        : "Original scope not documented in Atlas.",
+    ]),
+  );
+  sections.push(
+    sec("Revised scope / items requested", [
+      (supplement.requestedItems?.length ?? 0) > 0
+        ? supplement.requestedItems!.join("; ")
+        : (claim.actualScope?.length ?? 0) > 0
+          ? `Performed scope observed: ${claim.actualScope!.join("; ")}`
+          : "Revised scope not documented — requires review.",
+    ]),
+  );
+  sections.push(
+    sec("Supporting evidence", [
+      (supplement.evidence?.length ?? 0) > 0
+        ? supplement.evidence!.join("; ")
+        : "No supporting evidence attached yet — add dated photos, logs and documentation.",
+    ]),
+  );
+  sections.push(
+    sec("Affected line items", [
+      (supplement.affectedLineItems?.length ?? 0) > 0
+        ? supplement.affectedLineItems!.join("; ")
+        : "Line items not itemized — requires review against the estimate.",
+    ]),
+  );
+  sections.push(
+    sec("Justification", [
+      supplement.justification ?? "No justification recorded — requires human review.",
+    ]),
+  );
+  sections.push(
+    sec("Requested amount", [
+      typeof supplement.amount === "number"
+        ? `${money(supplement.amount)} — calculated only where the evidence supports it; verify before submission.`
+        : "Not calculated — the evidence does not yet support a defensible amount.",
+    ]),
+  );
+  sections.push(
+    sec("Limitations", [
+      "This document is an Atlas draft assembled from available records. It does not constitute policy language or carrier requirements.",
+      "Coverage, depreciation, deductible and jurisdiction-specific rules are NOT asserted here — they must be confirmed against the actual policy and carrier before submission.",
+    ]),
+  );
+  sections.push(
+    sec("Reviewer notes", [
+      "Required before submission: confirm scope accuracy, attach proof of work, verify amounts, and obtain required approvals.",
+    ]),
+  );
+
+  return {
+    claimNumber: claim.claimNumber ?? null,
+    customer: claim.customer ?? null,
+    property: claim.property ?? null,
+    carrier: claim.carrier ?? null,
+    reason: supplement.reason ?? "Reason not recorded",
+    status: supplement.status ?? "draft",
+    requestedAmount: supplement.amount ?? undefined,
+    sections,
+    preparedAt: supplement.createdAt ?? Date.now(),
+    disclaimer:
+      "Atlas-generated draft for human review — not insurer policy, not a submission.",
   };
 }
 
@@ -491,7 +888,54 @@ export const getClaimPackage = query({
     );
     const completeness = analyzeClaimCompleteness(claim);
     const reconciliation = reconcileClaim(claim, supplements);
-    return { claim, supplements, findings, evidenceDocs, completeness, reconciliation };
+    const timeline = buildClaimTimeline(claim, supplements, findings);
+    const packageModel = buildClaimPackage(claim, supplements);
+    return {
+      claim,
+      supplements,
+      findings,
+      evidenceDocs,
+      completeness,
+      reconciliation,
+      timeline,
+      packageModel,
+    };
+  },
+});
+
+/** Evidence-grounded chronological claim history (Phase 12). */
+export const getClaimTimeline = query({
+  args: { claimId: v.id("insuranceClaims") },
+  handler: async (ctx, { claimId }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const claim = await ctx.db.get(claimId);
+    if (!claim || claim.tenantId !== tenantId) throw new Error("Claim not found.");
+    const supplements = await ctx.db
+      .query("claimSupplements")
+      .withIndex("by_claim", (q) => q.eq("claimId", claimId))
+      .collect();
+    const findings = await ctx.db
+      .query("claimFindings")
+      .withIndex("by_claim", (q) => q.eq("claimId", claimId))
+      .collect();
+    return buildClaimTimeline(claim, supplements, findings);
+  },
+});
+
+/** Structured supplement document for review (Phase 12). */
+export const getSupplementDocument = query({
+  args: { claimId: v.id("insuranceClaims"), supplementId: v.id("claimSupplements") },
+  handler: async (ctx, { claimId, supplementId }) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const claim = await ctx.db.get(claimId);
+    if (!claim || claim.tenantId !== tenantId) throw new Error("Claim not found.");
+    const sup = await ctx.db.get(supplementId);
+    if (!sup || sup.tenantId !== tenantId || sup.claimId !== claimId) {
+      throw new Error("Supplement not found.");
+    }
+    return buildSupplementDocument(claim, sup);
   },
 });
 
@@ -649,11 +1093,18 @@ const CLAIM_FIELDS = {
   adjuster: v.optional(v.string()),
   dateOfLoss: v.optional(v.number()),
   causeOfLoss: v.optional(v.string()),
+  lossDescription: v.optional(v.string()),
   status: v.optional(v.string()),
   estimateAmount: v.optional(v.number()),
   estimateLineItemCount: v.optional(v.number()),
   invoicedAmount: v.optional(v.number()),
   paymentAmount: v.optional(v.number()),
+  approvedAmount: v.optional(v.number()),
+  collectedAmount: v.optional(v.number()),
+  openBalance: v.optional(v.number()),
+  deductible: v.optional(v.number()),
+  policyLimits: v.optional(v.number()),
+  timeline: v.optional(v.array(v.any())),
   scopeItems: v.optional(v.array(v.any())),
   expectedScope: v.optional(v.array(v.string())),
   actualScope: v.optional(v.array(v.string())),
@@ -670,11 +1121,17 @@ export const createClaim = mutation({
     adjuster: v.optional(v.string()),
     dateOfLoss: v.optional(v.number()),
     causeOfLoss: v.optional(v.string()),
+    lossDescription: v.optional(v.string()),
     status: v.optional(v.string()),
     estimateAmount: v.optional(v.number()),
     estimateLineItemCount: v.optional(v.number()),
     invoicedAmount: v.optional(v.number()),
     paymentAmount: v.optional(v.number()),
+    approvedAmount: v.optional(v.number()),
+    collectedAmount: v.optional(v.number()),
+    openBalance: v.optional(v.number()),
+    deductible: v.optional(v.number()),
+    policyLimits: v.optional(v.number()),
     scopeItems: v.optional(v.array(v.any())),
     expectedScope: v.optional(v.array(v.string())),
     actualScope: v.optional(v.array(v.string())),
@@ -701,12 +1158,18 @@ export const createClaim = mutation({
       adjuster: args.adjuster,
       dateOfLoss: args.dateOfLoss,
       causeOfLoss: args.causeOfLoss,
+      lossDescription: args.lossDescription,
       status: args.status ?? "opened",
       currentStage: STATUS_LABELS[args.status ?? "opened"],
       estimateAmount: args.estimateAmount,
       estimateLineItemCount: args.estimateLineItemCount,
       invoicedAmount: args.invoicedAmount,
       paymentAmount: args.paymentAmount,
+      approvedAmount: args.approvedAmount,
+      collectedAmount: args.collectedAmount,
+      openBalance: args.openBalance,
+      deductible: args.deductible,
+      policyLimits: args.policyLimits,
       scopeItems: args.scopeItems,
       expectedScope: args.expectedScope,
       actualScope: args.actualScope,

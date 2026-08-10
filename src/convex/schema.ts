@@ -1203,6 +1203,8 @@ const schema = defineSchema(
       adjuster: v.optional(v.string()),
       dateOfLoss: v.optional(v.number()),
       causeOfLoss: v.optional(v.string()),
+      /** Plain-language loss summary (what happened). Never fabricated. */
+      lossDescription: v.optional(v.string()),
       /** Stage in the generalized claim lifecycle (see everest/insurance.ts). */
       status: v.string(),
       currentStage: v.optional(v.string()),
@@ -1211,6 +1213,16 @@ const schema = defineSchema(
       estimateLineItemCount: v.optional(v.number()),
       invoicedAmount: v.optional(v.number()),
       paymentAmount: v.optional(v.number()),
+      /** Carrier-approved total (estimate + approved supplements). */
+      approvedAmount: v.optional(v.number()),
+      /** Cash actually collected (paid to the company). */
+      collectedAmount: v.optional(v.number()),
+      /** Explicitly recorded open balance when known (else computed). */
+      openBalance: v.optional(v.number()),
+      deductible: v.optional(v.number()),
+      policyLimits: v.optional(v.number()),
+      /** Chronological, evidence-labeled claim history (see claims.ts). */
+      timeline: v.optional(v.array(v.any())),
       /** Line items: {name, quantity?, unit?, amount?, inEstimate?, documented?}. */
       scopeItems: v.optional(v.array(v.any())),
       /** Documented/expected scope concepts (strings). */

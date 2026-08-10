@@ -7,27 +7,46 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  Activity,
   AlertTriangle,
+  Award,
   BookOpen,
   Building2,
+  CheckCircle2,
+  Clock,
   Coins,
+  Crosshair,
+  Eye,
+  FileWarning,
+  Gauge,
+  GitBranch,
   Globe2,
+  History,
   Landmark,
   Layers,
   MapPin,
   Plus,
+  RefreshCw,
   Save,
   Scale,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Target,
   Trash2,
   TrendingUp,
   Users,
+  Wifi,
+  WifiOff,
+  XCircle,
+  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const MANAGER_ROLES = ["owner", "admin", "manager"];
 
 // ---------------------------------------------------------------------------
 // Types (server-driven shapes)
@@ -162,12 +181,166 @@ interface RecoveryOpportunity {
   explanation: string;
   financialRelevance: string;
   recommendedNextStep: string;
+  limitation: string;
+}
+
+// Phase 8 shapes -------------------------------------------------------------
+
+interface CheckRow {
+  _id: Id<"authorityChecks">;
+  sourceId: string;
+  success: boolean;
+  ok: boolean;
+  statusCode?: number | null;
+  latencyMs?: number | null;
+  contentHash?: string | null;
+  version?: string | null;
+  changeType?: string | null;
+  error?: string | null;
+  createdVersionIds?: string[] | null;
+  checkedAt: number;
+}
+
+interface MonitorSource {
+  sourceId: string;
+  name: string;
+  organization: string;
+  authorityTier: string;
+  tierLabel: string;
+  sourceType: string;
+  jurisdiction: string | null;
+  industry: string | null;
+  subjects: string[];
+  retrievalMethod: string;
+  implementationStatus: string;
+  enabled: boolean;
+  canonicalUrl: string | null;
+  updateFrequency: string | null;
+  health: string;
+  freshness: string;
+  lastCheckedAt: number | null;
+  lastSuccessfulSyncAt: number | null;
+  lastKnownVersion: string | null;
+  contentHash: string | null;
+  lastChangeType: string | null;
+  consecutiveFailures: number;
+  lastLatencyMs: number | null;
+  lastFetchError: string | null;
+  recentChecks: CheckRow[];
+}
+
+interface KnowledgeVersionRow {
+  versionId: string;
+  knowledgeId: string;
+  sourceId: string;
+  version: string | null;
+  contentHash: string;
+  sourceContent: string | null;
+  normalizedFact: string;
+  atlasInterpretation: string | null;
+  knowledgeType: string;
+  jurisdiction: string | null;
+  industry: string | null;
+  publishedAt: number | null;
+  effectiveAt: number | null;
+  expiresAt: number | null;
+  retrievedAt: number;
+  status: string;
+  changeType: string | null;
+  supersedesId: string | null;
+  supersededById: string | null;
+  confidence: number;
+  sourceName: string | null;
+  sourceTier: string | null;
+}
+
+interface ImpactAssessment {
+  _id: Id<"impactAssessments">;
+  sourceId: string;
+  sourceName: string;
+  authorityTier: string;
+  tierLabel: string | null;
+  knowledgeId: string;
+  knowledgeTitle: string;
+  changeType: string;
+  affectedJurisdictions: string[];
+  affectedIndustries: string[];
+  affectedTenantIds: Id<"tenants">[];
+  affectedWorkflowIds: string[];
+  evidence: unknown;
+  confidence: number;
+  severity: string;
+  urgency: string;
+  recommendedAction: string;
+  requiresHumanReview: boolean;
+  status: string;
+  createdAt: number;
+  reviewNote?: string | null;
+}
+
+interface ExcellencePack {
+  packKey: string;
+  name: string;
+  axes: CoverageAxis[];
+  overall: string;
+  hasValueEngine: boolean;
+  valueEngineStatus: string | null;
+  sourceFreshness: string;
+  note: string;
+}
+
+interface ValueEngine {
+  id: string;
+  industryPack: string;
+  problem: string;
+  affectedEntities: string[];
+  detectionSignals: string[];
+  evidenceRequirements: string[];
+  calculationMethod: string;
+  recommendedActions: string[];
+  measurableOutcome: string;
+  confidence: number;
+  limitations: string[];
+  implementationStatus: string;
+}
+
+interface Opportunity {
+  category: string;
+  rank: number;
+  title: string;
+  description: string;
+  evidenceKind: string;
+  relevance: string;
+  confidence: number;
 }
 
 const DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 const fmtTime = (ms: number) =>
   new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+const fmtDate = (ms: number) =>
+  new Date(ms).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+
+const relTime = (ms: number | null | undefined) => {
+  if (!ms) return "never";
+  const diff = Date.now() - ms;
+  if (diff < 60_000) return "just now";
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return `${Math.floor(diff / 86_400_000)}d ago`;
+};
+
+const CHANGE_TYPE_LABELS: Record<string, string> = {
+  no_change: "No change",
+  formatting_only: "Formatting only",
+  clarification: "Clarification",
+  substantive_change: "Substantive change",
+  new_requirement: "New requirement",
+  removed_requirement: "Requirement removed",
+  effective_date_change: "Effective date change",
+  supersession: "Supersession",
+};
 
 // ---------------------------------------------------------------------------
 // Page
@@ -183,13 +356,32 @@ export default function BusinessBrain() {
   const authority = useQuery(api.everest.api.listAuthoritativeKnowledge);
   const coverageData = useQuery(api.everest.api.getIndustryCoverage);
   const insurance = useQuery(api.everest.api.getInsuranceIntelligence);
+  const monitor = useQuery(api.everest.api.getAuthorityMonitor);
+  const changes = useQuery(api.everest.api.listKnowledgeChanges, { limit: 60 });
+  const assessments = useQuery(api.everest.api.listImpactAssessments);
+  const excellenceData = useQuery(api.everest.api.getIndustryExcellence, {});
+  const workspace = useQuery(api.tenants.getMyWorkspace);
 
   const saveContext = useMutation(api.everest.api.updateOrganizationContext);
   const upsertLocation = useMutation(api.everest.api.upsertOperatingLocation);
   const removeLocation = useMutation(api.everest.api.removeOperatingLocation);
+  const checkNow = useAction(api.everest.api.runAuthorityCheckNow);
+  const decide = useMutation(api.everest.api.decideImpactReview);
+
+  const isManager = MANAGER_ROLES.includes(workspace?.membership?.role ?? "");
 
   const [tab, setTab] = useState("overview");
   const [dirty, setDirty] = useState(false);
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [excellencePack, setExcellencePack] = useState<string>("insurance-restoration");
+
+  const excellencePacks: ExcellencePack[] = excellenceData?.excellence ?? [];
+  const activePack =
+    excellencePacks.find((p) => p.packKey === excellencePack) ?? excellencePacks[0] ?? null;
+  const valueIntel = useQuery(api.everest.api.getValueIntelligence, {
+    packKey: activePack?.packKey ?? "insurance-restoration",
+  });
 
   // Local form state — initialized once from the server.
   const [form, setForm] = useState<{
@@ -256,15 +448,50 @@ export default function BusinessBrain() {
     toast.success("Location added");
   };
 
+  const onCheckNow = async (sourceId: string) => {
+    setCheckingId(sourceId);
+    try {
+      const res = await checkNow({ sourceId });
+      toast.success(
+        res.status === "no_change"
+          ? "Source checked — no change."
+          : `Check complete: ${res.status.replace(/_/g, " ")}${res.createdVersionIds?.length ? ` · ${res.createdVersionIds.length} version(s) published` : ""}`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Check failed");
+    } finally {
+      setCheckingId(null);
+    }
+  };
+
+  const onDecide = async (assessmentId: Id<"impactAssessments">, decision: "approved" | "rejected" | "disputed") => {
+    setDecidingId(assessmentId);
+    try {
+      await decide({ assessmentId, decision });
+      toast.success(`Review ${decision}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Decision failed");
+    } finally {
+      setDecidingId(null);
+    }
+  };
+
   const snapshot = orgData?.organization.snapshot;
   const contextNote = orgData?.context?.timezoneNote ?? orgData?.timezoneNote ?? null;
+
+  const allRecentChecks: CheckRow[] = (monitor?.sources ?? [])
+    .flatMap((s) => s.recentChecks)
+    .sort((a, b) => b.checkedAt - a.checkedAt)
+    .slice(0, 14);
+
+  const pendingReviews = (assessments ?? []).filter((a) => a.status === "pending_review");
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
         eyebrow="Everest Intelligence Foundation"
         title="Business Brain"
-        description="The layer where Atlas understands the world your company operates in — universal business knowledge, your operating context, time & calendar, jurisdiction, authoritative sources, and honest industry coverage."
+        description="The layer where Atlas understands the world your company operates in — universal business knowledge, your operating context, time & calendar, jurisdiction, authoritative sources, living knowledge, and honest industry coverage."
         actions={
           <Button onClick={onSave} disabled={!dirty || !form} className="gap-2">
             <Save className="size-4" /> Save context
@@ -277,7 +504,10 @@ export default function BusinessBrain() {
           <TabsTrigger value="overview">Organization & calendar</TabsTrigger>
           <TabsTrigger value="brain">Universal knowledge</TabsTrigger>
           <TabsTrigger value="authority">Jurisdiction & authority</TabsTrigger>
+          <TabsTrigger value="monitor">Authority monitor</TabsTrigger>
+          <TabsTrigger value="changes">Knowledge changes</TabsTrigger>
           <TabsTrigger value="coverage">Industry coverage</TabsTrigger>
+          <TabsTrigger value="excellence">Industry excellence</TabsTrigger>
           <TabsTrigger value="insurance">Insurance intelligence</TabsTrigger>
         </TabsList>
 
@@ -823,6 +1053,275 @@ export default function BusinessBrain() {
           )}
         </TabsContent>
 
+        {/* ------------------------------------------------ Authority monitor */}
+        <TabsContent value="monitor" className="mt-6 flex flex-col gap-6">
+          {!monitor ? (
+            <p className="text-sm text-muted-foreground">Loading authority monitor…</p>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                <StatCard icon={Landmark} label="Sources tracked" value={monitor.sources.length} hint="Registry-classified" />
+                <StatCard icon={Wifi} label="Healthy" value={monitor.sources.filter((s) => s.health === "healthy").length} hint="Retrieved and validated" accent="text-emerald-600 dark:text-emerald-300" />
+                <StatCard icon={WifiOff} label="Unavailable / stale" value={monitor.sources.filter((s) => s.health !== "healthy").length} hint="Never reported healthy by existence" accent="text-amber-600 dark:text-amber-300" />
+                <StatCard icon={Gauge} label="Adapters implemented" value={monitor.sources.filter((s) => s.implementationStatus === "implemented" && s.enabled).length} hint="Sources actually checkable" />
+                <StatCard icon={History} label="Checks recorded" value={allRecentChecks.length} hint="Last 14 across sources" />
+              </div>
+
+              <Panel
+                title="Source health"
+                description="Honest states derived from actual check records — a source is never healthy merely because it exists in the registry."
+              >
+                <div className="flex flex-col gap-3">
+                  {monitor.sources.map((s) => (
+                    <div key={s.sourceId} className="rounded-lg border border-border/70 bg-card/50 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold">{s.name}</p>
+                        <HealthBadge health={s.health} />
+                        <FreshnessBadge freshness={s.freshness} />
+                        <Badge variant="outline" className="font-normal">{s.tierLabel}</Badge>
+                        {s.enabled ? (
+                          <Badge className="bg-teal-600/15 text-teal-700 dark:text-teal-300 font-normal">enabled</Badge>
+                        ) : (
+                          <Badge variant="secondary" className="font-normal">disabled</Badge>
+                        )}
+                        <Badge
+                          variant={s.implementationStatus === "implemented" ? "default" : "secondary"}
+                          className={cn(
+                            s.implementationStatus === "implemented" && "bg-teal-600/15 text-teal-700 dark:text-teal-300",
+                          )}
+                        >
+                          {s.implementationStatus === "implemented" ? "adapter implemented" : `adapter: ${s.implementationStatus ?? "declared"}`}
+                        </Badge>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="ml-auto gap-2"
+                          disabled={
+                            checkingId !== null ||
+                            s.implementationStatus !== "implemented" ||
+                            !s.enabled
+                          }
+                          onClick={() => onCheckNow(s.sourceId)}
+                        >
+                          <RefreshCw className={cn("size-3.5", checkingId === s.sourceId && "animate-spin")} />
+                          {checkingId === s.sourceId ? "Checking…" : "Check now"}
+                        </Button>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                        <span className="flex items-center gap-1.5">
+                          <Clock className="size-3.5" /> Last checked: {relTime(s.lastCheckedAt)}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <CheckCircle2 className="size-3.5" /> Last sync: {relTime(s.lastSuccessfulSyncAt)}
+                        </span>
+                        <span>
+                          Version: {s.lastKnownVersion ?? "—"}
+                          {s.lastChangeType ? ` · ${CHANGE_TYPE_LABELS[s.lastChangeType] ?? s.lastChangeType}` : ""}
+                        </span>
+                        <span>
+                          Retrieval: {s.retrievalMethod.replace(/_/g, " ")}
+                          {s.updateFrequency ? ` · every ${s.updateFrequency}` : ""}
+                        </span>
+                        {typeof s.lastLatencyMs === "number" && (
+                          <span>Latency: {s.lastLatencyMs}ms</span>
+                        )}
+                        {s.consecutiveFailures > 0 && (
+                          <span className="text-amber-600 dark:text-amber-300">
+                            {s.consecutiveFailures} consecutive failure{s.consecutiveFailures === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        {s.lastFetchError && (
+                          <span className="sm:col-span-2 lg:col-span-3 text-amber-600 dark:text-amber-300">
+                            Last error: {s.lastFetchError}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              {allRecentChecks.length > 0 && (
+                <Panel title="Recent check history" description="Immutable check records — the honest trace behind every status.">
+                  <div className="flex flex-col divide-y divide-border/60">
+                    {allRecentChecks.map((c) => (
+                      <div key={c._id} className="flex flex-wrap items-center gap-2 py-2.5 text-xs">
+                        <span className="text-muted-foreground">{relTime(c.checkedAt)}</span>
+                        <Badge
+                          className={cn(
+                            "font-normal",
+                            c.success
+                              ? "bg-teal-600/15 text-teal-700 dark:text-teal-300"
+                              : "bg-amber-600/15 text-amber-700 dark:text-amber-300",
+                          )}
+                        >
+                          {c.success ? "ok" : "failed"}
+                        </Badge>
+                        <span className="font-medium">
+                          {monitor.sources.find((s) => s.sourceId === c.sourceId)?.name ?? c.sourceId}
+                        </span>
+                        {c.changeType && <Badge variant="outline" className="font-normal">{CHANGE_TYPE_LABELS[c.changeType] ?? c.changeType}</Badge>}
+                        {c.statusCode != null && <span>HTTP {c.statusCode}</span>}
+                        {typeof c.latencyMs === "number" && <span>{c.latencyMs}ms</span>}
+                        {c.createdVersionIds?.length ? (
+                          <span className="text-teal-700 dark:text-teal-300">
+                            {c.createdVersionIds.length} version(s) published
+                          </span>
+                        ) : null}
+                        {c.error && <span className="truncate text-amber-600 dark:text-amber-300">{c.error}</span>}
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              )}
+            </>
+          )}
+        </TabsContent>
+
+        {/* ------------------------------------------------ Knowledge changes */}
+        <TabsContent value="changes" className="mt-6 flex flex-col gap-6">
+          {!changes || !assessments ? (
+            <p className="text-sm text-muted-foreground">Loading living knowledge…</p>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard icon={History} label="Versions published" value={changes.length} hint="Immutable history" />
+                <StatCard icon={ShieldAlert} label="Pending review" value={pendingReviews.length} hint="Impact assessments awaiting governance" accent="text-amber-600 dark:text-amber-300" />
+                <StatCard icon={GitBranch} label="Superseded" value={changes.filter((v) => v.status === "superseded").length} hint="History never overwritten" />
+                <StatCard icon={FileWarning} label="Assessments" value={assessments.length} hint="Scoped to this workspace" />
+              </div>
+
+              <Panel
+                title="Living knowledge — immutable version history"
+                description="Every authority change creates a new immutable version. Historical versions are never overwritten — the chain stays inspectable."
+              >
+                {changes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No versions published yet. Run a check on the Authority monitor tab, or wait for the scheduled sweep.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {changes.map((v) => (
+                      <div key={v.versionId} className="rounded-lg border border-border/70 bg-card/50 p-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{v.normalizedFact}</p>
+                          {v.changeType && <ChangeTypeBadge changeType={v.changeType} />}
+                          <Badge variant="outline" className="font-normal">{v.status}</Badge>
+                          {v.sourceTier && <Badge variant="secondary" className="font-normal">{v.sourceTier}</Badge>}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1"><Landmark className="size-3" />{v.sourceName ?? v.sourceId}</span>
+                          {v.version && <span>version {v.version}</span>}
+                          {v.effectiveAt && <span>effective {fmtDate(v.effectiveAt)}</span>}
+                          <span>retrieved {relTime(v.retrievedAt)}</span>
+                          <span>confidence {Math.round(v.confidence * 100)}%</span>
+                          {v.supersedesId && <span className="text-muted-foreground/70">supersedes {v.supersedesId}</span>}
+                          {v.supersededById && (
+                            <span className="text-amber-600 dark:text-amber-300">superseded by {v.supersededById}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+
+              <Panel
+                title="Impact assessments & human governance"
+                description="When authoritative knowledge changes, Atlas identifies potentially affected jurisdictions, industries, workflows and workspaces. No consequential change becomes an autonomous production action — authorized users review it."
+              >
+                {assessments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No impact assessments scoped to this workspace yet.
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {assessments.map((a) => (
+                      <div
+                        key={a._id}
+                        className={cn(
+                          "rounded-lg border p-4",
+                          a.status === "pending_review"
+                            ? "border-amber-600/30 bg-amber-600/5"
+                            : "border-border/70 bg-card/50",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold">{a.knowledgeTitle}</p>
+                          <ChangeTypeBadge changeType={a.changeType} />
+                          <SeverityBadge severity={a.severity} />
+                          <UrgencyBadge urgency={a.urgency} />
+                          <Badge variant="outline" className="font-normal">{a.status.replace(/_/g, " ")}</Badge>
+                          {a.tierLabel && <Badge variant="secondary" className="font-normal">{a.tierLabel}</Badge>}
+                        </div>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                          <span className="font-medium text-foreground">Source:</span> {a.sourceName} ·{" "}
+                          <span className="font-medium text-foreground">Affects:</span>{" "}
+                          {(a.affectedWorkflowIds ?? []).length > 0
+                            ? `${(a.affectedWorkflowIds ?? []).length} workflow(s)`
+                            : "no workflow mapping"}{" "}
+                          · {(a.affectedJurisdictions ?? []).length > 0 ? (a.affectedJurisdictions ?? []).join(", ") : "jurisdictions: none listed"} ·{" "}
+                          {(a.affectedIndustries ?? []).length > 0 ? (a.affectedIndustries ?? []).join(", ") : "industries: none listed"}
+                        </p>
+                        <p className="mt-2 text-sm leading-6">
+                          <span className="font-medium">Recommended:</span> {a.recommendedAction}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Confidence {Math.round(a.confidence * 100)}% ·{" "}
+                          {a.requiresHumanReview ? "Human review required" : "Low-impact — review recommended"}
+                        </p>
+                        {a.reviewNote && (
+                          <p className="mt-2 text-xs italic text-muted-foreground">Review note: {a.reviewNote}</p>
+                        )}
+                        {a.status === "pending_review" && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {isManager ? (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-2 border-teal-600/50 text-teal-700 dark:text-teal-300 hover:bg-teal-600/10"
+                                  disabled={decidingId !== null}
+                                  onClick={() => onDecide(a._id, "approved")}
+                                >
+                                  <CheckCircle2 className="size-3.5" /> Approve
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-2 text-destructive hover:bg-destructive/10"
+                                  disabled={decidingId !== null}
+                                  onClick={() => onDecide(a._id, "rejected")}
+                                >
+                                  <XCircle className="size-3.5" /> Reject
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="gap-2"
+                                  disabled={decidingId !== null}
+                                  onClick={() => onDecide(a._id, "disputed")}
+                                >
+                                  <AlertTriangle className="size-3.5" /> Dispute
+                                </Button>
+                              </>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                Managers and above can decide authority reviews.
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Panel>
+            </>
+          )}
+        </TabsContent>
+
         {/* ------------------------------------------------ Coverage */}
         <TabsContent value="coverage" className="mt-6 flex flex-col gap-6">
           {!coverageData ? (
@@ -865,12 +1364,190 @@ export default function BusinessBrain() {
           )}
         </TabsContent>
 
+        {/* ------------------------------------------------ Industry excellence */}
+        <TabsContent value="excellence" className="mt-6 flex flex-col gap-6">
+          {!excellenceData || !activePack ? (
+            <p className="text-sm text-muted-foreground">Measuring industry excellence…</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {excellencePacks.map((p) => (
+                  <button
+                    key={p.packKey}
+                    type="button"
+                    onClick={() => setExcellencePack(p.packKey)}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                      p.packKey === activePack.packKey
+                        ? "border-teal-600/60 bg-teal-600/15 text-teal-700 dark:text-teal-300"
+                        : "border-border/70 text-muted-foreground hover:border-border",
+                    )}
+                  >
+                    {p.name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard icon={Award} label="Overall depth" value={activePack.overall} hint="Weighted across axes" />
+                <StatCard icon={Layers} label="Axes measured" value={activePack.axes.length} hint="Ontology → source freshness" />
+                <StatCard icon={Zap} label="Value engine" value={activePack.hasValueEngine ? "defined" : "none yet"} hint={activePack.valueEngineStatus ? `Status: ${activePack.valueEngineStatus}` : "The killer use case"} accent={activePack.hasValueEngine ? "text-emerald-600 dark:text-emerald-300" : undefined} />
+                <StatCard icon={Globe2} label="Source freshness" value={activePack.sourceFreshness} hint="From real check records" />
+              </div>
+
+              <Panel title={`Intelligence depth — ${activePack.name}`} description={activePack.note}>
+                <div className="grid gap-x-8 gap-y-3 md:grid-cols-2">
+                  {activePack.axes.map((a) => (
+                    <div key={a.label} className="flex items-center gap-3">
+                      <span className="w-44 shrink-0 text-xs text-muted-foreground">{a.label}</span>
+                      <Progress
+                        value={Math.min(100, (a.score / 10) * 100)}
+                        className="h-1.5 flex-1"
+                      />
+                      <CoverageStateBadge state={a.state} />
+                      <span className="w-36 shrink-0 text-right text-[10px] text-muted-foreground">
+                        {a.basis}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              {valueIntel?.engine ? (
+                <Panel
+                  title="Killer use case — why this industry pays for Atlas"
+                  description="A measurable business problem, not a generic AI feature."
+                >
+                  <div className="rounded-lg border border-teal-600/25 bg-teal-600/5 p-4">
+                    <p className="text-sm font-semibold text-teal-700 dark:text-teal-300">
+                      {valueIntel.engine.problem}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <Badge
+                        className={cn(
+                          "font-normal",
+                          valueIntel.engine.implementationStatus === "implemented"
+                            ? "bg-emerald-600/15 text-emerald-700 dark:text-emerald-300"
+                            : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {valueIntel.engine.implementationStatus === "implemented"
+                          ? "implemented"
+                          : "draft — not yet delivered"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        confidence {Math.round(valueIntel.engine.confidence * 100)}%
+                      </span>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Detection signals</p>
+                      <ul className="mt-2 flex flex-col gap-1.5">
+                        {valueIntel.engine.detectionSignals.map((s) => (
+                          <li key={s} className="flex items-start gap-2 text-sm leading-5">
+                            <Crosshair className="mt-0.5 size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Calculation method</p>
+                      <p className="mt-2 text-sm leading-6">{valueIntel.engine.calculationMethod}</p>
+                      <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Evidence requirements</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {valueIntel.engine.evidenceRequirements.map((e) => (
+                          <Badge key={e} variant="outline" className="font-normal">{e}</Badge>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Recommended actions</p>
+                      <ul className="mt-2 flex flex-col gap-1.5">
+                        {valueIntel.engine.recommendedActions.map((r) => (
+                          <li key={r} className="flex items-start gap-2 text-sm leading-5">
+                            <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+                            {r}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Measurable outcome</p>
+                      <p className="mt-2 text-sm leading-6">{valueIntel.engine.measurableOutcome}</p>
+                      <p className="mt-3 text-[10px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">Limitations</p>
+                      <ul className="mt-2 flex flex-col gap-1">
+                        {valueIntel.engine.limitations.map((l) => (
+                          <li key={l} className="text-xs leading-5 text-muted-foreground">— {l}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <p className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Affected entities</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {valueIntel.engine.affectedEntities.map((e) => (
+                      <Badge key={e} variant="secondary" className="font-normal">{e}</Badge>
+                    ))}
+                  </div>
+                </Panel>
+              ) : (
+                <Panel title="Killer use case">
+                  <p className="text-sm text-muted-foreground">
+                    No value engine defined for this pack yet — a measurable business problem is
+                    still being scoped.
+                  </p>
+                </Panel>
+              )}
+
+              {valueIntel && valueIntel.opportunities.length > 0 && (
+                <Panel
+                  title="Opportunity discovery"
+                  description="Ranked by economic weight. Every opportunity is explicitly labeled domain knowledge unless organization-specific evidence is supplied."
+                >
+                  <div className="flex flex-col gap-2">
+                    {valueIntel.opportunities.map((o) => (
+                      <div key={o.category} className="rounded-lg border border-border/70 bg-card/50 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="w-6 text-center text-xs font-semibold text-muted-foreground">#{o.rank}</span>
+                          <p className="text-sm font-semibold">{o.title}</p>
+                          <Badge
+                            className={cn(
+                              "font-normal",
+                              o.evidenceKind === "organization"
+                                ? "bg-teal-600/15 text-teal-700 dark:text-teal-300"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {o.evidenceKind === "organization" ? "organization evidence" : "domain knowledge"}
+                          </Badge>
+                          <span className="ml-auto text-xs text-muted-foreground">
+                            confidence {Math.round(o.confidence * 100)}%
+                          </span>
+                        </div>
+                        <p className="mt-1.5 text-sm leading-6">{o.description}</p>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{o.relevance}</p>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              )}
+            </>
+          )}
+        </TabsContent>
+
         {/* ------------------------------------------------ Insurance intelligence */}
         <TabsContent value="insurance" className="mt-6 flex flex-col gap-6">
           {!insurance ? (
             <p className="text-sm text-muted-foreground">Loading insurance intelligence…</p>
           ) : (
             <>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <StatCard icon={Target} label="Claim lifecycle" value={insurance.lifecycle.length} hint="Generalized stages" />
+                <StatCard icon={Eye} label="Evidence categories" value={insurance.evidenceCategories.length} hint="Damage · scope · quantity · pricing · necessity" />
+                <StatCard icon={Coins} label="Baseline entities" value={insurance.baseline.entities.length} hint="Known before any claim is uploaded" />
+              </div>
+
               <Panel title="Generalized claim lifecycle" description="What a claim generally involves — before any customer uploads a claim. Tenant workflows may specialize it.">
                 <div className="flex flex-wrap gap-2">
                   {insurance.lifecycle.map((s, i) => (
@@ -909,6 +1586,38 @@ export default function BusinessBrain() {
                 </p>
               </Panel>
 
+              <Panel
+                title="Domain vs organization knowledge"
+                description="Atlas knows what a claim generally looks like before any customer uploads one. It never states an organization-specific fact without evidence."
+              >
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-lg border border-teal-600/25 bg-teal-600/5 p-3">
+                    <p className="text-xs font-semibold text-teal-700 dark:text-teal-300">Domain knowledge</p>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {insurance.baseline.knowledgeKinds.domain.map((d) => (
+                        <li key={d} className="text-xs leading-5 text-muted-foreground">— {d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                    <p className="text-xs font-semibold">Organization knowledge</p>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {insurance.baseline.knowledgeKinds.organization.map((d) => (
+                        <li key={d} className="text-xs leading-5 text-muted-foreground">— {d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-border/70 bg-card/50 p-3">
+                    <p className="text-xs font-semibold">Evidence</p>
+                    <ul className="mt-2 flex flex-col gap-1.5">
+                      {insurance.baseline.knowledgeKinds.evidence.map((d) => (
+                        <li key={d} className="text-xs leading-5 text-muted-foreground">— {d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </Panel>
+
               <RecoveryAnalyzer />
             </>
           )}
@@ -929,6 +1638,8 @@ function RecoveryAnalyzer() {
     evidenceSummary: "",
     estimateAmount: "",
     paymentAmount: "",
+    invoicedAmount: "",
+    estimateLineItemCount: "",
     carrierResponse: "",
     currentStage: "",
     stageAgeDays: "",
@@ -943,6 +1654,8 @@ function RecoveryAnalyzer() {
           evidenceSummary: facts.evidenceSummary.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean),
           estimateAmount: facts.estimateAmount ? Number(facts.estimateAmount) : undefined,
           paymentAmount: facts.paymentAmount ? Number(facts.paymentAmount) : undefined,
+          invoicedAmount: facts.invoicedAmount ? Number(facts.invoicedAmount) : undefined,
+          estimateLineItemCount: facts.estimateLineItemCount ? Number(facts.estimateLineItemCount) : undefined,
           carrierResponse: facts.carrierResponse || undefined,
           currentStage: facts.currentStage || undefined,
           stageAgeDays: facts.stageAgeDays ? Number(facts.stageAgeDays) : undefined,
@@ -956,7 +1669,7 @@ function RecoveryAnalyzer() {
   return (
     <Panel
       title="Revenue recovery intelligence"
-      description="Compare documented scope, actual scope, evidence, estimate, carrier response and payment. Every finding is evidence-labeled and worded as a possibility — never a guarantee."
+      description="Compare documented scope, actual scope, evidence, estimate, carrier response and payment. Every finding is evidence-labeled, carries a limitation, and is worded as a possibility — never a guarantee."
     >
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field label="Expected / documented scope">
@@ -973,6 +1686,12 @@ function RecoveryAnalyzer() {
         </Field>
         <Field label="Paid ($)">
           <Input value={facts.paymentAmount} onChange={(e) => setFacts({ ...facts, paymentAmount: e.target.value })} placeholder="18000" />
+        </Field>
+        <Field label="Invoiced ($)">
+          <Input value={facts.invoicedAmount} onChange={(e) => setFacts({ ...facts, invoicedAmount: e.target.value })} placeholder="24000" />
+        </Field>
+        <Field label="Estimate line items">
+          <Input value={facts.estimateLineItemCount} onChange={(e) => setFacts({ ...facts, estimateLineItemCount: e.target.value })} placeholder="12" />
         </Field>
         <Field label="Carrier response">
           <Input value={facts.carrierResponse} onChange={(e) => setFacts({ ...facts, carrierResponse: e.target.value })} placeholder="partial — 30% cut on drying" />
@@ -1034,6 +1753,12 @@ function RecoveryAnalyzer() {
               <p className="mt-3 text-xs leading-5 text-teal-700 dark:text-teal-300">
                 Next step: {o.recommendedNextStep}
               </p>
+              {o.limitation && (
+                <p className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-muted-foreground">
+                  <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-300" />
+                  {o.limitation}
+                </p>
+              )}
             </div>
           ))}
         </div>
@@ -1058,6 +1783,61 @@ function CoverageStateBadge({ state }: { state: string }) {
   return (
     <Badge className={cn("font-normal", tone)}>{state}</Badge>
   );
+}
+
+function HealthBadge({ health }: { health: string }) {
+  const tone =
+    health === "healthy"
+      ? "bg-emerald-600/15 text-emerald-700 dark:text-emerald-300"
+      : health === "degraded"
+        ? "bg-amber-600/15 text-amber-700 dark:text-amber-300"
+        : health === "stale"
+          ? "bg-amber-600/15 text-amber-700 dark:text-amber-300"
+          : "bg-destructive/10 text-destructive";
+  return <Badge className={cn("font-normal", tone)}>{health}</Badge>;
+}
+
+function FreshnessBadge({ freshness }: { freshness: string }) {
+  const tone =
+    freshness === "current"
+      ? "bg-emerald-600/15 text-emerald-700 dark:text-emerald-300"
+      : freshness === "recently_checked"
+        ? "bg-teal-600/15 text-teal-700 dark:text-teal-300"
+        : freshness === "stale" || freshness === "verification_required"
+          ? "bg-amber-600/15 text-amber-700 dark:text-amber-300"
+          : "bg-destructive/10 text-destructive";
+  return <Badge className={cn("font-normal", tone)}>{freshness.replace(/_/g, " ")}</Badge>;
+}
+
+function ChangeTypeBadge({ changeType }: { changeType: string }) {
+  const label = CHANGE_TYPE_LABELS[changeType] ?? changeType.replace(/_/g, " ");
+  const tone =
+    changeType === "no_change" || changeType === "formatting_only"
+      ? "bg-muted text-muted-foreground"
+      : changeType === "clarification"
+        ? "bg-teal-600/15 text-teal-700 dark:text-teal-300"
+        : "bg-amber-600/15 text-amber-700 dark:text-amber-300";
+  return <Badge className={cn("font-normal", tone)}>{label}</Badge>;
+}
+
+function SeverityBadge({ severity }: { severity: string }) {
+  const tone =
+    severity === "high"
+      ? "bg-destructive/10 text-destructive"
+      : severity === "medium"
+        ? "bg-amber-600/15 text-amber-700 dark:text-amber-300"
+        : "bg-muted text-muted-foreground";
+  return <Badge className={cn("font-normal", tone)}>{severity}</Badge>;
+}
+
+function UrgencyBadge({ urgency }: { urgency: string }) {
+  const tone =
+    urgency === "immediate"
+      ? "bg-destructive/10 text-destructive"
+      : urgency === "soon"
+        ? "bg-amber-600/15 text-amber-700 dark:text-amber-300"
+        : "bg-muted text-muted-foreground";
+  return <Badge className={cn("font-normal", tone)}>{urgency}</Badge>;
 }
 
 function Field({

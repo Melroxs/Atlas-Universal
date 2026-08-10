@@ -187,7 +187,7 @@ export const runAuthorityCheck = internalAction({
         knowledgeType: k.knowledgeType,
         jurisdiction: k.jurisdiction,
         industry: k.industry,
-        publishedAt,
+        publishedAt: publishedAt ?? undefined,
         effectiveAt: k.effectiveDate ?? undefined,
         expiresAt: k.expirationDate ?? undefined,
         changeType,

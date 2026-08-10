@@ -125,24 +125,22 @@ export function waitingLabel(
   return `waiting for ${bd} business days`;
 }
 
-/** Start of the next business morning (today if before hours, else next
- *  business day) — for scheduling reminders outside operating hours. */
+/** Start of the next business morning — today when still before hours on a
+ *  business day, otherwise the next business day at start-of-hours. Never
+ *  lands on a weekend or holiday. */
 export function nextBusinessMorning(
   at: number,
   cfg?: BusinessCalendarConfig | null,
 ): number {
-  const key = dateKey(at, cfg?.timezone ?? "UTC");
+  const tz = cfg?.timezone ?? "UTC";
+  const key = dateKey(at, tz);
   const [y, m, d] = key.split("-").map(Number);
   const [h, mi] = (cfg?.businessHours?.start ?? "09:00").split(":").map(Number);
   const todayStart = Date.UTC(y, m - 1, d, h || 0, mi || 0);
-  if (at <= todayStart) return todayStart;
-  if (isBusinessDay(at, cfg)) return todayStart + (24 * 3600_000); // past today's start → next morning
-  return nextBusinessMorningSafe(at, cfg);
-}
-
-function nextBusinessMorningSafe(at: number, cfg?: BusinessCalendarConfig | null): number {
+  // Before hours on a business day → today's start-of-hours.
+  if (at <= todayStart && isBusinessDay(at, cfg)) return todayStart;
+  // Otherwise (after hours, or a non-business day) → next business morning.
   const next = nextBusinessDayKey(at, cfg);
-  const [y, m, d] = next.split("-").map(Number);
-  const [h, mi] = (cfg?.businessHours?.start ?? "09:00").split(":").map(Number);
-  return Date.UTC(y, m - 1, d, h || 0, mi || 0);
+  const [ny, nm, nd] = next.split("-").map(Number);
+  return Date.UTC(ny, nm - 1, nd, h || 0, mi || 0);
 }

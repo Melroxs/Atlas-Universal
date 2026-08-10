@@ -307,7 +307,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.changed",
@@ -328,7 +328,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.version_published",
@@ -349,7 +349,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.superseded",
@@ -370,7 +370,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.applicability_changed",
@@ -391,7 +391,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.knowledge_stale",
@@ -412,7 +412,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
   {
     id: "authority.review_required",
@@ -434,7 +434,7 @@ export const EVENT_REGISTRY: EventDefinition[] = [
     implementationStatus: "implemented",
     sourceMechanism: "polling",
     deduplicationStrategy: "resource_hash",
-    handlerId: null,
+    handlerId: "authority",
   },
 ];
 

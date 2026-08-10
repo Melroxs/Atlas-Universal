@@ -7,11 +7,27 @@ import {
 } from "./insurance";
 
 describe("generalized claim lifecycle", () => {
-  it("models the full lifecycle from loss to closure", () => {
+  it("models the full 17-stage lifecycle from loss to revenue reconciliation", () => {
     const stages = CLAIM_LIFECYCLE.map((s) => s.stage);
-    expect(stages[0]).toBe("Loss");
-    expect(stages[stages.length - 1]).toBe("Closure");
-    for (const expected of ["FNOL", "Inspection", "Estimate", "Carrier / adjuster review", "Supplement submission", "Approval / partial / denial", "Recovery"]) {
+    expect(stages[0]).toBe("Lead / Loss");
+    expect(stages[stages.length - 1]).toBe("Revenue reconciliation");
+    for (const expected of [
+      "FNOL",
+      "Coverage / Claim",
+      "Inspection",
+      "Documentation",
+      "Estimate",
+      "Scope comparison",
+      "Carrier review",
+      "Supplement identification",
+      "Supplement preparation",
+      "Submission",
+      "Carrier response",
+      "Negotiation / revision",
+      "Approval",
+      "Work completion",
+      "Final billing",
+    ]) {
       expect(stages).toContain(expected);
     }
   });
@@ -20,6 +36,8 @@ describe("generalized claim lifecycle", () => {
     const estimate = CLAIM_LIFECYCLE.find((s) => s.stage === "Estimate");
     expect(estimate?.typicalInputs).toContain("Scope of work");
     expect(estimate?.typicalOutputs).toContain("Estimate");
+    const supplement = CLAIM_LIFECYCLE.find((s) => s.stage === "Supplement preparation");
+    expect(supplement?.typicalInputs).toContain("Evidence");
   });
 });
 
@@ -47,6 +65,12 @@ describe("claim knowledge baseline", () => {
     expect(CLAIM_BASELINE.regulatoryContext).toContain("never presents unverified guidance as law");
     expect(CLAIM_BASELINE.companySpecific).toContain("tenant-scoped");
   });
+
+  it("distinguishes domain knowledge, organization knowledge and evidence", () => {
+    expect(CLAIM_BASELINE.knowledgeKinds.domain[0]).toContain("generally");
+    expect(CLAIM_BASELINE.knowledgeKinds.organization[0]).toContain("only ever asserted from actual records");
+    expect(CLAIM_BASELINE.knowledgeKinds.evidence[0]).toContain("proves organization-specific facts");
+  });
 });
 
 describe("revenue recovery intelligence", () => {
@@ -60,6 +84,7 @@ describe("revenue recovery intelligence", () => {
     expect(hit?.severity).toBe("high");
     expect(hit?.evidence.join(" ")).toContain("flooring");
     expect(hit?.confidence).toBeLessThan(1);
+    expect(hit?.limitation.length).toBeGreaterThan(10);
   });
 
   it("flags documentation gaps against expected evidence categories", () => {
@@ -94,6 +119,50 @@ describe("revenue recovery intelligence", () => {
     expect(analyzeRecoveryOpportunities({ stageAgeDays: 2 }).some((o) => o.type === "workflow_delay")).toBe(false);
   });
 
+  it("detects supplement opportunities from long stage age", () => {
+    const r = analyzeRecoveryOpportunities({
+      expectedScope: ["a", "b"],
+      actualScope: ["a", "b"],
+      stageAgeDays: 95,
+      currentStage: "Carrier review",
+    });
+    const hit = r.find((o) => o.type === "supplement_opportunity");
+    expect(hit).toBeTruthy();
+    expect(hit?.title.toLowerCase()).toContain("supplement");
+    expect(hit?.financialRelevance).toContain("Supplements");
+    expect(hit?.limitation).toContain("Age alone is not proof");
+  });
+
+  it("flags estimate vs billing inconsistencies", () => {
+    const r = analyzeRecoveryOpportunities({
+      estimateAmount: 25000,
+      invoicedAmount: 22000,
+    });
+    const hit = r.find((o) => o.type === "estimate_inconsistency");
+    expect(hit).toBeTruthy();
+    expect(hit?.evidence.join(" ")).toContain("25,000");
+  });
+
+  it("flags overlooked line items when the estimate has fewer lines than the scope", () => {
+    const r = analyzeRecoveryOpportunities({
+      expectedScope: ["demo", "drywall", "paint", "flooring", "cabinets", "countertop"],
+      estimateLineItemCount: 3,
+    });
+    const hit = r.find((o) => o.type === "overlooked_line_item");
+    expect(hit).toBeTruthy();
+    expect(hit?.limitation).toContain("legitimately consolidated");
+  });
+
+  it("flags billing reconciliation gaps between invoice and payment", () => {
+    const r = analyzeRecoveryOpportunities({
+      invoicedAmount: 24000,
+      paymentAmount: 18000,
+    });
+    const hit = r.find((o) => o.type === "billing_reconciliation");
+    expect(hit).toBeTruthy();
+    expect(hit?.severity).toBe("medium");
+  });
+
   it("reports no opportunities for a consistent claim", () => {
     const r = analyzeRecoveryOpportunities({
       expectedScope: ["demo", "drywall", "paint"],
@@ -101,14 +170,16 @@ describe("revenue recovery intelligence", () => {
       evidenceSummary: ["damage", "scope", "quantity", "pricing", "necessity"],
       estimateAmount: 25000,
       paymentAmount: 25000,
+      invoicedAmount: 25000,
+      estimateLineItemCount: 3,
       carrierResponse: "approved — paid in full",
-      currentStage: "Closure",
+      currentStage: "Revenue reconciliation",
       stageAgeDays: 2,
     });
     expect(r).toEqual([]);
   });
 
-  it("never guarantees recovery and always names evidence", () => {
+  it("never guarantees recovery and always names evidence and a limitation", () => {
     const r = analyzeRecoveryOpportunities({
       expectedScope: ["a"],
       actualScope: ["a", "b"],
@@ -124,6 +195,7 @@ describe("revenue recovery intelligence", () => {
       expect(o.evidence.length).toBeGreaterThan(0);
       expect(o.financialRelevance.length).toBeGreaterThan(10);
       expect(o.recommendedNextStep.length).toBeGreaterThan(10);
+      expect(o.limitation.length).toBeGreaterThan(10);
     }
   });
 });

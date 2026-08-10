@@ -146,8 +146,9 @@ export function sanitizeContent(raw: string): string {
     .replace(/&[a-z]+;/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  // Redact credential-shaped tokens rather than echoing them.
-  out = out.replace(CREDENTIAL_PATTERN, "$1=[redacted]");
+  // Redact credential-shaped tokens rather than echoing them — every
+  // occurrence, not just the first.
+  out = out.replace(new RegExp(CREDENTIAL_PATTERN.source, "gi"), "$1=[redacted]");
   return out;
 }
 

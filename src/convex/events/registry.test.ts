@@ -22,11 +22,15 @@ describe("event registry", () => {
     }
   });
 
-  it("implemented events have a handler and scopes; planned events do not", () => {
+  it("implemented events have a handler; planned events do not", () => {
     for (const e of EVENT_REGISTRY) {
       if (e.implementationStatus === "implemented") {
         expect(e.handlerId, `${e.id} must have a handler`).toBeTruthy();
-        expect(e.requiredScopes.length, `${e.id} must declare required scopes`).toBeGreaterThan(0);
+        // OAuth scopes only apply to connector-backed events; the internal
+        // atlas_authority engine genuinely requires no external scope.
+        if (e.provider === "google_drive") {
+          expect(e.requiredScopes.length, `${e.id} must declare required scopes`).toBeGreaterThan(0);
+        }
       } else {
         expect(e.implementationStatus).toBe("planned");
         expect(e.handlerId, `${e.id} must not claim a handler while planned`).toBeNull();
@@ -34,14 +38,20 @@ describe("event registry", () => {
     }
   });
 
-  it("Google Drive events are the only implemented source, via honest polling", () => {
+  it("Google Drive is the only implemented connector source; atlas_authority is the internal engine family — all via honest polling", () => {
     const implemented = EVENT_REGISTRY.filter((e) => e.implementationStatus === "implemented");
     expect(implemented.length).toBeGreaterThanOrEqual(5);
     for (const e of implemented) {
-      expect(e.provider).toBe("google_drive");
       expect(e.sourceMechanism).toBe("polling");
-      expect(e.deduplicationStrategy).toBe("provider_key");
-      expect(e.source).toContain("poll");
+      if (e.provider === "google_drive") {
+        expect(e.deduplicationStrategy).toBe("provider_key");
+        expect(e.source).toContain("poll");
+      } else {
+        // atlas_authority: internal authority-ingest events, hash-deduped.
+        expect(e.provider).toBe("atlas_authority");
+        expect(e.deduplicationStrategy).toBe("resource_hash");
+        expect(e.handlerId).toBe("authority");
+      }
     }
   });
 

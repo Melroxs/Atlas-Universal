@@ -2,7 +2,7 @@ import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -500,14 +500,26 @@ export function EmptyPanel({
 
 export function Panel({
   className,
+  title,
+  description,
   children,
 }: {
   className?: string;
+  title?: string;
+  description?: string;
   children: ReactNode;
 }) {
   return (
     <Card className={cn("border-border/70 bg-card/60 shadow-none", className)}>
-      {children}
+      {(title || description) && (
+        <CardHeader className="px-5 pb-0 pt-5">
+          {title && <CardTitle className="text-sm font-semibold">{title}</CardTitle>}
+          {description && (
+            <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+          )}
+        </CardHeader>
+      )}
+      <CardContent className="p-5">{children}</CardContent>
     </Card>
   );
 }

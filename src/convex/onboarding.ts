@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { mutation } from "./_generated/server";
 import { requireTenant, requireUser } from "./helpers";
 
@@ -47,6 +47,10 @@ export const updateCompanyProfile = mutation({
       patch.onboardingStep = args.onboardingStep;
 
     await ctx.db.patch(profile._id, patch);
+
+    // Everest: keep the organization context in sync and auto-derive the
+    // primary timezone from the company's location when not explicitly set.
+    await ctx.runMutation(internal.internal.ensureOrganizationContext, { tenantId });
   },
 });
 
@@ -185,6 +189,11 @@ export const completeOnboarding = mutation({
         settings: { kind: "upload" },
       });
     }
+
+    // Everest foundation: organization context (with auto-timezone) + the
+    // authoritative source registry. Idempotent.
+    await ctx.runMutation(internal.internal.ensureOrganizationContext, { tenantId });
+    await ctx.runMutation(api.everest.api.seedEverest, {});
 
     await ctx.runMutation(internal.internal.logAudit, {
       tenantId,

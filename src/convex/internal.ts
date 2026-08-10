@@ -3,6 +3,7 @@ import {
   internalMutation,
   internalQuery,
 } from "./_generated/server";
+import { tzForLocation } from "./everest/calendar";
 
 // ---------------------------------------------------------------------------
 // Internal queries — used by actions (which cannot touch the DB directly)
@@ -1036,5 +1037,75 @@ export const getWorkflowSettingsByTenant = internalQuery({
       .query("workflowSettings")
       .withIndex("by_tenant_workflow", (q) => q.eq("tenantId", tenantId))
       .collect();
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Everest — organization context
+// ---------------------------------------------------------------------------
+
+/**
+ * Idempotently ensure a tenant's organizationContext row exists, deriving the
+ * primary timezone automatically from the company profile's location when the
+ * context has none. Never throws on a missing profile.
+ */
+export const ensureOrganizationContext = internalMutation({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    const existing = await ctx.db
+      .query("organizationContexts")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
+    const profile = await ctx.db
+      .query("companyProfiles")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .first();
+    const patch: Record<string, unknown> = { updatedAt: Date.now() };
+    const industry = profile?.industry;
+    const businessModel = profile?.businessModel;
+    const companySize = profile?.companySize;
+    const country = profile?.country;
+
+    if (industry && existing?.industry !== industry) patch.industry = industry;
+    if (businessModel && existing?.businessModel !== businessModel)
+      patch.businessModel = businessModel;
+    if (companySize && existing?.companySize !== companySize) patch.companySize = companySize;
+    if (country && existing?.country !== country) patch.country = country;
+
+    // Auto-derive timezone from location when not explicitly configured.
+    if (!existing?.primaryTimezone && country) {
+      const { timezone, note } = tzForLocation(
+        country,
+        profile?.stateProvince ?? undefined,
+        profile?.city ?? undefined,
+      );
+      patch.primaryTimezone = timezone;
+      patch.timezoneNote = note;
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return { created: false, timezone: (existing.primaryTimezone ?? patch.primaryTimezone) as string | undefined };
+    }
+    const id = await ctx.db.insert("organizationContexts", {
+      tenantId,
+      country: country ?? undefined,
+      regions: undefined,
+      cities: undefined,
+      primaryTimezone: patch.primaryTimezone as string | undefined,
+      locale: undefined,
+      currency: undefined,
+      fiscalYearStart: undefined,
+      businessDays: undefined,
+      businessHours: undefined,
+      holidays: undefined,
+      jurisdictions: undefined,
+      industry: industry ?? undefined,
+      businessModel: businessModel ?? undefined,
+      companySize: companySize ?? undefined,
+      updatedAt: Date.now(),
+    });
+    void id;
+    return { created: true, timezone: patch.primaryTimezone as string | undefined };
   },
 });

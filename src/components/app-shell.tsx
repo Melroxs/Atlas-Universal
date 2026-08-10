@@ -32,6 +32,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
+  Brain,
   Cable,
   Database,
   Landmark,
@@ -74,6 +75,7 @@ const NAV_SECTIONS: Array<{
       { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
       { to: "/dashboard/connections", label: "Connections", icon: Cable },
       { to: "/dashboard/intelligence", label: "Intelligence", icon: Layers },
+      { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
     ],
   },
   {
@@ -107,6 +109,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/ask": "Ask Atlas",
   "/dashboard/knowledge": "Knowledge Base",
   "/dashboard/intelligence": "Intelligence Model",
+  "/dashboard/brain": "Business Brain",
   "/dashboard/recommendations": "Recommendation Center",
   "/dashboard/connections": "Connections",
   "/dashboard/actions": "Actions & Tools",

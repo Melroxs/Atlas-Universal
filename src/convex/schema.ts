@@ -723,6 +723,116 @@ const schema = defineSchema(
       .index("by_status", ["status"]),
 
     // ------------------------------------------------------------------
+    // Everest — Organization Context & Operating Locations
+    // ------------------------------------------------------------------
+
+    /** Tenant-scoped context: where the business operates, in what time,
+     *  with what calendar. The source of truth for time-aware and
+     *  jurisdiction-aware intelligence. Extensible. */
+    organizationContexts: defineTable({
+      tenantId: v.id("tenants"),
+      country: v.optional(v.string()),
+      regions: v.optional(v.array(v.string())),
+      cities: v.optional(v.array(v.string())),
+      primaryTimezone: v.optional(v.string()),
+      /** Honest note when the timezone was auto-derived or fell back to UTC. */
+      timezoneNote: v.optional(v.string()),
+      locale: v.optional(v.string()),
+      currency: v.optional(v.string()),
+      /** "MM-DD" — start of the fiscal year. */
+      fiscalYearStart: v.optional(v.string()),
+      /** 0=Sunday … 6=Saturday. Defaults to Mon–Fri. */
+      businessDays: v.optional(v.array(v.number())),
+      businessHours: v.optional(v.any()),
+      /** Array of "YYYY-MM-DD" public/company holidays. */
+      holidays: v.optional(v.any()),
+      jurisdictions: v.optional(v.array(v.string())),
+      industry: v.optional(v.string()),
+      businessModel: v.optional(v.string()),
+      companySize: v.optional(v.string()),
+      updatedAt: v.optional(v.number()),
+    }).index("by_tenant", ["tenantId"]),
+
+    /** Physical operating locations (headquarters, branches, service
+     *  areas…). Each carries its own timezone, jurisdiction and hours. */
+    operatingLocations: defineTable({
+      tenantId: v.id("tenants"),
+      name: v.string(),
+      /** headquarters | branch | office | service_area | warehouse | region */
+      kind: v.string(),
+      timezone: v.optional(v.string()),
+      jurisdiction: v.optional(v.string()),
+      country: v.optional(v.string()),
+      region: v.optional(v.string()),
+      city: v.optional(v.string()),
+      businessHours: v.optional(v.any()),
+      primary: v.optional(v.boolean()),
+    }).index("by_tenant", ["tenantId"]),
+
+    // ------------------------------------------------------------------
+    // Everest — Authoritative Source Registry & Knowledge
+    // ------------------------------------------------------------------
+
+    /** Global registry of authoritative sources (statutes, regulators,
+     *  standards bodies, industry authorities). Explicitly tiered. */
+    authoritativeSources: defineTable({
+      sourceId: v.string(),
+      name: v.string(),
+      organization: v.string(),
+      authorityTier: v.union(
+        v.literal("tier1_primary"),
+        v.literal("tier2_standard"),
+        v.literal("tier3_industry"),
+        v.literal("tier4_secondary"),
+        v.literal("tier5_general"),
+      ),
+      industry: v.optional(v.string()),
+      jurisdiction: v.optional(v.string()),
+      /** statute | regulation | standard | guidance | official_publication | industry_body | academic | general_web */
+      sourceType: v.string(),
+      canonicalUrl: v.optional(v.string()),
+      updateFrequency: v.optional(v.string()),
+      lastCheckedAt: v.optional(v.number()),
+      lastChangedAt: v.optional(v.number()),
+      currentVersion: v.optional(v.string()),
+      effectiveDate: v.optional(v.number()),
+      active: v.boolean(),
+    }).index("by_source_id", ["sourceId"]),
+
+    /** Versioned knowledge extracted from authoritative sources. The
+     *  statement is the SOURCE FACT; interpretation is Atlas's operational
+     *  view. History is never overwritten. */
+    authoritativeKnowledge: defineTable({
+      knowledgeId: v.string(),
+      sourceId: v.string(),
+      title: v.string(),
+      /** What the authoritative source actually states. */
+      statement: v.string(),
+      /** What Atlas believes it means operationally — always labeled. */
+      interpretation: v.optional(v.string()),
+      /** rule | guidance | requirement | standard | definition */
+      knowledgeType: v.string(),
+      jurisdiction: v.optional(v.string()),
+      industry: v.optional(v.string()),
+      status: v.union(
+        v.literal("active"),
+        v.literal("superseded"),
+        v.literal("expired"),
+        v.literal("draft"),
+      ),
+      publicationDate: v.optional(v.number()),
+      retrievalDate: v.optional(v.number()),
+      effectiveDate: v.optional(v.number()),
+      expirationDate: v.optional(v.number()),
+      version: v.optional(v.string()),
+      supersedes: v.optional(v.array(v.string())),
+      supersededBy: v.optional(v.array(v.string())),
+      confidence: v.number(),
+    })
+      .index("by_source", ["sourceId"])
+      .index("by_knowledge_id", ["knowledgeId"]),
+
+    // ------------------------------------------------------------------
     // Audit
     // ------------------------------------------------------------------
 

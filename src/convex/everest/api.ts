@@ -6,6 +6,7 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action, mutation, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { AUTHORITATIVE_KNOWLEDGE_SEEDS, AUTHORITATIVE_SOURCE_SEEDS, AUTHORITY_TIERS, SOURCE_RETRIEVAL_META, buildProvenance, provenanceAnswer, tierLabel, tierWeight } from "./authority";
 import { BUSINESS_BRAIN, MATURITY_KEYS, disambiguateTerm, maturityGuidance } from "./business";
 import { temporalSnapshot, tzForLocation } from "./calendar";
@@ -1251,7 +1252,16 @@ export const writeOrgMemory = mutation({
     structuredValue: v.optional(v.any()),
     expiresAt: v.optional(v.number()),
   },
-  handler: async (ctx, args) => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
+    ok: boolean;
+    memoryId: string | undefined;
+    contradicted: boolean;
+    reinforced?: boolean;
+    reason?: string;
+  }> => {
     const userId = await requireUser(ctx);
     const tenantId = await requireTenant(ctx, userId);
     if (!(await isEditor(ctx, userId, tenantId))) {
@@ -1513,7 +1523,7 @@ export const getEntityDetail = query({
 
     const [objects, assertions, memories, docs] = await Promise.all([
       Promise.all(
-        [...related].map(async (id) => ctx.db.get(id as never)),
+        [...related].map(async (id) => ctx.db.get(id as Id<"entities">)),
       ).then((rows) => rows.filter(Boolean)),
       ctx.db
         .query("knowledgeAssertions")

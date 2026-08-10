@@ -29,5 +29,18 @@
     }
   },
   "include": ["src", "vly-toolbar-readonly.tsx"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    // The Convex backend is typechecked and codegen'd by `bunx convex dev --once`
+    // (and by the platform's `convex deploy` step, which runs before this build).
+    // Excluding it here stops `tsc -b` from re-checking ~86 server-only files
+    // (conversation.ts, everest/*, workflows/*, insurance/*, ...) that never enter
+    // the client bundle — that redundant pass was pushing the platform build past
+    // its memory/time limit and getting it Killed. Client files that import from
+    // @/convex/_generated/* (and the two type-only tool imports in Actions.tsx)
+    // still pull those modules into the program transitively, so the client side
+    // of the type graph stays fully checked.
+    "src/convex/**"
+  ]
 }

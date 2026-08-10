@@ -8,6 +8,9 @@ import { action } from "./_generated/server";
 import { aiAvailable, chat, embedTexts } from "./ai/provider";
 import { cosine, keywordScore, localEmbed } from "./ai/localEmbed";
 import { truncate } from "./lib/text";
+import { classifyQuestion, questionTypeBadge, type QuestionType } from "./everest/questions";
+import { freshnessState } from "./everest/ingest";
+import { tierLabel } from "./everest/authority";
 
 const MAX_EVIDENCE = 8;
 
@@ -28,6 +31,26 @@ export const askAtlas = action({
     mode: "ai" | "local";
     limitations?: string;
     suggestedActions: string[];
+    /** §27 — the layer of knowledge this question was answered from. */
+    questionType: QuestionType;
+    questionTypeLabel: string;
+    /** §28 — structured authority answers for regulatory/mixed questions. */
+    authorityAnswers: Array<{
+      source: string;
+      organization: string;
+      authorityTier: string;
+      tierLabel: string;
+      sourceType: string;
+      jurisdiction?: string;
+      publicationDate?: number;
+      effectiveDate?: number;
+      version?: string;
+      sourceFact: string;
+      atlasInterpretation?: string;
+      confidence: number;
+      freshness: string;
+      sourceUrl?: string;
+    }>;
     evidence: Array<{
       kind: string;
       documentId?: string;
@@ -61,6 +84,80 @@ export const askAtlas = action({
 
     const q = question.trim();
     if (!q) throw new Error("Ask a question first.");
+
+    // §27 — classify the question so Atlas answers from the right layer.
+    const questionClassification = classifyQuestion(q);
+    const questionType = questionClassification.type;
+    const wantsAuthority =
+      questionType === "regulatory" || questionType === "mixed";
+
+    // §28 — authoritative knowledge matching the question (regulatory/mixed).
+    const authorityAnswers: Array<{
+      source: string;
+      organization: string;
+      authorityTier: string;
+      tierLabel: string;
+      sourceType: string;
+      jurisdiction?: string;
+      publicationDate?: number;
+      effectiveDate?: number;
+      version?: string;
+      sourceFact: string;
+      atlasInterpretation?: string;
+      confidence: number;
+      freshness: string;
+      sourceUrl?: string;
+    }> = [];
+    let authorityEvidence: Evidence[] = [];
+    if (wantsAuthority) {
+      const [allKnowledge, allSources] = await Promise.all([
+        ctx.runQuery(internal.internal.listActiveAuthorityKnowledge, {}),
+        ctx.runQuery(internal.internal.listAuthoritativeSources, {}),
+      ]);
+      const sourceById = new Map(allSources.map((s) => [s.sourceId, s]));
+      const tokens = q
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((t) => t.length > 3);
+      const hay = (k: { title: string; statement: string; industry?: string }) =>
+        `${k.title} ${k.statement} ${k.industry ?? ""}`.toLowerCase();
+      const hits = allKnowledge
+        .map((k) => ({
+          k,
+          score: tokens.filter((t) => hay(k).includes(t)).length,
+        }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 4)
+        .map((x) => x.k);
+      const now = Date.now();
+      for (const k of hits) {
+        const src = sourceById.get(k.sourceId);
+        authorityAnswers.push({
+          source: src?.name ?? k.sourceId,
+          organization: src?.organization ?? "",
+          authorityTier: src?.authorityTier ?? "tier5_general",
+          tierLabel: src ? tierLabel(src.authorityTier) : tierLabel("tier5_general"),
+          sourceType: src?.sourceType ?? "source",
+          jurisdiction: k.jurisdiction,
+          publicationDate: k.publicationDate,
+          effectiveDate: k.effectiveDate,
+          version: k.version,
+          sourceFact: k.statement,
+          atlasInterpretation: k.interpretation,
+          confidence: k.confidence,
+          freshness: freshnessState(k.lastCheckedAt, src?.updateFrequency, now, k.status),
+          sourceUrl: src?.canonicalUrl,
+        });
+      }
+      authorityEvidence = authorityAnswers.map((a, i) => ({
+        kind: "authority",
+        title: a.source,
+        snippet: `${a.sourceFact}${a.atlasInterpretation ? ` — Atlas interpretation: ${a.atlasInterpretation}` : ""}`.slice(0, 320),
+        relevance: 0.9 - i * 0.05,
+        evidenceType: "RULE",
+      }));
+    }
 
     // ------------------------------------------------------------------
     // 1. Retrieve relevant evidence
@@ -219,6 +316,10 @@ export const askAtlas = action({
         evidenceType: "RULE",
       });
     }
+    // Authority evidence sits alongside org evidence for mixed questions.
+    if (authorityEvidence.length > 0) {
+      evidence.push(...authorityEvidence);
+    }
 
     // ------------------------------------------------------------------
     // 3. Reason over evidence
@@ -242,7 +343,10 @@ export const askAtlas = action({
         "No matching evidence found in the workspace knowledge base — this is an UNKNOWN until sources are added.";
       suggestedActions = ["Upload documents", "Connect a file source"];
     } else if (aiAvailable()) {
-      const grounded = await aiAnswer(q, evidence);
+      const grounded = await aiAnswer(q, evidence, {
+        questionType,
+        authorityAnswers: authorityAnswers.slice(0, 3),
+      });
       if (grounded) {
         answer = grounded.answer;
         classification = grounded.classification;
@@ -312,6 +416,11 @@ export const askAtlas = action({
     // ------------------------------------------------------------------
     // 4. Persist + audit
     // ------------------------------------------------------------------
+    // §27/§28 — prepend the layer label so the distinction is explicit.
+    if (questionType !== "general") {
+      answer = `${questionTypeBadge(questionType)}. ${answer}`;
+    }
+
     const sessionId = await ctx.runMutation(internal.internal.insertAskSession, {
       tenantId,
       userId,
@@ -323,6 +432,7 @@ export const askAtlas = action({
       suggestedActions,
       toolPlan: toolPlan ?? undefined,
       limitations,
+      questionType,
     });
     for (const ev of evidence) {
       await ctx.runMutation(internal.internal.insertAskEvidence, {
@@ -356,6 +466,9 @@ export const askAtlas = action({
       mode,
       limitations,
       suggestedActions,
+      questionType,
+      questionTypeLabel: questionClassification.label,
+      authorityAnswers,
       toolPlan: toolPlan ?? null,
       evidence: evidence.map((e) => ({
         ...e,
@@ -399,6 +512,25 @@ async function aiAnswer(
     snippet: string;
     relevance: number;
   }>,
+  context: {
+    questionType: QuestionType;
+    authorityAnswers: Array<{
+      source: string;
+      organization: string;
+      authorityTier: string;
+      tierLabel: string;
+      sourceType: string;
+      jurisdiction?: string;
+      publicationDate?: number;
+      effectiveDate?: number;
+      version?: string;
+      sourceFact: string;
+      atlasInterpretation?: string;
+      confidence: number;
+      freshness: string;
+      sourceUrl?: string;
+    }>;
+  },
 ): Promise<{
   answer: string;
   classification: "FACT" | "RULE" | "OBSERVATION" | "INFERENCE" | "RECOMMENDATION";
@@ -413,6 +545,17 @@ async function aiAnswer(
     )
     .join("\n");
 
+  const authorityBlock =
+    context.authorityAnswers.length > 0
+      ? `\n\nAuthoritative sources matched (regulatory/standards question):\n` +
+        context.authorityAnswers
+          .map(
+            (a, i) =>
+              `[A${i + 1}] ${a.source} (${a.tierLabel}, ${a.sourceType})${a.jurisdiction ? ` · ${a.jurisdiction}` : ""}${a.version ? ` · version ${a.version}` : ""}${a.effectiveDate ? ` · effective ${new Date(a.effectiveDate).toISOString().slice(0, 10)}` : ""}${a.publicationDate ? ` · published ${new Date(a.publicationDate).toISOString().slice(0, 10)}` : ""}\nSource states: ${a.sourceFact}\nAtlas interpretation: ${a.atlasInterpretation ?? "none"}\nFreshness: ${a.freshness}`,
+          )
+          .join("\n")
+      : "";
+
   const system = `You are Atlas, the intelligence layer for a business's operations. You answer questions about the company using ONLY the provided evidence — never invent facts, figures, citations, or regulations.
 Rules:
 - Ground every statement in the evidence. Cite sources inline as [1], [2], etc.
@@ -420,9 +563,10 @@ Rules:
 - Label uncertainty. Never present an inference as a fact.
 - Classify the output as one of: FACT (directly supported by evidence), RULE (authoritative rule/policy), OBSERVATION (observed pattern), INFERENCE (derived conclusion), RECOMMENDATION (suggested action).
 - Keep the answer concise and operational (the user is an operations manager).
+- Question layer: ${context.questionType}. For REGULATORY or MIXED questions, base the answer on the authoritative sources block, quote the SOURCE FACT as the source states it, then clearly label the ATLAS INTERPRETATION separately, and state the source, authority tier, version, jurisdiction, publication/effective dates and freshness. End regulatory answers with: "This is not legal advice." Never claim the company is or is not in compliance — say what the source requires and what would need to be verified.
 - Respond with ONLY JSON, no markdown fences: {"answer": string, "classification": string, "confidence": number 0-1, "limitations": string|null, "actions": string[]}`;
 
-  const user = `Question: ${q}\n\nEvidence:\n${evidenceBlock}`;
+  const user = `Question: ${q}\n\nEvidence:\n${evidenceBlock}${authorityBlock}`;
 
   try {
     const raw = await chat(

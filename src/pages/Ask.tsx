@@ -13,8 +13,10 @@ import {
   BookOpen,
   Bot,
   Database,
+  ExternalLink,
   FileText,
   History,
+  Landmark,
   Lightbulb,
   Loader2,
   MessageSquareText,
@@ -37,6 +39,23 @@ interface Evidence {
   evidenceType?: string;
 }
 
+interface AuthorityAnswer {
+  source: string;
+  organization: string;
+  authorityTier: string;
+  tierLabel: string;
+  sourceType: string;
+  jurisdiction?: string;
+  publicationDate?: number;
+  effectiveDate?: number;
+  version?: string;
+  sourceFact: string;
+  atlasInterpretation?: string;
+  confidence: number;
+  freshness: string;
+  sourceUrl?: string;
+}
+
 interface Turn {
   id: string;
   role: "user" | "assistant";
@@ -48,6 +67,8 @@ interface Turn {
   suggestedActions?: string[];
   evidence?: Evidence[];
   toolPlan?: ToolPlan | null;
+  questionType?: string;
+  authorityAnswers?: AuthorityAnswer[];
   timestamp: number;
 }
 
@@ -127,6 +148,8 @@ export default function Ask() {
           suggestedActions: res.suggestedActions,
           evidence: res.evidence as Evidence[],
           toolPlan: res.toolPlan ?? null,
+          questionType: res.questionType,
+          authorityAnswers: res.authorityAnswers,
           timestamp: Date.now(),
         },
       ]);
@@ -160,6 +183,7 @@ export default function Ask() {
         suggestedActions: s.suggestedActions ?? undefined,
         evidence: s.evidence as Evidence[],
         toolPlan: s.toolPlan ?? null,
+        questionType: s.questionType,
         timestamp: s._creationTime,
       },
     ]);
@@ -222,6 +246,12 @@ export default function Ask() {
                   </div>
                   <div className="min-w-0 max-w-[88%] flex-1">
                     <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                      {t.questionType && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-200">
+                          <Radar className="size-3" />
+                          {t.questionType.replace(/_/g, " ")} question
+                        </span>
+                      )}
                       {t.classification && <KnowledgeBadge classification={t.classification} />}
                       {t.mode && (
                         <span className="rounded-full border border-border/70 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -297,6 +327,75 @@ export default function Ask() {
                         <p className="mt-3 text-[11px] italic leading-5 text-muted-foreground">
                           ⚠ {t.limitations}
                         </p>
+                      )}
+                      {t.authorityAnswers && t.authorityAnswers.length > 0 && (
+                        <div className="mt-3 border-t border-cyan-400/20 pt-2.5">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-300">
+                            <Landmark className="size-3" />
+                            Authoritative sources
+                          </p>
+                          <div className="mt-2 space-y-2">
+                            {t.authorityAnswers.map((a, i) => (
+                              <div
+                                key={i}
+                                className="rounded-lg border border-cyan-400/20 bg-cyan-400/5 p-3"
+                              >
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-semibold text-foreground">
+                                    {a.source}
+                                  </span>
+                                  <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-medium text-cyan-700 dark:text-cyan-200">
+                                    {a.tierLabel}
+                                  </span>
+                                  {a.version && (
+                                    <span className="font-mono text-[10px] text-muted-foreground">
+                                      v{a.version}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                                  {a.jurisdiction && <span>Jurisdiction: {a.jurisdiction}</span>}
+                                  {a.publicationDate && (
+                                    <span>
+                                      Published: {formatDate(a.publicationDate)}
+                                    </span>
+                                  )}
+                                  {a.effectiveDate && (
+                                    <span>
+                                      Effective: {formatDate(a.effectiveDate)}
+                                    </span>
+                                  )}
+                                  <span>Freshness: {a.freshness.replace(/_/g, " ")}</span>
+                                  <span>Confidence: {Math.round(a.confidence * 100)}%</span>
+                                </div>
+                                <p className="mt-2 text-[11px] leading-5 text-foreground">
+                                  {a.sourceFact}
+                                </p>
+                                {a.atlasInterpretation && (
+                                  <p className="mt-1.5 border-l-2 border-cyan-400/30 pl-2 text-[11px] italic leading-5 text-muted-foreground">
+                                    Atlas interpretation: {a.atlasInterpretation}
+                                  </p>
+                                )}
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {a.sourceUrl && (
+                                    <a
+                                      href={a.sourceUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-cyan-700 underline-offset-2 hover:underline dark:text-cyan-300"
+                                    >
+                                      <ExternalLink className="size-3" />
+                                      Source reference
+                                    </a>
+                                  )}
+                                  <span className="text-[10px] italic text-muted-foreground">
+                                    This is not legal advice.
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
                     </div>
                     {t.evidence && t.evidence.length > 0 && (

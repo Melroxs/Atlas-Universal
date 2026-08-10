@@ -78,6 +78,7 @@ export const sweepTenant = internalMutation({
         dedupeKey: d.dedupeKey,
         recommendation: d.recommendation ?? undefined,
         impact: d.impact ?? undefined,
+        riskReason: d.riskReason ?? undefined,
         status: "open",
       });
       created++;

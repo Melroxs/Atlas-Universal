@@ -488,6 +488,8 @@ export const insertAskSession = internalMutation({
     suggestedActions: v.optional(v.array(v.string())),
     toolPlan: v.optional(v.any()),
     limitations: v.optional(v.string()),
+    /** Question-type classification (domain | organization | regulatory | mixed | general). */
+    questionType: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("askSessions", args);
@@ -1049,6 +1051,68 @@ export const getWorkflowSettingsByTenant = internalQuery({
  * primary timezone automatically from the company profile's location when the
  * context has none. Never throws on a missing profile.
  */
+export const listActiveAuthorityKnowledge = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("authoritativeKnowledge")
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+  },
+});
+
+export const listAuthoritativeSources = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("authoritativeSources").collect();
+  },
+});
+
+export const getAuthorityKnowledgeByKnowledgeId = internalQuery({
+  args: { knowledgeId: v.string() },
+  handler: async (ctx, { knowledgeId }) => {
+    return await ctx.db
+      .query("authoritativeKnowledge")
+      .withIndex("by_knowledge_id", (q) => q.eq("knowledgeId", knowledgeId))
+      .first();
+  },
+});
+
+export const insertAuthorityMemory = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    classification: v.union(
+      v.literal("FACT"),
+      v.literal("RULE"),
+      v.literal("OBSERVATION"),
+      v.literal("INFERENCE"),
+      v.literal("RECOMMENDATION"),
+    ),
+    statement: v.string(),
+    confidence: v.number(),
+    /** Provenance string — source, tier, version, dates, review trail. */
+    evidence: v.string(),
+    /** Dedupe: same tenant + source fact should not re-insert the same memory. */
+    dedupeStatement: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("knowledgeAssertions")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", args.tenantId))
+      .filter((q) => q.eq(q.field("evidence"), args.dedupeStatement))
+      .first();
+    if (existing) return existing._id;
+    return await ctx.db.insert("knowledgeAssertions", {
+      tenantId: args.tenantId,
+      classification: args.classification,
+      statement: args.statement,
+      confidence: args.confidence,
+      evidence: args.evidence,
+      status: "confirmed",
+    });
+  },
+});
+
 export const ensureOrganizationContext = internalMutation({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {

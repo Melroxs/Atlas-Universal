@@ -15,6 +15,8 @@ import { evaluateApplicability } from "./jurisdiction";
 import { freshnessState, sourceHealth } from "./ingest";
 import { deriveExcellence } from "./excellence";
 import { discoverOpportunities, VALUE_ENGINES, valueEngineFor } from "./value";
+import { memoryRecordFromApproval } from "./memory";
+import { composeInsights } from "./insight";
 import { requireTenant, requireUser, isManager } from "../helpers";
 
 const industryKey = (s?: string | null) =>
@@ -621,6 +623,54 @@ export const decideImpactReview = mutation({
       targetId: assessmentId,
       metadata: { sourceId: assessment.sourceId, changeType: assessment.changeType, note },
     });
+
+    // §25 Knowledge → Memory: ONLY an approved, applicable assessment is
+    // promoted into the tenant's knowledge graph as confirmed memory, with
+    // full provenance retained. Rejected/disputed assessments never become
+    // organizational memory.
+    if (decision === "approved" && assessment.knowledgeId) {
+      const knowledgeId = assessment.knowledgeId;
+      const [source, knowledge] = await Promise.all([
+        ctx.db
+          .query("authoritativeSources")
+          .withIndex("by_source_id", (q) => q.eq("sourceId", assessment.sourceId))
+          .first(),
+        ctx.db
+          .query("authoritativeKnowledge")
+          .withIndex("by_knowledge_id", (q) => q.eq("knowledgeId", knowledgeId))
+          .first(),
+      ]);
+      if (source && knowledge) {
+        const memory = memoryRecordFromApproval({
+          tenantId: String(tenantId),
+          statement: knowledge.statement,
+          interpretation: knowledge.interpretation,
+          confidence: assessment.confidence,
+          source: {
+            sourceId: source.sourceId,
+            sourceName: source.name,
+            authorityTier: source.authorityTier,
+            tierLabel: tierLabel(source.authorityTier),
+            version: knowledge.version,
+            publicationDate: knowledge.publicationDate ?? null,
+            effectiveDate: knowledge.effectiveDate ?? null,
+            canonicalUrl: source.canonicalUrl,
+          },
+          changeType: assessment.changeType,
+          reviewNote: note,
+          decidedBy: String(userId),
+          decidedAt: Date.now(),
+        });
+        await ctx.runMutation(internal.internal.insertAuthorityMemory, {
+          tenantId,
+          classification: memory.classification,
+          statement: memory.statement,
+          confidence: memory.confidence,
+          evidence: memory.evidence,
+          dedupeStatement: memory.provenance,
+        });
+      }
+    }
   },
 });
 
@@ -699,6 +749,147 @@ export const getValueIntelligence = query({
       engine,
       allEngines: VALUE_ENGINES,
       opportunities: discoverOpportunities(packKey),
+    };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Phase 8 continued — Knowledge → Memory (§25) & Knowledge → Intelligence (§26)
+// ---------------------------------------------------------------------------
+
+/** Tenant memory: authority knowledge promoted to the knowledge graph after
+ *  human approval, with provenance retained. Reuses knowledgeAssertions. */
+export const listTenantMemory = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const assertions = await ctx.db
+      .query("knowledgeAssertions")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(100);
+    return assertions.map((a) => ({
+      ...a,
+      origin: a.evidence?.startsWith("Source:") ? "authority" : "knowledge",
+    }));
+  },
+});
+
+/**
+ * §26 Knowledge → Intelligence. Composes an evidence-grounded insight view
+ * from: organization state (entities, approvals, decisions, events,
+ * workflows), industry knowledge (active packs), authority knowledge
+ * (applicability-checked), jurisdiction, temporal context, and memory. Every
+ * insight lists the evidence that supports it — never fabricates.
+ */
+export const getComposedIntelligence = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+
+    const [context, entities, assertions, decisions, approvals, events, workflows, packs, tenantPacks, allAuthorityKnowledge, sources] =
+      await Promise.all([
+        ctx.db.query("organizationContexts").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).first(),
+        ctx.db.query("entities").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).take(300),
+        ctx.db.query("knowledgeAssertions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).take(100),
+        ctx.db.query("decisions").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).filter((q) => q.eq(q.field("status"), "open")).take(50),
+        ctx.db.query("workflowApprovals").withIndex("by_tenant_status", (q) => q.eq("tenantId", tenantId).eq("status", "pending")).take(50),
+        ctx.db.query("events").withIndex("by_tenant_received", (q) => q.eq("tenantId", tenantId)).order("desc").take(30),
+        ctx.db.query("workflowInstances").withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId)).order("desc").take(30),
+        ctx.db.query("intelligencePacks").collect(),
+        ctx.db.query("tenantPacks").withIndex("by_tenant", (q) => q.eq("tenantId", tenantId)).collect(),
+        ctx.db.query("authoritativeKnowledge").filter((q) => q.eq(q.field("status"), "active")).collect(),
+        ctx.db.query("authoritativeSources").collect(),
+      ]);
+
+    const now = Date.now();
+    const activeKeys = new Set(
+      tenantPacks.filter((p) => p.status === "active").map((p) => p.packKey),
+    );
+    const packsById = new Map(packs.map((p) => [p.key, p]));
+    const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
+
+    // Industry knowledge from ACTIVE packs only.
+    const industryKnowledge = packs
+      .filter((p) => activeKeys.has(p.key))
+      .map((p) => ({ key: p.key, title: p.name, summary: p.description }));
+
+    // Jurisdiction + temporal context.
+    const timezone =
+      context?.primaryTimezone ??
+      tzForLocation(context?.country, context?.regions?.[0], context?.cities?.[0]).timezone;
+    const jurisCtx = {
+      country: context?.country ?? undefined,
+      state: context?.regions?.[0] ?? undefined,
+      municipality: context?.cities?.[0] ?? undefined,
+      industry: context?.industry ?? undefined,
+      asOf: now,
+    };
+
+    const authorityKnowledge = allAuthorityKnowledge
+      .map((k) => {
+        const src = sourceById.get(k.sourceId);
+        const applicability = evaluateApplicability(k, jurisCtx);
+        return {
+          knowledgeId: k.knowledgeId,
+          title: k.title,
+          statement: k.statement,
+          interpretation: k.interpretation,
+          sourceName: src?.name ?? k.sourceId,
+          authorityTier: src?.authorityTier ?? "tier5_general",
+          version: k.version,
+          effectiveDate: k.effectiveDate,
+          confidence: k.confidence,
+          applies: applicability.applicable,
+          applicabilityReason: applicability.reason,
+        };
+      })
+      .slice(0, 40);
+
+    const insights = composeInsights({
+      now,
+      timezone,
+      organizationState: {
+        entityCount: entities.length,
+        assertionCount: assertions.length,
+        openDecisions: decisions.map((d) => ({ id: String(d._id), title: d.title, summary: d.summary })),
+        pendingApprovals: approvals.map((a) => ({ id: String(a._id), title: a.title, createdAt: a.createdAt })),
+        recentEvents: events.map((e) => ({ id: String(e._id), eventType: e.eventType, receivedAt: e.receivedAt })),
+        activeWorkflows: workflows
+          .filter((w) => w.status === "running" || w.status === "waiting")
+          .map((w) => ({ id: String(w._id), name: w.definitionId })),
+      },
+      industryKnowledge,
+      authorityKnowledge,
+      memory: assertions.map((a) => ({
+        id: String(a._id),
+        statement: a.statement,
+        classification: a.classification,
+        confidence: a.confidence,
+      })),
+      jurisdiction: {
+        path: [jurisCtx.country, jurisCtx.state, jurisCtx.municipality].filter((p): p is string => !!p),
+        industry: jurisCtx.industry,
+      },
+    });
+
+    return {
+      generatedAt: now,
+      timezone,
+      context: {
+        entityCount: entities.length,
+        assertionCount: assertions.length,
+        openDecisionCount: decisions.length,
+        pendingApprovalCount: approvals.length,
+        recentEventCount: events.length,
+        activeWorkflowCount: workflows.filter((w) => w.status === "running" || w.status === "waiting").length,
+        activePacks: industryKnowledge.map((p) => p.title),
+        jurisdiction: { path: [jurisCtx.country, jurisCtx.state, jurisCtx.municipality].filter((p): p is string => !!p), industry: jurisCtx.industry },
+      },
+      insights,
+      packNames: packsById,
     };
   },
 });

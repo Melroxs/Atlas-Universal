@@ -339,6 +339,8 @@ const schema = defineSchema(
       /** Structured tool-use proposal produced by the planner (Ask → Actions). */
       toolPlan: v.optional(v.any()),
       limitations: v.optional(v.string()),
+      /** Question-type classification (domain | organization | regulatory | mixed | general). */
+      questionType: v.optional(v.string()),
     })
       .index("by_tenant", ["tenantId"])
       .index("by_tenant_user", ["tenantId", "userId"]),

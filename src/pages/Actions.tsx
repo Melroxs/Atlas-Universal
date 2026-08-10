@@ -1,7 +1,5 @@
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import type { ToolField } from "@/convex/tools/registry";
-import type { ConfirmationDetails } from "@/convex/tools/policy";
 import {
   ActionStatusBadge,
   EmptyPanel,
@@ -101,6 +99,41 @@ interface HistoryRow {
   explanation?: unknown;
   startedAt?: number | null;
   completedAt?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Local mirrors of the server tool-schema types. These used to be imported
+// (type-only) from src/convex/tools/*, but that pulled the Convex modules into
+// the client TypeScript program, making the deploy build exceed its time/memory
+// budget. The shapes are stable contract types — kept in sync with the server
+// registry (src/convex/tools/registry.ts, src/convex/tools/policy.ts).
+// ---------------------------------------------------------------------------
+
+interface ToolField {
+  key: string;
+  type: "string" | "number" | "boolean" | "enum";
+  required?: boolean;
+  description: string;
+  /** Values for type "enum". */
+  enum?: string[];
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  /** Rendered as a multi-line input when true. */
+  longText?: boolean;
+}
+
+interface ConfirmationDetails {
+  toolId: string;
+  message: string;
+  what: string;
+  system: string;
+  account: string;
+  resource: string;
+  consequences: string[];
+  reversible: boolean;
 }
 
 type ComposerValues = Record<string, string | number | boolean>;

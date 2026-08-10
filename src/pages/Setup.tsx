@@ -1,5 +1,5 @@
 import { api } from "@/convex/_generated/api";
-import { INDUSTRY_BRANCHES } from "@/convex/data/packs";
+import { INDUSTRY_BRANCHES } from "@/lib/industry-branches";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

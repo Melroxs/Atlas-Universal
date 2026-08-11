@@ -8,18 +8,34 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
-} from "@/components/ui/input-otp";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
-import { classifySendError, classifyVerifyError } from "@/lib/auth-errors";
+import { classifyAuthError } from "@/lib/auth-errors";
+import {
+  firebaseSendPasswordReset,
+  firebaseSignIn,
+  firebaseSignUp,
+  getFirebaseIdToken,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
 import logo from "@/assets/logo.svg";
 import { useQuery } from "convex/react";
-import { AlertTriangle, ArrowRight, Loader2, Mail, UserX } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Loader2,
+  LogIn,
+  Mail,
+  UserPlus,
+  UserX,
+} from "lucide-react";
 import { Suspense, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -37,6 +53,8 @@ function resolveRedirectAfterAuth(
   return fallback;
 }
 
+type Mode = "signIn" | "signUp";
+
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
   const navigate = useNavigate();
@@ -45,171 +63,312 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     searchParams.get("returnTo"),
     redirectAfterAuth,
   );
-  const [step, setStep] = useState<"signIn" | { email: string }>("signIn");
-  const [otp, setOtp] = useState("");
+
+  const [mode, setMode] = useState<Mode>("signIn");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [resendNote, setResendNote] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const firebaseClientConfigured = isFirebaseConfigured();
   const authStatus = useQuery(api.authStatus.authStatus);
-  const emailOtpUnconfigured =
-    authStatus !== undefined && authStatus.emailOtpConfigured === false;
+  const serverUnconfigured =
+    firebaseClientConfigured &&
+    authStatus !== undefined &&
+    authStatus.firebaseConfigured === false;
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
-  const sendCode = async (email: string) => {
-    // When VLY_EMAIL_API_KEY is absent the relay rejects every send with a
-    // 401. Fail fast with the actionable message instead of firing a doomed
-    // network call — the amber banner already explains the configuration gap.
-    if (emailOtpUnconfigured) {
-      throw new Error("Failed to send verification email (status 401)");
+
+  const exchangeTokenAndGo = async () => {
+    const idToken = await getFirebaseIdToken();
+    if (idToken) {
+      await signIn("firebase", { idToken });
     }
-    const formData = new FormData();
-    formData.set("email", email);
-    await signIn("email-otp", formData);
+    navigate(redirect);
   };
 
-  const handleEmailSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
-    setResendNote(null);
+    setNotice(null);
     try {
-      const formData = new FormData(event.currentTarget);
-      const email = formData.get("email") as string;
-      await sendCode(email);
-      setStep({ email });
-      setIsLoading(false);
-    } catch (error) {
-      console.error("Email sign-in error:", error);
-      setError(classifySendError(error).message);
+      if (mode === "signUp") {
+        await firebaseSignUp({ email, password, name });
+      } else {
+        await firebaseSignIn(email, password);
+      }
+      await exchangeTokenAndGo();
+    } catch (err) {
+      console.error("Auth error:", err);
+      setError(classifyAuthError(err));
       setIsLoading(false);
     }
   };
 
-  const handleResend = async () => {
-    if (step === "signIn") return;
+  const handleReset = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setIsLoading(true);
     setError(null);
-    setResendNote(null);
+    setNotice(null);
     try {
-      await sendCode(step.email);
-      setResendNote(`A new code was sent to ${step.email}.`);
-    } catch (error) {
-      console.error("Resend error:", error);
-      setError(classifySendError(error).message);
+      await firebaseSendPasswordReset(email);
+      setNotice(
+        `If an account exists for ${email}, a password reset link is on its way. Check your inbox.`,
+      );
+      setResetting(false);
+    } catch (err) {
+      console.error("Password reset error:", err);
+      setError(classifyAuthError(err));
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleOtpSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsLoading(true);
-    setError(null);
-    try {
-      const formData = new FormData(event.currentTarget);
-      await signIn("email-otp", formData);
-
-      console.log("signed in");
-
-      navigate(redirect);
-    } catch (error) {
-      console.error("OTP verification error:", error);
-
-      setError(classifyVerifyError(error).message);
-      setIsLoading(false);
-
-      setOtp("");
     }
   };
 
   const handleGuestLogin = async () => {
     setIsLoading(true);
     setError(null);
+    setNotice(null);
     try {
-      console.log("Attempting anonymous sign in...");
       await signIn("anonymous");
-      console.log("Anonymous sign in successful");
       navigate(redirect);
-    } catch (error) {
-      console.error("Guest login error:", error);
-      console.error("Error details:", JSON.stringify(error, null, 2));
-      setError(`Failed to sign in as guest: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } catch (err) {
+      console.error("Guest login error:", err);
+      setError(`Failed to sign in as guest: ${classifyAuthError(err)}`);
       setIsLoading(false);
     }
   };
 
+  const emailInput = (
+    <div className="space-y-1.5">
+      <Label htmlFor="email" className="text-xs font-medium text-muted-foreground">
+        Email
+      </Label>
+      <div className="relative">
+        <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          placeholder="name@example.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="pl-9"
+          disabled={isLoading || !firebaseClientConfigured}
+          required
+        />
+      </div>
+    </div>
+  );
+
+  const passwordInput = (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label
+          htmlFor="password"
+          className="text-xs font-medium text-muted-foreground"
+        >
+          Password
+        </Label>
+        {mode === "signIn" && (
+          <Button
+            type="button"
+            variant="link"
+            className="h-auto p-0 text-xs"
+            onClick={() => setResetting((r) => !r)}
+            disabled={isLoading}
+          >
+            Forgot password?
+          </Button>
+        )}
+      </div>
+      <div className="relative">
+        <Input
+          id="password"
+          name="password"
+          type={showPassword ? "text" : "password"}
+          autoComplete={mode === "signUp" ? "new-password" : "current-password"}
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="pr-9"
+          disabled={isLoading || !firebaseClientConfigured}
+          required
+          minLength={mode === "signUp" ? 6 : undefined}
+        />
+        <button
+          type="button"
+          tabIndex={-1}
+          onClick={() => setShowPassword((s) => !s)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={showPassword ? "Hide password" : "Show password"}
+        >
+          {showPassword ? (
+            <EyeOff className="h-4 w-4" />
+          ) : (
+            <Eye className="h-4 w-4" />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
+  const statusBanner = !firebaseClientConfigured ? (
+    <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
+      <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
+      Email sign-in isn't configured for this deployment yet. Ask the
+      administrator to add the{" "}
+      <code className="font-mono">VITE_FIREBASE_API_KEY</code>,{" "}
+      <code className="font-mono">VITE_FIREBASE_AUTH_DOMAIN</code> and{" "}
+      <code className="font-mono">VITE_FIREBASE_PROJECT_ID</code> project keys
+      — or continue as Guest below.
+    </div>
+  ) : serverUnconfigured ? (
+    <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
+      <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
+      Email sign-in is partially configured. Ask the administrator to add the{" "}
+      <code className="font-mono">FIREBASE_SERVICE_ACCOUNT_JSON</code> project
+      key so identity tokens can be verified.
+    </div>
+  ) : null;
+
   return (
     <div className="min-h-screen flex flex-col">
-
-      
       {/* Auth Content */}
       <div className="flex-1 flex items-center justify-center">
         <div className="flex items-center justify-center h-full flex-col">
-        <Card className="min-w-[350px] pb-0 border shadow-md">
-          {step === "signIn" ? (
-            <>
-              <CardHeader className="text-center">
+          <Card className="min-w-[350px] pb-0 border shadow-md">
+            <CardHeader className="text-center">
               <div className="flex justify-center">
-                    <img
-                      src={logo}
-                      alt="Lock Icon"
-                      width={64}
-                      height={64}
-                      className="rounded-lg mb-4 mt-4 cursor-pointer"
-                      onClick={() => navigate("/")}
-                    />
-                  </div>
-                <CardTitle className="text-xl">Get Started</CardTitle>
-                <CardDescription>
-                  Enter your email to log in or sign up
-                </CardDescription>
-                {emailOtpUnconfigured && (
-                  <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
-                    <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
-                    Email verification isn't configured for this deployment yet. Ask the
-                    administrator to add the{" "}
-                    <code className="font-mono">VLY_EMAIL_API_KEY</code> project key — or
-                    continue as Guest below.
-                  </div>
-                )}
-              </CardHeader>
-              <form onSubmit={handleEmailSubmit}>
-                <CardContent>
-                  
-                  <div className="relative flex items-center gap-2">
-                    <div className="relative flex-1">
-                      <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        name="email"
-                        placeholder="name@example.com"
-                        type="email"
-                        className="pl-9"
-                        disabled={isLoading}
-                        required
-                      />
-                    </div>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      size="icon"
-                      disabled={isLoading}
-                    >
-                      {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <ArrowRight className="h-4 w-4" />
-                      )}
-                    </Button>
-                  </div>
+                <img
+                  src={logo}
+                  alt="Atlas logo"
+                  width={64}
+                  height={64}
+                  className="rounded-lg mb-4 mt-4 cursor-pointer"
+                  onClick={() => navigate("/")}
+                />
+              </div>
+              <CardTitle className="text-xl">
+                {resetting ? "Reset your password" : "Welcome to Atlas"}
+              </CardTitle>
+              <CardDescription>
+                {resetting
+                  ? "We'll email you a link to set a new password"
+                  : mode === "signIn"
+                    ? "Sign in to your workspace"
+                    : "Create your account and workspace"}
+              </CardDescription>
+              {statusBanner}
+            </CardHeader>
+
+            {resetting ? (
+              <form onSubmit={handleReset}>
+                <CardContent className="space-y-4">
+                  {emailInput}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="w-full"
+                    onClick={() => {
+                      setResetting(false);
+                      setError(null);
+                      setNotice(null);
+                    }}
+                    disabled={isLoading}
+                  >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Back to sign in
+                  </Button>
                   {error && (
                     <p className="mt-2 text-sm text-red-500">{error}</p>
                   )}
-                  
-                  <div className="mt-4">
+                  {notice && (
+                    <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">
+                      {notice}
+                    </p>
+                  )}
+                </CardContent>
+                <CardFooter>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isLoading || !firebaseClientConfigured || !email}
+                  >
+                    {isLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <KeyRound className="mr-2 h-4 w-4" />
+                    )}
+                    Send reset link
+                  </Button>
+                </CardFooter>
+              </form>
+            ) : (
+              <>
+                <Tabs
+                  value={mode}
+                  onValueChange={(v) => {
+                    setMode(v as Mode);
+                    setError(null);
+                    setNotice(null);
+                  }}
+                  className="px-6"
+                >
+                  <TabsList className="w-full">
+                    <TabsTrigger value="signIn" className="flex-1">
+                      <LogIn className="h-4 w-4" />
+                      Sign in
+                    </TabsTrigger>
+                    <TabsTrigger value="signUp" className="flex-1">
+                      <UserPlus className="h-4 w-4" />
+                      Create account
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+
+                <form onSubmit={handleSubmit}>
+                  <CardContent className="space-y-4">
+                    {mode === "signUp" && (
+                      <div className="space-y-1.5">
+                        <Label
+                          htmlFor="name"
+                          className="text-xs font-medium text-muted-foreground"
+                        >
+                          Full name
+                        </Label>
+                        <Input
+                          id="name"
+                          name="name"
+                          type="text"
+                          autoComplete="name"
+                          placeholder="Alex Rivera"
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          disabled={isLoading || !firebaseClientConfigured}
+                        />
+                      </div>
+                    )}
+                    {emailInput}
+                    {passwordInput}
+                    {error && (
+                      <p className="mt-2 text-sm text-red-500">{error}</p>
+                    )}
+                    {notice && (
+                      <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">
+                        {notice}
+                      </p>
+                    )}
+
                     <div className="relative">
                       <div className="absolute inset-0 flex items-center">
                         <span className="w-full border-t" />
@@ -220,132 +379,57 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                         </span>
                       </div>
                     </div>
-                    
+
                     <Button
                       type="button"
                       variant="outline"
-                      className="w-full mt-4"
+                      className="w-full"
                       onClick={handleGuestLogin}
                       disabled={isLoading}
                     >
                       <UserX className="mr-2 h-4 w-4" />
                       Continue as Guest
                     </Button>
-                  </div>
-                </CardContent>
-              </form>
-            </>
-          ) : (
-            <>
-              <CardHeader className="text-center mt-4">
-                <CardTitle>Check your email</CardTitle>
-                <CardDescription>
-                  We've sent a code to {step.email}
-                </CardDescription>
-              </CardHeader>
-              <form onSubmit={handleOtpSubmit}>
-                <CardContent className="pb-4">
-                  <input type="hidden" name="email" value={step.email} />
-                  <input type="hidden" name="code" value={otp} />
-
-                  <div className="flex justify-center">
-                    <InputOTP
-                      value={otp}
-                      onChange={setOtp}
-                      maxLength={6}
-                      disabled={isLoading}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && otp.length === 6 && !isLoading) {
-                          // Find the closest form and submit it
-                          const form = (e.target as HTMLElement).closest("form");
-                          if (form) {
-                            form.requestSubmit();
-                          }
-                        }
-                      }}
-                    >
-                      <InputOTPGroup>
-                        {Array.from({ length: 6 }).map((_, index) => (
-                          <InputOTPSlot key={index} index={index} />
-                        ))}
-                      </InputOTPGroup>
-                    </InputOTP>
-                  </div>
-                  {error && (
-                    <p className="mt-2 text-sm text-red-500 text-center">
-                      {error}
-                    </p>
-                  )}
-                  {resendNote && (
-                    <p className="mt-2 text-center text-xs text-emerald-600 dark:text-emerald-300">
-                      {resendNote}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground text-center mt-4">
-                    Didn't receive a code?{" "}
+                  </CardContent>
+                  <CardFooter>
                     <Button
-                      variant="link"
-                      className="p-0 h-auto"
-                      onClick={() => void handleResend()}
-                      disabled={isLoading}
+                      type="submit"
+                      className="w-full"
+                      disabled={
+                        isLoading ||
+                        !firebaseClientConfigured ||
+                        !email ||
+                        !password
+                      }
                     >
-                      Resend code
-                    </Button>{" "}
-                    ·{" "}
-                    <Button
-                      variant="link"
-                      className="p-0 h-auto"
-                      onClick={() => setStep("signIn")}
-                    >
-                      Use different email
-                    </Button>
-                  </p>
-                </CardContent>
-                <CardFooter className="flex-col gap-2">
-                  <Button
-                    type="submit"
-                    className="w-full"
-                    disabled={isLoading || otp.length !== 6}
-                  >
-                    {isLoading ? (
-                      <>
+                      {isLoading ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Verifying...
-                      </>
-                    ) : (
-                      <>
-                        Verify code
-                        <ArrowRight className="ml-2 h-4 w-4" />
-                      </>
-                    )}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setStep("signIn")}
-                    disabled={isLoading}
-                    className="w-full"
-                  >
-                    Use different email
-                  </Button>
-                </CardFooter>
-              </form>
-            </>
-          )}
-
-          <div className="py-4 px-6 text-xs text-center text-muted-foreground bg-muted border-t rounded-b-lg">
-            Secured by{" "}
-            <a
-              href="https://freebuff.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-primary transition-colors"
-            >
-              freebuff.com
-            </a>
-          </div>
-        </Card>
+                      ) : mode === "signUp" ? (
+                        <UserPlus className="mr-2 h-4 w-4" />
+                      ) : (
+                        <LogIn className="mr-2 h-4 w-4" />
+                      )}
+                      {mode === "signUp" ? "Create account" : "Sign in"}
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Button>
+                  </CardFooter>
+                </form>
+              </>
+            )}
+          </Card>
         </div>
+      </div>
+
+      <div className="py-4 px-6 text-xs text-center text-muted-foreground">
+        Secured by{" "}
+        <a
+          href="https://freebuff.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline hover:text-primary transition-colors"
+        >
+          freebuff.com
+        </a>
       </div>
     </div>
   );

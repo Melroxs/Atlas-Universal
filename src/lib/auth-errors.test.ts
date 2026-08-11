@@ -1,64 +1,58 @@
 // ---------------------------------------------------------------------------
-// Phase 12 — Auth error classification tests (Part 15).
+// Phase 14 — Auth error classification tests (Firebase Authentication).
 // Every surfaced message must be safe (no secrets/tokens/stack traces) and
-// actionable (points at the missing VLY_EMAIL_API_KEY config when relevant).
+// actionable (maps known Firebase auth/* codes to friendly guidance, and
+// calls out missing deployment keys when relevant).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { classifySendError, classifyVerifyError } from "./auth-errors";
+import { classifyAuthError } from "./auth-errors";
 
-describe("classifySendError (step 1 — request the code)", () => {
-  it("maps relay 401/403 to not-configured with an actionable message", () => {
-    const r = classifySendError(new Error("Failed to send verification email (status 401)"));
-    expect(r.kind).toBe("not-configured");
-    expect(r.message).toMatch(/VLY_EMAIL_API_KEY/);
-    expect(r.message).toMatch(/Guest/i);
+function firebaseError(code: string): Error {
+  const error = new Error(`Firebase: ${code}.`);
+  (error as { code?: string }).code = code;
+  return error;
+}
+
+describe("classifyAuthError", () => {
+  it("maps known Firebase codes to friendly messages", () => {
+    expect(classifyAuthError(firebaseError("auth/email-already-in-use"))).toMatch(/already exists/i);
+    expect(classifyAuthError(firebaseError("auth/invalid-email"))).toMatch(/looks invalid/i);
+    expect(classifyAuthError(firebaseError("auth/weak-password"))).toMatch(/too weak/i);
+    expect(classifyAuthError(firebaseError("auth/wrong-password"))).toMatch(/incorrect/i);
+    expect(classifyAuthError(firebaseError("auth/user-not-found"))).toMatch(/no account/i);
+    expect(classifyAuthError(firebaseError("auth/invalid-credential"))).toMatch(/incorrect/i);
+    expect(classifyAuthError(firebaseError("auth/too-many-requests"))).toMatch(/too many attempts/i);
+    expect(classifyAuthError(firebaseError("auth/network-request-failed"))).toMatch(/connection/i);
+  });
+
+  it("points at missing deployment config for backend exchange errors", () => {
+    const r = classifyAuthError(
+      new Error("Firebase is not configured (FIREBASE_SERVICE_ACCOUNT_JSON missing)."),
+    );
+    expect(r).toMatch(/FIREBASE_SERVICE_ACCOUNT_JSON/);
+    expect(r).toMatch(/Guest/i);
   });
 
   it("never leaks the key or tokens in the message", () => {
-    const r = classifySendError(new Error("Failed to send verification email (status 401)"));
-    expect(r.message).not.toMatch(/sk-|Bearer|api[- ]?key[:=]|header|config/i);
-  });
-
-  it("maps 5xx / network failures to service-unavailable", () => {
-    expect(classifySendError(new Error("Failed to send verification email (status 503)")).kind).toBe(
-      "service-unavailable",
+    const r = classifyAuthError(
+      new Error("Firebase is not configured (FIREBASE_SERVICE_ACCOUNT_JSON missing)."),
     );
-    expect(classifySendError(new Error("Network Error")).kind).toBe("service-unavailable");
-    expect(classifySendError(new Error("request timeout")).kind).toBe("service-unavailable");
+    expect(r).not.toMatch(/sk-|Bearer|private_key|BEGIN|AIza/i);
   });
 
-  it("maps invalid email rejection", () => {
-    const r = classifySendError(new Error("invalid email address"));
-    expect(r.kind).toBe("invalid-email");
+  it("maps network / timeout failures", () => {
+    expect(classifyAuthError(new Error("Network Error"))).toMatch(/connection/i);
+    expect(classifyAuthError(new Error("request timeout"))).toMatch(/connection/i);
+  });
+
+  it("handles expired sessions", () => {
+    expect(classifyAuthError(new Error("Firebase ID token has expired"))).toMatch(/expired/i);
   });
 
   it("falls back to a safe generic message", () => {
-    const r = classifySendError(new Error("something unexpected happened"));
-    expect(r.kind).toBe("generic");
-    expect(r.message).not.toContain("something unexpected");
-  });
-});
-
-describe("classifyVerifyError (step 2 — enter the code)", () => {
-  it("explains expired codes", () => {
-    const r = classifyVerifyError(new Error("Verification code expired"));
-    expect(r.message).toMatch(/expired/i);
-  });
-
-  it("explains incorrect codes honestly (library throws generic 'Could not verify code')", () => {
-    const r = classifyVerifyError(new Error("Could not verify code"));
-    expect(r.message).toMatch(/incorrect or has expired/i);
-  });
-
-  it("maps network failures during verification", () => {
-    const r = classifyVerifyError(new Error("Network Error"));
-    expect(r.message).toMatch(/temporarily unavailable/i);
-  });
-
-  it("falls back to a safe generic verification message", () => {
-    const r = classifyVerifyError(new Error("boop"));
-    expect(r.kind).toBe("generic");
-    expect(r.message).not.toMatch(/boop/);
+    const r = classifyAuthError(new Error("something unexpected happened"));
+    expect(r).toBe("Unable to sign in. Please try again.");
+    expect(r).not.toContain("something unexpected");
   });
 });

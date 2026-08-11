@@ -3,10 +3,14 @@ import {
   CLAIM_STATUSES,
   SUPPLEMENT_STATUSES,
   analyzeClaimCompleteness,
+  buildCarrierBreakdown,
   buildClaimFindings,
   buildClaimPackage,
   buildClaimTimeline,
+  buildRecoveryTrend,
+  buildStatusDistribution,
   buildSupplementDocument,
+  monthKey,
   pipelineIndexFor,
   reconcileClaim,
   type SupplementStatus,
@@ -401,5 +405,102 @@ describe("supplement lifecycle — approval before payment (§33)", () => {
     expect(idx("approved")).toBeLessThan(idx("payment_received"));
     expect(idx("denied")).toBeLessThan(idx("closed"));
     expect(idx("payment_received")).toBeLessThan(idx("closed"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 14 — Revenue Recovery Command Center analytics (pure helpers)
+// ---------------------------------------------------------------------------
+
+describe("monthKey / monthLabel", () => {
+  it("buckets timestamps to YYYY-MM in local time", () => {
+    expect(monthKey(new Date(2025, 7, 15).getTime())).toBe("2025-08");
+    expect(monthKey(new Date(2025, 0, 1).getTime())).toBe("2025-01");
+  });
+
+  it("returns an empty bucket for missing or invalid timestamps", () => {
+    expect(monthKey(undefined)).toBe("");
+    expect(monthKey(null)).toBe("");
+    expect(monthKey(Number.NaN)).toBe("");
+  });
+});
+
+describe("buildRecoveryTrend", () => {
+  it("zero-fills the last 12 calendar months when there is no activity", () => {
+    const trend = buildRecoveryTrend([], [], []);
+    expect(trend).toHaveLength(12);
+    for (const point of trend) {
+      expect(point.claimsCreated).toBe(0);
+      expect(point.findingsOpened).toBe(0);
+      expect(point.supplementsSubmitted).toBe(0);
+    }
+    expect(trend[trend.length - 1].month).toBe(monthKey(Date.now()));
+  });
+
+  it("counts claims and findings by createdAt and supplements by submissionDate", () => {
+    const now = Date.now();
+    const thisMonth = monthKey(now);
+    const lastMonthTs = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 10).getTime();
+    const trend = buildRecoveryTrend(
+      [{ createdAt: now }, { createdAt: lastMonthTs }],
+      [{ createdAt: now }],
+      [{ submissionDate: now }, { submissionDate: undefined }, { submissionDate: lastMonthTs }],
+    );
+    const current = trend[trend.length - 1];
+    expect(current.month).toBe(thisMonth);
+    expect(current.claimsCreated).toBe(1);
+    expect(current.findingsOpened).toBe(1);
+    expect(current.supplementsSubmitted).toBe(1); // drafts have no submissionDate
+    const previous = trend[trend.length - 2];
+    expect(previous.claimsCreated).toBe(1);
+    expect(previous.supplementsSubmitted).toBe(1);
+  });
+});
+
+describe("buildCarrierBreakdown", () => {
+  const claims = [
+    { _id: "c1", carrier: "StateFarm", estimateAmount: 10000, paymentAmount: 4000 },
+    { _id: "c2", carrier: "StateFarm", estimateAmount: 5000 },
+    { _id: "c3", carrier: "Travelers", estimateAmount: 2000, paymentAmount: 2000 },
+    { _id: "c4", carrier: null }, // unknown carrier, stays in the view
+  ];
+
+  it("aggregates outstanding with the same reconcile definition as the claims table", () => {
+    const breakdown = buildCarrierBreakdown(claims, [], []);
+    const statefarm = breakdown.find((c) => c.carrier === "StateFarm");
+    expect(statefarm?.claimCount).toBe(2);
+    expect(statefarm?.outstanding).toBe(11000); // (10000-4000) + 5000
+    const travelers = breakdown.find((c) => c.carrier === "Travelers");
+    expect(travelers?.outstanding).toBe(0);
+    const unknown = breakdown.find((c) => c.carrier === "Unknown carrier");
+    expect(unknown?.claimCount).toBe(1);
+  });
+
+  it("adds potential from open findings only and sorts by combined value", () => {
+    const findings = [
+      { claimId: "c1", status: "open", estimatedAmount: 1500 },
+      { claimId: "c1", status: "addressed", estimatedAmount: 9999 }, // ignored
+      { claimId: "c2", status: "open", estimatedAmount: 500 },
+    ];
+    const breakdown = buildCarrierBreakdown(claims, [], findings);
+    const statefarm = breakdown.find((c) => c.carrier === "StateFarm");
+    expect(statefarm?.potential).toBe(2000);
+    expect(breakdown[0].carrier).toBe("StateFarm");
+  });
+});
+
+describe("buildStatusDistribution", () => {
+  it("counts claims per status, labels them, and sorts highest first", () => {
+    const distribution = buildStatusDistribution([
+      { status: "opened" },
+      { status: "opened" },
+      { status: "submitted" },
+      { status: "closed" },
+      { status: undefined }, // falls back to "opened"
+    ]);
+    expect(distribution).toHaveLength(3);
+    expect(distribution[0]).toEqual({ status: "opened", label: "Opened", count: 3 });
+    expect(distribution.map((d) => d.count)).toEqual([3, 1, 1]);
+    expect(distribution[1].label).toBe("Submitted");
   });
 });

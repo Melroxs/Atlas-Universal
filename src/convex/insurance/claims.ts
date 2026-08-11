@@ -540,6 +540,169 @@ export function reconcileClaim(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 14 — Revenue Recovery Command Center analytics (pure, unit tested)
+// ---------------------------------------------------------------------------
+// Every number here is derived from actual claim records. Trends are bucketed
+// by real timestamps; carrier and status views aggregate the same figures the
+// claims table shows — nothing is simulated or projected.
+
+export interface RecoveryTrendPoint {
+  /** "YYYY-MM" bucket key. */
+  month: string;
+  /** Human label, e.g. "Aug 25". */
+  label: string;
+  claimsCreated: number;
+  findingsOpened: number;
+  supplementsSubmitted: number;
+}
+
+export function monthKey(ts?: number | null): string {
+  if (typeof ts !== "number" || !Number.isFinite(ts)) return "";
+  const d = new Date(ts);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export function monthLabel(key: string): string {
+  const [y, m] = key.split("-").map(Number);
+  if (!y || !m) return key;
+  return `${new Date(Date.UTC(2000, m - 1, 1)).toLocaleString("en-US", { month: "short" })} ${String(y).slice(2)}`;
+}
+
+/**
+ * Last `months` calendar months (zero-filled) of recovery activity:
+ *  claimsCreated      — claims whose createdAt falls in the bucket
+ *  findingsOpened     — claimFindings whose createdAt falls in the bucket
+ *  supplementsSubmitted — supplements with a submissionDate in the bucket
+ * Payments are intentionally absent: there is no payment history table, so a
+ * per-month payment series could not be honest. Submitted supplements use the
+ * submission date, not last-update, so the series stays evidence-grounded.
+ */
+export function buildRecoveryTrend(
+  claims: Array<{ createdAt?: number | null }>,
+  findings: Array<{ createdAt?: number | null }>,
+  supplements: Array<{ submissionDate?: number | null }>,
+  months = 12,
+): RecoveryTrendPoint[] {
+  const now = new Date();
+  const keys: string[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    keys.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys.map((key) => ({
+    month: key,
+    label: monthLabel(key),
+    claimsCreated: claims.filter((c) => monthKey(c.createdAt) === key).length,
+    findingsOpened: findings.filter((f) => monthKey(f.createdAt) === key).length,
+    supplementsSubmitted: supplements.filter(
+      (s) => typeof s.submissionDate === "number" && monthKey(s.submissionDate) === key,
+    ).length,
+  }));
+}
+
+export interface CarrierRecoveryBreakdown {
+  carrier: string;
+  claimCount: number;
+  outstanding: number;
+  potential: number;
+}
+
+/**
+ * Outstanding + potential recovery grouped by carrier. Outstanding uses the
+ * same reconcileClaim definition as the claims table (approved/estimate minus
+ * payments); potential is the sum of open findings' estimated amounts. Claims
+ * without a carrier are grouped under "Unknown carrier" rather than dropped.
+ */
+export function buildCarrierBreakdown(
+  claims: Array<{
+    _id?: unknown;
+    carrier?: string | null;
+    paymentAmount?: number | null;
+    estimateAmount?: number | null;
+    invoicedAmount?: number | null;
+    approvedAmount?: number | null;
+  }>,
+  supplements: Array<{
+    claimId: unknown;
+    amount?: number | null;
+    approvedAmount?: number | null;
+    deniedAmount?: number | null;
+    status?: string | null;
+  }>,
+  findings: Array<{
+    claimId: unknown;
+    status?: string | null;
+    estimatedAmount?: number | null;
+  }>,
+): CarrierRecoveryBreakdown[] {
+  const byClaim = new Map<
+    string,
+    { carrier: string; supplements: typeof supplements; findings: typeof findings }
+  >();
+  for (const c of claims) {
+    const id = String(c._id);
+    byClaim.set(id, {
+      carrier: c.carrier?.trim() ? c.carrier : "Unknown carrier",
+      supplements: [],
+      findings: [],
+    });
+  }
+  for (const s of supplements) {
+    const bucket = byClaim.get(String(s.claimId));
+    if (bucket) bucket.supplements.push(s);
+  }
+  for (const f of findings) {
+    const bucket = byClaim.get(String(f.claimId));
+    if (bucket) bucket.findings.push(f);
+  }
+
+  const perCarrier = new Map<string, CarrierRecoveryBreakdown>();
+  for (const bucket of byClaim.values()) {
+    const rec = reconcileClaim(bucket as never, bucket.supplements);
+    const potential = bucket.findings
+      .filter((f) => f.status === "open")
+      .reduce((sum, f) => sum + (f.estimatedAmount ?? 0), 0);
+    const current = perCarrier.get(bucket.carrier) ?? {
+      carrier: bucket.carrier,
+      claimCount: 0,
+      outstanding: 0,
+      potential: 0,
+    };
+    current.claimCount += 1;
+    current.outstanding += rec.outstanding;
+    current.potential += potential;
+    perCarrier.set(bucket.carrier, current);
+  }
+  return [...perCarrier.values()]
+    .sort((a, b) => b.outstanding + b.potential - (a.outstanding + a.potential))
+    .slice(0, 8);
+}
+
+export interface RecoveryStatusDistribution {
+  status: string;
+  label: string;
+  count: number;
+}
+
+/** Claim lifecycle distribution — counts per status, highest first. */
+export function buildStatusDistribution(
+  claims: Array<{ status?: string | null }>,
+): RecoveryStatusDistribution[] {
+  const counts = new Map<string, number>();
+  for (const c of claims) {
+    const status = c.status ?? "opened";
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([status, count]) => ({
+      status,
+      label: STATUS_LABELS[status] ?? status.replace(/_/g, " "),
+      count,
+    }))
+    .sort((a, b) => b.count - a.count);
+}
+
+// ---------------------------------------------------------------------------
 // Phase 12 — Claim package, timeline & supplement document builders (pure)
 // ---------------------------------------------------------------------------
 
@@ -1119,6 +1282,38 @@ export const claimCounts = query({
       outstanding,
       potential,
       recoveryPipeline: RECOVERY_PIPELINE,
+    };
+  },
+});
+
+/**
+ * Phase 14 — Revenue Recovery Command Center analytics. Trend, carrier and
+ * lifecycle views derived from actual claim records (same figures as the
+ * claims table). Payments are intentionally absent from the monthly series
+ * because no payment history table exists — a per-month payment line could
+ * not be honest.
+ */
+export const recoveryAnalytics = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await requireUser(ctx);
+    const tenantId = await requireTenant(ctx, userId);
+    const claims = await ctx.db
+      .query("insuranceClaims")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect();
+    const findings = await ctx.db
+      .query("claimFindings")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect();
+    const supplements = await ctx.db
+      .query("claimSupplements")
+      .withIndex("by_tenant", (q) => q.eq("tenantId", tenantId))
+      .collect();
+    return {
+      trend: buildRecoveryTrend(claims, findings, supplements),
+      carriers: buildCarrierBreakdown(claims, supplements, findings),
+      statusDistribution: buildStatusDistribution(claims),
     };
   },
 });

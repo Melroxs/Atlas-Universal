@@ -100,6 +100,18 @@ export default function ArchiveDetail() {
     string,
     { _id: string; title: string; classification: string; status: string }
   >;
+  const candidates = (detail.candidates ?? []) as Array<{
+    _id: string;
+    claimNumber?: string;
+    customer?: string;
+    property?: string;
+    confidence: number;
+    status: string;
+    basis: string;
+    evidence: string[];
+    documentIds: string[];
+  }>;
+  const pendingCandidates = candidates.filter((c) => c.status === "pending");
   const st = (archive.stats ?? {}) as Record<string, unknown>;
   const active = !TERMINAL.has(archive.status);
   const failedFiles = files.filter((f) => f.ingestStatus === "failed");
@@ -350,6 +362,47 @@ export default function ArchiveDetail() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Potential claims reconstructed from this archive */}
+      {pendingCandidates.length > 0 && (
+        <div className="rounded-xl border border-border/70 bg-card/50 p-4">
+          <p className="flex items-center gap-1.5 text-sm font-semibold">
+            <Sparkles className="size-4 text-amber-600 dark:text-amber-300" />
+            Potential claims from this archive
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Atlas reconstructed these from claim identifiers in the archive. They await
+            your approval in Revenue Recovery before becoming claims.
+          </p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {pendingCandidates.map((c) => (
+              <div key={c._id} className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">
+                    {c.customer ?? c.property ?? `Claim ${c.claimNumber ?? ""}`}
+                  </span>
+                  <Badge variant="outline" className="border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300">
+                    {Math.round(c.confidence * 100)}% potential
+                  </Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">{c.basis}</p>
+                <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                  {c.evidence.length + c.documentIds.length} evidence file{(c.evidence.length + c.documentIds.length) === 1 ? "" : "s"}
+                </p>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3 gap-1.5"
+            onClick={() => navigate("/dashboard/revenue-recovery")}
+          >
+            <Sparkles className="size-3.5" />
+            Review in Revenue Recovery
+          </Button>
         </div>
       )}
 

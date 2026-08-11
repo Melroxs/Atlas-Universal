@@ -22,18 +22,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowRight,
   BadgeDollarSign,
+  CheckCircle2,
   ClipboardList,
   DollarSign,
   FileWarning,
   Flame,
+  Hourglass,
   Loader2,
   Plus,
   Radar,
+  ScanSearch,
+  Send,
+  Sparkles,
+  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
@@ -66,7 +72,15 @@ export default function RevenueRecovery() {
   const navigate = useNavigate();
   const counts = useQuery(api.insurance.claims.claimCounts);
   const claims = useQuery(api.insurance.claims.listClaims, {});
+  const candidates = useQuery(api.insurance.candidates.listClaimCandidates, {});
+  const candidateCounts = useQuery(api.insurance.candidates.claimCandidateCounts);
+  const audit = useQuery(api.audit.listAuditLogs, { limit: 30 });
   const createClaim = useMutation(api.insurance.claims.createClaim);
+  const approveCandidate = useMutation(api.insurance.candidates.approveClaimCandidate);
+  const rejectCandidate = useMutation(api.insurance.candidates.rejectClaimCandidate);
+  const reconstructClaims = useAction(api.insurance.candidates.reconstructClaims);
+  const [scanning, setScanning] = useState(false);
+  const [busyCandidate, setBusyCandidate] = useState<string | null>(null);
 
   // New claim dialog
   const [open, setOpen] = useState(false);
@@ -104,6 +118,56 @@ export default function RevenueRecovery() {
       setCreating(false);
     }
   };
+
+  const handleScan = async () => {
+    setScanning(true);
+    try {
+      const res = await reconstructClaims();
+      toast.success(
+        res.candidates > 0
+          ? `Found ${res.candidates} potential claim${res.candidates === 1 ? "" : "s"} across ${res.scanned} documents`
+          : "No potential claims found in the knowledge base",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not scan the knowledge base");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleApprove = async (candidateId: string) => {
+    setBusyCandidate(candidateId);
+    try {
+      const res = await approveCandidate({ candidateId: candidateId as never });
+      toast.success(res.created ? "Claim created from the potential claim" : "Evidence linked to the existing claim", {
+        description: "The potential claim is now approved and tracked in Revenue Recovery.",
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not approve the candidate");
+    } finally {
+      setBusyCandidate(null);
+    }
+  };
+
+  const handleReject = async (candidateId: string) => {
+    setBusyCandidate(candidateId);
+    try {
+      await rejectCandidate({ candidateId: candidateId as never });
+      toast.success("Potential claim rejected");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not reject the candidate");
+    } finally {
+      setBusyCandidate(null);
+    }
+  };
+
+  const pendingCandidates = (candidates ?? []).filter((c) => c.status === "pending");
+  const needsAttention = (claims ?? []).filter((c) => c.needsAttention);
+  const stalled = (claims ?? []).filter((c) => c.stalled);
+  const submissionReady = (claims ?? []).filter((c) => c.readySupplements > 0);
+  const recoveryActivity = (audit ?? []).filter((l) =>
+    /claim|supplement|candidate|payment|finding/i.test(l.actionType ?? ""),
+  ).slice(0, 8);
 
   const field = (key: keyof typeof form, label: string) => (
     <div className="grid gap-1.5">
@@ -193,6 +257,114 @@ export default function RevenueRecovery() {
           accent="text-rose-600 dark:text-rose-300"
         />
       </div>
+
+      {/* Potential claims — discovered from company data, awaiting approval */}
+      <Panel
+        title="Potential claims awaiting review"
+        description="Atlas reconstructs potential claims from deterministic identifiers in your documents and imported archives. Nothing becomes an authoritative claim without your approval."
+      >
+        <div className="mb-3 flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void handleScan()}
+            disabled={scanning}
+            className="gap-2"
+          >
+            {scanning ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <ScanSearch className="size-4" />
+            )}
+            {scanning ? "Scanning…" : "Scan knowledge base"}
+          </Button>
+        </div>
+        {candidates === undefined ? (
+          <div className="flex items-center gap-3 py-6 text-sm text-muted-foreground">
+            <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
+            Loading candidates…
+          </div>
+        ) : pendingCandidates.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-8 text-center">
+            <Sparkles className="size-6 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">
+              No potential claims waiting on review
+              {candidateCounts && candidateCounts.approved > 0
+                ? ` — ${candidateCounts.approved} already approved`
+                : ". Scan the knowledge base or import a company archive to discover claims."}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/50">
+            {pendingCandidates.map((c) => (
+              <div key={c._id} className="flex flex-wrap items-center gap-4 px-1 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">
+                    {c.customer ?? c.property ?? `Claim ${c.claimNumber ?? c.claimKey}`}
+                    {c.claimNumber && (
+                      <span className="ml-2 font-mono text-xs text-muted-foreground">
+                        {c.claimNumber}
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                    {c.basis}
+                  </p>
+                  <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                    <span className="font-mono">
+                      {c.evidence.length + c.documentIds.length} evidence file{(c.evidence.length + c.documentIds.length) === 1 ? "" : "s"}
+                    </span>
+                    <span>·</span>
+                    <span className="text-amber-600 dark:text-amber-300">
+                      {Math.round(c.confidence * 100)}% confidence
+                    </span>
+                    {c.archivePaths && c.archivePaths.length > 0 && (
+                      <>
+                        <span>·</span>
+                        <span>from archive import</span>
+                      </>
+                    )}
+                    {c.documentTitles && c.documentTitles.length > 0 && (
+                      <span className="hidden truncate sm:inline">
+                        · {c.documentTitles.slice(0, 2).join(", ")}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-rose-600 dark:text-rose-300"
+                    onClick={() => void handleReject(String(c._id))}
+                    disabled={busyCandidate !== null}
+                  >
+                    {busyCandidate === String(c._id) ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <XCircle className="size-3.5" />
+                    )}
+                    Reject
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="gap-1.5"
+                    onClick={() => void handleApprove(String(c._id))}
+                    disabled={busyCandidate !== null}
+                  >
+                    {busyCandidate === String(c._id) ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="size-3.5" />
+                    )}
+                    Approve → claim
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Panel>
 
       {/* Recovery pipeline */}
       <Panel
@@ -325,6 +497,128 @@ export default function RevenueRecovery() {
           </Table>
         </Panel>
       )}
+
+      {/* Command center — attention, stalled, ready, recent activity */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Panel
+          title={`Needs attention (${needsAttention.length})`}
+          description="Missing evidence, open findings, reconciliation gaps or supplements ready for review."
+        >
+          {needsAttention.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No claims need attention right now.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/50">
+              {needsAttention.slice(0, 6).map((c) => (
+                <button
+                  key={String(c._id)}
+                  type="button"
+                  onClick={() => navigate(`/dashboard/revenue-recovery/${c._id}`)}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:bg-muted/30"
+                >
+                  <span className="min-w-0 truncate text-sm">
+                    {c.customer ?? c.property ?? c.claimNumber ?? "Unnamed claim"}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {c.openFindings > 0 && `${c.openFindings} finding${c.openFindings === 1 ? "" : "s"}`}
+                    {c.openFindings > 0 && c.readySupplements > 0 && " · "}
+                    {c.readySupplements > 0 && `${c.readySupplements} ready`}
+                    {c.openFindings === 0 && c.readySupplements === 0 && "incomplete package"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel
+          title={`Stalled claims (${stalled.length})`}
+          description="Open claims with no activity for 30+ days. Derived from the actual update timestamps."
+        >
+          {stalled.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No stalled claims — everything open has recent activity.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/50">
+              {stalled.slice(0, 6).map((c) => (
+                <button
+                  key={String(c._id)}
+                  type="button"
+                  onClick={() => navigate(`/dashboard/revenue-recovery/${c._id}`)}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:bg-muted/30"
+                >
+                  <span className="min-w-0 truncate text-sm">
+                    {c.customer ?? c.property ?? c.claimNumber ?? "Unnamed claim"}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1 text-[11px] text-amber-600 dark:text-amber-300">
+                    <Hourglass className="size-3" />
+                    last updated {new Date(c.updatedAt ?? c.createdAt).toLocaleDateString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel
+          title={`Submission-ready supplements (${submissionReady.length})`}
+          description="Drafts approved by your team and ready for submission. Nothing is sent automatically."
+        >
+          {submissionReady.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No supplements are ready to submit right now.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/50">
+              {submissionReady.map((c) => (
+                <button
+                  key={String(c._id)}
+                  type="button"
+                  onClick={() => navigate(`/dashboard/revenue-recovery/${c._id}`)}
+                  className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:bg-muted/30"
+                >
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <Send className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
+                    <span className="truncate">
+                      {c.customer ?? c.property ?? c.claimNumber ?? "Unnamed claim"}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {c.readySupplements} supplement{c.readySupplements === 1 ? "" : "s"}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Panel>
+
+        <Panel
+          title="Recent recovery activity"
+          description="The latest actions on claims, supplements and findings — straight from the audit log."
+        >
+          {recoveryActivity.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">
+              No recovery activity yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/50">
+              {recoveryActivity.map((l) => (
+                <div key={String(l._id)} className="flex items-center justify-between gap-3 py-2">
+                  <span className="min-w-0 truncate text-sm">
+                    {(l.actionType ?? "event").replace(/_/g, " ")}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-muted-foreground">
+                    {l.actorName ?? "system"} ·{" "}
+                    {new Date(l._creationTime).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
 
       {/* Honest framing */}
       <p className="text-center text-[11px] leading-5 text-muted-foreground">

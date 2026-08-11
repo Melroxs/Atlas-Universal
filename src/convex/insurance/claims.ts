@@ -11,10 +11,12 @@
 // ---------------------------------------------------------------------------
 
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internal } from "../_generated/api";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { isEditor, requireTenant, requireUser } from "../helpers";
 import { analyzeRecoveryOpportunities, type ClaimFacts } from "../everest/insurance";
+import { extractClaimNumber } from "./reconstruct";
 
 // ---------------------------------------------------------------------------
 // Domain vocabulary (exists BEFORE any customer uploads a claim)
@@ -113,7 +115,9 @@ export type CompletenessStatus =
   | "extracted"
   | "inferred"
   | "missing"
-  | "needs_review";
+  | "needs_review"
+  | "conflicted"
+  | "stale";
 
 export interface CompletenessCategory {
   key: string;
@@ -173,6 +177,8 @@ const COMPLETENESS_RULES: Array<{
   label: string;
   has: (c: ClaimSnapshot) => boolean;
   note: (c: ClaimSnapshot) => string;
+  /** Phase 14 — state override: conflicted/stale detection, evidence-based. */
+  statusOverride?: (c: ClaimSnapshot) => CompletenessStatus | undefined;
 }> = [
   {
     key: "claimNumber",
@@ -244,6 +250,67 @@ const COMPLETENESS_RULES: Array<{
         .filter(Boolean)
         .join(" · ") || "No invoice or payment recorded.",
   },
+  {
+    // Phase 14 — financial reconciliation state. Contradictory records are
+    // labeled CONFLICTED, never silently resolved.
+    key: "financialState",
+    label: "Financial reconciliation",
+    has: (c) =>
+      typeof c.invoicedAmount === "number" ||
+      typeof c.paymentAmount === "number" ||
+      typeof c.approvedAmount === "number" ||
+      typeof c.estimateAmount === "number",
+    note: (c) => {
+      const parts: string[] = [];
+      if (typeof c.estimateAmount === "number") parts.push(`Estimate $${c.estimateAmount.toLocaleString()}`);
+      if (typeof c.approvedAmount === "number") parts.push(`Approved $${c.approvedAmount.toLocaleString()}`);
+      if (typeof c.invoicedAmount === "number") parts.push(`Invoiced $${c.invoicedAmount.toLocaleString()}`);
+      if (typeof c.paymentAmount === "number") parts.push(`Paid $${c.paymentAmount.toLocaleString()}`);
+      return parts.length > 0 ? parts.join(" · ") : "No financial amounts recorded.";
+    },
+    statusOverride: (c) => {
+      const inv = c.invoicedAmount;
+      const paid = c.paymentAmount;
+      const approved = c.approvedAmount;
+      const base = c.estimateAmount ?? approved;
+      if (typeof inv === "number" && typeof approved === "number" && inv > approved + 0.01) {
+        return "conflicted";
+      }
+      if (typeof inv === "number" && typeof base === "number" && inv > base + 0.01) {
+        return "conflicted";
+      }
+      if (typeof inv === "number" && typeof paid === "number" && paid > inv + 0.01) {
+        return "conflicted";
+      }
+      return undefined;
+    },
+  },
+  {
+    // Phase 14 — freshness. An open claim with no activity for 30+ days is
+    // STALE (may be stalled). Never treated as current.
+    key: "freshness",
+    label: "Freshness",
+    has: () => true,
+    note: (c) => {
+      if (c.status === "closed") return "Claim is closed.";
+      if (typeof c.updatedAt === "number") {
+        const days = Math.round((Date.now() - c.updatedAt) / 86_400_000);
+        return days <= 0
+          ? "Updated today."
+          : `Last updated ${days} day${days === 1 ? "" : "s"} ago.`;
+      }
+      return "No update timestamp on file.";
+    },
+    statusOverride: (c) => {
+      if (c.status === "closed") return "verified";
+      // No timestamp means freshness cannot be established — never call it verified.
+      if (typeof c.updatedAt !== "number") return "missing";
+      if (Date.now() - c.updatedAt > 30 * 86_400_000) {
+        return "stale";
+      }
+      return "verified";
+    },
+  },
 ];
 
 /** Deterministic claim-package completeness. Never invents a percentage. */
@@ -252,6 +319,13 @@ export function analyzeClaimCompleteness(claim: ClaimSnapshot): ClaimCompletenes
     const present = rule.has(claim);
     const provenance = (claim.provenance ?? "").toLowerCase();
     let status: CompletenessStatus;
+    if (rule.statusOverride) {
+      const overridden = rule.statusOverride(claim);
+      if (overridden) {
+        status = overridden;
+        return { key: rule.key, label: rule.label, status, note: rule.note(claim) };
+      }
+    }
     if (!present) status = "missing";
     else if (provenance.includes("confirmed") || provenance.includes("user-entered") || provenance.includes("created via"))
       status = "verified";
@@ -262,7 +336,24 @@ export function analyzeClaimCompleteness(claim: ClaimSnapshot): ClaimCompletenes
   const usable = categories.filter((c) => c.status === "verified" || c.status === "extracted").length;
   const total = categories.length;
   const score = total === 0 ? 0 : usable / total;
-  const missing = categories.filter((c) => c.status === "missing" || c.status === "needs_review").length;
+  const missing = categories.filter(
+    (c) =>
+      c.status === "missing" ||
+      c.status === "needs_review" ||
+      c.status === "conflicted" ||
+      c.status === "stale",
+  ).length;
+  const issues: string[] = [];
+  const conflicts = categories.filter((c) => c.status === "conflicted");
+  const stale = categories.filter((c) => c.status === "stale");
+  if (conflicts.length > 0) {
+    issues.push(
+      `${conflicts.length} conflicted record${conflicts.length === 1 ? "" : "s"} (contradictory values need reconciliation)`,
+    );
+  }
+  if (stale.length > 0) {
+    issues.push(`${stale.length} stale item${stale.length === 1 ? "" : "s"} (no activity for 30+ days)`);
+  }
   return {
     categories,
     complete: usable,
@@ -271,7 +362,7 @@ export function analyzeClaimCompleteness(claim: ClaimSnapshot): ClaimCompletenes
     summary:
       missing === 0
         ? `${usable} of ${total} required information categories are complete.`
-        : `${usable} of ${total} required information categories are complete. ${missing} require${missing === 1 ? "s" : ""} attention.`,
+        : `${usable} of ${total} required information categories are complete. ${missing} require${missing === 1 ? "s" : ""} attention${issues.length ? ` — ${issues.join("; ")}` : ""}.`,
   };
 }
 
@@ -840,6 +931,7 @@ export const listClaims = query({
         const completeness = analyzeClaimCompleteness(claim);
         const openFindings = findings.filter((f) => f.status === "open");
         const reconciliation = reconcileClaim(claim, supplements);
+        const readySupplements = supplements.filter((s) => s.status === "ready_for_submission");
         return {
           _id: claim._id,
           claimNumber: claim.claimNumber,
@@ -848,15 +940,33 @@ export const listClaims = query({
           carrier: claim.carrier,
           status: claim.status,
           estimateAmount: claim.estimateAmount,
+          invoicedAmount: claim.invoicedAmount,
+          approvedAmount: claim.approvedAmount,
           paymentAmount: claim.paymentAmount,
           createdAt: claim.createdAt,
+          updatedAt: claim.updatedAt,
           completeness: completeness.complete,
           completenessTotal: completeness.total,
           openFindings: openFindings.length,
           draftSupplements: supplements.filter((s) => s.status === "draft").length,
-          readySupplements: supplements.filter((s) => s.status === "ready_for_submission").length,
+          readySupplements: readySupplements.length,
           outstanding: reconciliation.outstanding,
           hasDiscrepancy: reconciliation.hasDiscrepancy,
+          stalled:
+            claim.status !== "closed" &&
+            typeof claim.updatedAt === "number" &&
+            Date.now() - claim.updatedAt > 30 * 86_400_000,
+          needsAttention:
+            completeness.categories.some(
+              (x) =>
+                x.status === "missing" ||
+                x.status === "needs_review" ||
+                x.status === "conflicted" ||
+                x.status === "stale",
+            ) ||
+            openFindings.length > 0 ||
+            reconciliation.hasDiscrepancy ||
+            readySupplements.length > 0,
         };
       }),
     );
@@ -982,7 +1092,13 @@ export const claimCounts = query({
       const cs = supplements.filter((s) => s.claimId === c._id);
       const fs = findings.filter((f) => f.claimId === c._id && f.status === "open");
       const rec = reconcileClaim(c, cs);
-      return comp.categories.some((x) => x.status === "missing" || x.status === "needs_review") ||
+      return comp.categories.some(
+        (x) =>
+          x.status === "missing" ||
+          x.status === "needs_review" ||
+          x.status === "conflicted" ||
+          x.status === "stale",
+      ) ||
         fs.length > 0 ||
         rec.hasDiscrepancy;
     });
@@ -1036,6 +1152,10 @@ export const analyzeAllClaims = query({
           customer: claim.customer,
           property: claim.property,
           status: claim.status,
+          estimateAmount: claim.estimateAmount,
+          invoicedAmount: claim.invoicedAmount,
+          approvedAmount: claim.approvedAmount,
+          paymentAmount: claim.paymentAmount,
           completeness,
           reconciliation,
           openFindings: open.map((f) => ({
@@ -1254,6 +1374,50 @@ export const attachClaimEvidence = mutation({
   },
 });
 
+/**
+ * Phase 14 — auto-link evidence documents whose claim number matches this
+ * claim (deterministic). Answers "why do you believe this document belongs
+ * to this claim?": the linked doc carries the same claim identifier.
+ */
+async function autoLinkClaimEvidence(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  claim: ClaimSnapshot,
+): Promise<{ ids: Id<"documents">[]; reasons: string[] }> {
+  const num = normalizeClaimNumber(claim.claimNumber);
+  if (!num) return { ids: [], reasons: [] };
+  const docs = (await ctx.runQuery(internal.internal.listDocsByTenant, {
+    tenantId,
+  })) as Array<{ _id: Id<"documents">; title: string; classification: string }>;
+  const already = new Set((claim.evidenceDocumentIds ?? []).map(String));
+  const linked: Id<"documents">[] = [];
+  const reasons: string[] = [];
+
+  for (const doc of docs.slice(0, 300)) {
+    if (already.has(String(doc._id))) continue;
+    const titleNum = normalizeClaimNumber(extractClaimNumber(doc.title));
+    let matched = titleNum === num;
+    if (!matched) {
+      const chunks = (await ctx.runQuery(internal.internal.listChunksByDocument, {
+        documentId: doc._id,
+      })) as Array<{ content: string }> | null;
+      const sample = chunks?.[0]?.content?.slice(0, 400) ?? "";
+      matched = normalizeClaimNumber(extractClaimNumber(sample)) === num;
+    }
+    if (matched) {
+      linked.push(doc._id);
+      reasons.push(doc.title);
+    }
+  }
+  return { ids: linked, reasons };
+}
+
+function normalizeClaimNumber(n?: string | null): string | null {
+  if (!n) return null;
+  const normalized = n.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return normalized.length >= 3 ? normalized : null;
+}
+
 /** Re-run the deterministic analyzers and upsert persisted findings. */
 export const runClaimAnalysis = mutation({
   args: { claimId: v.id("insuranceClaims") },
@@ -1304,10 +1468,27 @@ export const runClaimAnalysis = mutation({
         ids.push(String(id));
       }
     }
+    // Phase 14 — auto-link evidence documents sharing the claim number.
+    const linked = await autoLinkClaimEvidence(ctx, tenantId, claim);
+    if (linked.ids.length > 0) {
+      const current = await ctx.db.get(claimId);
+      if (current) {
+        const mergedIds = [
+          ...new Set([...(current.evidenceDocumentIds ?? []), ...linked.ids]),
+        ];
+        await ctx.db.patch(claimId, {
+          evidenceDocumentIds: mergedIds,
+          updatedAt: Date.now(),
+        });
+      }
+    }
+
     await audit(ctx, tenantId, userId, "claim_analysis_run", "insuranceClaim", String(claimId), {
       findings: ids.length,
+      evidenceAutoLinked: linked.ids.length,
+      linkedTitles: linked.reasons.slice(0, 5),
     });
-    return { claimId, findings: ids.length };
+    return { claimId, findings: ids.length, evidenceLinked: linked.ids.length };
   },
 });
 

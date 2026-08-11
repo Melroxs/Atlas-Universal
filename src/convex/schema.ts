@@ -1404,6 +1404,55 @@ const schema = defineSchema(
       .index("by_claim", ["claimId"])
       .index("by_claim_status", ["claimId", "status"])
       .index("by_finding_key", ["findingKey"]),
+
+    // ------------------------------------------------------------------
+    // Phase 14 — Claim reconstruction (potential claims from company data)
+    // ------------------------------------------------------------------
+    // A POTENTIAL claim detected from imported evidence (documents, archive
+    // files). Atlas NEVER turns these into authoritative claims automatically:
+    // an authorized user must approve, and approval links the evidence.
+    // Every candidate is tenant-scoped and carries its evidence + provenance.
+    claimCandidates: defineTable({
+      tenantId: v.id("tenants"),
+      /** Deterministic claim id derived from evidence (number, or slug). */
+      claimKey: v.string(),
+      claimNumber: v.optional(v.string()),
+      customer: v.optional(v.string()),
+      property: v.optional(v.string()),
+      carrier: v.optional(v.string()),
+      adjuster: v.optional(v.string()),
+      dateOfLoss: v.optional(v.number()),
+      causeOfLoss: v.optional(v.string()),
+      /** Evidence surfaced with the candidate. */
+      evidence: v.array(v.string()),
+      /** Document ids that support the candidate (tenant-scoped). */
+      documentIds: v.array(v.id("documents")),
+      /** Archive paths that support the candidate (when source is an archive). */
+      archivePaths: v.optional(v.array(v.string())),
+      /** Source archive ingestion id when the candidate came from an archive. */
+      archiveId: v.optional(v.id("archiveIngestions")),
+      /** Deterministic financial values when actually supported by records. */
+      estimatedValue: v.optional(v.number()),
+      billedValue: v.optional(v.number()),
+      paidValue: v.optional(v.number()),
+      potentialOutstanding: v.optional(v.number()),
+      /** 0..1 — evidence-derived, never invented. */
+      confidence: v.number(),
+      /** pending | approved | rejected */
+      status: v.string(),
+      /** Why Atlas believes these records may belong to one claim. */
+      basis: v.string(),
+      provenance: v.string(),
+      createdBy: v.optional(v.id("users")),
+      /** Id of the insuranceClaims record created on approval. */
+      approvedClaimId: v.optional(v.id("insuranceClaims")),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_tenant_status", ["tenantId", "status"])
+      .index("by_claim_key", ["claimKey"])
+      .index("by_archive", ["archiveId"]),
   },
   {
     schemaValidation: false,

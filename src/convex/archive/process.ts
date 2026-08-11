@@ -219,6 +219,22 @@ async function finishArchive(
     }))
     .sort((a, b) => b.fileCount - a.fileCount);
 
+  // Phase 14 — feed reconstruction: every derived claim hint becomes a
+  // POTENTIAL claim candidate (idempotent, tenant-scoped, requires approval).
+  if (potentialClaims.length > 0) {
+    const ingestedByPath = files
+      .filter((f) => f.ingestStatus === "ingested" && f.documentId)
+      .map((f) => ({ path: f.path, documentId: f.documentId as Id<"documents"> }));
+    await ctx.runMutation(internal.insurance.candidates.createCandidatesFromArchive, {
+      tenantId: archive.tenantId,
+      archiveId,
+      filename: archive.filename,
+      potentialClaims,
+      ingestedByPath,
+      createdBy: archive.uploadedBy ?? undefined,
+    });
+  }
+
   const stats = {
     ingested,
     failed,

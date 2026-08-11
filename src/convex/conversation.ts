@@ -144,7 +144,7 @@ const ORGANIZATIONAL_RE =
 const INVESTIGATIVE_RE =
   /(why (is|has|did|didn|hasn|was|were|does|do|are)|what'?s wrong|what went wrong|what'?s blocking|what'?s holding|blocking|stuck|stalled|stagnant|investigat|root cause|what happened to|why\b)/i;
 const CLAIMS_RE =
-  /(\bclaims?\b|supplement|leaving on the table|revenue recovery|carrier response|date of loss|claim number|claim package|claim timeline|what happened with (this|the) claim|build the package)/i;
+  /(\bclaims?\b|supplement|leaving on the table|revenue recovery|carrier response|date of loss|claim number|claim package|claim timeline|what happened with (this|the) claim|build the package|potential claim|invoice.*(higher|above|exceeds)|billing discrepancy)/i;
 const ACTION_RE =
   /^(send|email|schedule|create|update|approve|reject|cancel|close|start|stop|remind|notify|invite|post|record|log|file|submit|pay|mark|assign|move|copy|delete|add|set|tag|archive|restore)\b/i;
 
@@ -1190,6 +1190,10 @@ interface ClaimSummaryRow {
   customer?: string | null;
   property?: string | null;
   status?: string | null;
+  estimateAmount?: number | null;
+  invoicedAmount?: number | null;
+  approvedAmount?: number | null;
+  paymentAmount?: number | null;
   completeness?: {
     complete?: number;
     total?: number;
@@ -1343,6 +1347,193 @@ async function handleClaims(
         entityTypeKey: "claim",
         status: c.status ?? undefined,
       })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1b) “What claims did you find?” — reconstructed potential claims (Phase 14).
+  if (/potential claim|candidate|what (did you|did atlas|did) (find|discover|reconstruct)|claims?.*(found|discover)|reconstructed/i.test(low)) {
+    const cands = (await conv.rq(api.insurance.candidates.candidateSummary, {})) as Array<{
+      claimNumber?: string;
+      customer?: string;
+      property?: string;
+      evidenceFiles: number;
+      confidence: number;
+    }>;
+    if (cands.length === 0) {
+      const answer =
+        "Atlas hasn't reconstructed any potential claims yet. Say \u201cscan the knowledge base for claims\u201d, or import a company archive and I'll identify claim clusters from the evidence.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: ["Open Revenue Recovery"],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: EMPTY_PENDING,
+      };
+    }
+    const lines = [
+      `Atlas identified ${cands.length} potential claim${cands.length === 1 ? "" : "s"} from company data:`,
+    ];
+    for (const c of cands.slice(0, 6)) {
+      lines.push(
+        `\u2022 ${c.customer ?? c.property ?? `Claim ${c.claimNumber ?? "?"}`} — ${c.evidenceFiles} evidence file${c.evidenceFiles === 1 ? "" : "s"} · ${Math.round(c.confidence * 100)}% confidence`,
+      );
+    }
+    lines.push(
+      "None of these are claims yet. Approve the ones that look right in Revenue Recovery and Atlas creates the claim record and links the evidence.",
+    );
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `Found ${cands.length} potential claims from company data.`,
+      suggestedActions: ["Open Revenue Recovery", "Scan for more claims"],
+      authorityAnswers: [],
+      evidence: cands.slice(0, 4).map((c) => ({
+        kind: "potential_claim",
+        title: `Potential claim ${c.claimNumber ?? ""}`.trim(),
+        snippet: `${c.customer ?? c.property ?? "Unnamed"} · ${c.evidenceFiles} evidence file${c.evidenceFiles === 1 ? "" : "s"} · confidence ${Math.round(c.confidence * 100)}%`,
+      })),
+      toolPlan: null,
+      entityRefs: [],
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1c) “Which claims need my attention?” — evidence-derived, never invented.
+  if (/need(s|ed)? (my |our |your )?attention|claims?.*attention|attention|what should (i|we) (look|work|focus) on/.test(low)) {
+    const all = await claimsList(conv);
+    if (all.length === 0) {
+      const answer =
+        "There are no claims in Atlas yet, so there's nothing waiting on your attention. Create a claim or approve a potential claim in Revenue Recovery to get started.";
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const attention = all.filter(
+      (c) =>
+        (c.openFindings?.length ?? 0) > 0 ||
+        c.reconciliation?.hasDiscrepancy ||
+        (c.completeness?.categories ?? []).some((x) =>
+          ["missing", "needs_review", "conflicted", "stale"].includes(x.status),
+        ),
+    );
+    if (attention.length === 0) {
+      const answer = `I checked ${all.length} claim${all.length === 1 ? "" : "s"} — nothing needs your attention right now.`;
+      return { answer, spoken: answer, suggestedActions: [], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const lines: string[] = [`${attention.length} of ${all.length} claim${all.length === 1 ? "" : "s"} need attention:`];
+    for (const c of attention.slice(0, 6)) {
+      const reasons: string[] = [];
+      const open = c.openFindings?.length ?? 0;
+      if (open > 0) reasons.push(`${open} open finding${open === 1 ? "" : "s"}`);
+      const bad = (c.completeness?.categories ?? []).filter((x) =>
+        ["missing", "needs_review", "conflicted", "stale"].includes(x.status),
+      );
+      if (bad.length > 0) {
+        const kinds = [...new Set(bad.map((x) => x.status))];
+        reasons.push(`${kinds.join(" + ")} info (${bad.length} categor${bad.length === 1 ? "y" : "ies"})`);
+      }
+      if (c.reconciliation?.hasDiscrepancy) reasons.push("reconciliation gap");
+      lines.push(`\u2022 ${claimLabel(c)}: ${reasons.join(", ") || "needs review"}.`);
+    }
+    lines.push("Open any claim to see exactly what's missing and what Atlas flagged as potential.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${attention.length} claims need attention.`,
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: attention.slice(0, 3).map((c) => ({
+        kind: "claim_attention",
+        title: claimLabel(c),
+        snippet: (c.completeness?.categories ?? [])
+          .filter((x) => ["missing", "needs_review", "conflicted", "stale"].includes(x.status))
+          .slice(0, 2)
+          .map((x) => `${x.label}: ${x.note}`)
+          .join(" · "),
+      })),
+      toolPlan: null,
+      entityRefs: attention.slice(0, 5).map((c) => ({ id: c._id, name: claimLabel(c), entityTypeKey: "claim" })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1d) “Which claims have potential supplements?”
+  if (/potential supplement|supplement opportunit|which claims.*supplement|supplements? (available|possible|potential|worth)/.test(low)) {
+    const all = await claimsList(conv);
+    const withSupp = all.filter((c) =>
+      (c.openFindings ?? []).some((f) =>
+        ["supplement_opportunity", "missing_scope", "estimate_inconsistency", "overlooked_line_item", "potential_underpayment"].includes(f.category ?? ""),
+      ),
+    );
+    if (withSupp.length === 0) {
+      const answer =
+        "No claims currently have evidence-based supplement opportunities flagged. Run analysis on a claim after attaching its estimate and scope, or import more documentation.";
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const lines: string[] = [`${withSupp.length} claim${withSupp.length === 1 ? "" : "s"} ha${withSupp.length === 1 ? "s" : "ve"} potential supplement opportunit${withSupp.length === 1 ? "y" : "ies"} from current evidence:`];
+    for (const c of withSupp.slice(0, 6)) {
+      const top = (c.openFindings ?? [])
+        .filter((f) => ["supplement_opportunity", "missing_scope", "estimate_inconsistency", "overlooked_line_item", "potential_underpayment"].includes(f.category ?? ""))
+        .slice(0, 2)
+        .map((f) => f.title)
+        .join("; ");
+      lines.push(`\u2022 ${claimLabel(c)}: ${top}.`);
+    }
+    lines.push("Every item is POTENTIAL — each carries its own evidence and limitation. Say \u201cprepare a supplement\u201d for a claim to draft it.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${withSupp.length} claims have potential supplement opportunities.`,
+      suggestedActions: ["Open Revenue Recovery", "Prepare a supplement"],
+      authorityAnswers: [],
+      evidence: withSupp.slice(0, 3).flatMap((c) =>
+        (c.openFindings ?? []).slice(0, 2).map((f) => ({
+          kind: "claim_finding",
+          title: `${claimLabel(c)} — ${f.title}`,
+          snippet: `${f.limitation ?? "Potential — requires review."}${typeof f.estimatedAmount === "number" ? ` Potential amount $${f.estimatedAmount.toLocaleString()}.` : ""}`,
+        })),
+      ),
+      toolPlan: null,
+      entityRefs: withSupp.slice(0, 5).map((c) => ({ id: c._id, name: claimLabel(c), entityTypeKey: "claim" })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1e) “Claims where the invoice is higher than the approved estimate.”
+  if (/invoice.*(higher|above|exceeds|greater)|(higher|above|exceeds).*approved|billing discrepancy/.test(low)) {
+    const all = await claimsList(conv);
+    const overbilled = all.filter((c) => {
+      if (typeof c.invoicedAmount !== "number") return false;
+      const base = typeof c.approvedAmount === "number" ? c.approvedAmount : c.estimateAmount;
+      return typeof base === "number" && c.invoicedAmount > base;
+    });
+    if (overbilled.length === 0) {
+      const answer =
+        "No claims currently have an invoice above the approved estimate or carrier-approved total. (Claims without invoice amounts can't be compared — Atlas never estimates the gap without numbers.)";
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const lines: string[] = [`${overbilled.length} claim${overbilled.length === 1 ? "" : "s"} where the invoice exceeds the approved total:`];
+    for (const c of overbilled.slice(0, 6)) {
+      const inv = c.invoicedAmount ?? 0;
+      const base = c.approvedAmount ?? c.estimateAmount ?? 0;
+      lines.push(`\u2022 ${claimLabel(c)}: invoiced $${inv.toLocaleString()} vs approved $${base.toLocaleString()} ($${(inv - base).toLocaleString()} difference — needs reconciliation).`);
+    }
+    lines.push("The difference is a POTENTIAL billing discrepancy, not proof of an error — reconcile the line items before acting.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${overbilled.length} claims have an invoice above the approved amount.`,
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: overbilled.slice(0, 3).map((c) => ({
+        kind: "claim_billing",
+        title: claimLabel(c),
+        snippet: `Invoiced $${(c.invoicedAmount ?? 0).toLocaleString()} vs approved $${(c.approvedAmount ?? c.estimateAmount ?? 0).toLocaleString()}.`,
+      })),
+      toolPlan: null,
+      entityRefs: overbilled.slice(0, 5).map((c) => ({ id: c._id, name: claimLabel(c), entityTypeKey: "claim" })),
       pending: EMPTY_PENDING,
     };
   }

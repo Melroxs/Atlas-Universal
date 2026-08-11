@@ -550,7 +550,12 @@ export const getArchiveDetail = query({
         });
       }
     }
-    return { archive, files, docs: Object.fromEntries(docs) };
+    // Phase 14 — potential claims reconstructed from this archive (pending only).
+    const candidates = await ctx.db
+      .query("claimCandidates")
+      .withIndex("by_archive", (q) => q.eq("archiveId", archiveId))
+      .take(50);
+    return { archive, files, docs: Object.fromEntries(docs), candidates };
   },
 });
 

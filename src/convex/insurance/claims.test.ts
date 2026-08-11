@@ -15,13 +15,13 @@ import {
 const CLAIM_STATUS_COUNT = CLAIM_STATUSES.length;
 
 describe("analyzeClaimCompleteness", () => {
-  it("never invents a percentage — 0 of 9 for an empty claim", () => {
+  it("never invents a percentage — 0 of 11 for an empty claim", () => {
     const c = analyzeClaimCompleteness({});
-    expect(c.total).toBe(9);
+    expect(c.total).toBe(11);
     expect(c.complete).toBe(0);
     expect(c.score).toBe(0);
-    expect(c.summary).toContain("0 of 9");
-    expect(c.summary).toContain("9 require attention");
+    expect(c.summary).toContain("0 of 11");
+    expect(c.summary).toContain("11 require attention");
   });
 
   it("counts verified and extracted fields as complete", () => {
@@ -36,12 +36,40 @@ describe("analyzeClaimCompleteness", () => {
       estimateLineItemCount: 12,
       evidenceSummary: ["estimate", "photos"],
       invoicedAmount: 22000,
+      updatedAt: Date.now(),
       provenance: "Confirmed from Carrier estimate.pdf",
     });
-    expect(c.total).toBe(9);
-    expect(c.complete).toBe(9);
+    expect(c.total).toBe(11);
+    expect(c.complete).toBe(11);
     expect(c.score).toBe(1);
     expect(c.summary).not.toContain("require attention");
+  });
+
+  it("labels contradictory financial records as conflicted (Phase 14)", () => {
+    const c = analyzeClaimCompleteness({
+      invoicedAmount: 50000,
+      approvedAmount: 30000,
+      updatedAt: Date.now(),
+    });
+    expect(c.categories.find((x) => x.key === "financialState")?.status).toBe("conflicted");
+    expect(c.summary).toMatch(/conflicted/);
+  });
+
+  it("labels an open claim with no activity for 30+ days as stale (Phase 14)", () => {
+    const c = analyzeClaimCompleteness({
+      customer: "A",
+      updatedAt: Date.now() - 45 * 86_400_000,
+    });
+    expect(c.categories.find((x) => x.key === "freshness")?.status).toBe("stale");
+    expect(c.summary).toMatch(/stale/);
+  });
+
+  it("never labels a closed claim as stale", () => {
+    const c = analyzeClaimCompleteness({
+      status: "closed",
+      updatedAt: Date.now() - 400 * 86_400_000,
+    });
+    expect(c.categories.find((x) => x.key === "freshness")?.status).toBe("verified");
   });
 
   it("labels confirmed provenance as verified and low confidence as needs review", () => {

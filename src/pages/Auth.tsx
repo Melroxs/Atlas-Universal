@@ -15,12 +15,12 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { classifyAuthError } from "@/lib/auth-errors";
 import {
-  firebaseSendPasswordReset,
-  firebaseSignIn,
-  firebaseSignUp,
-  getFirebaseIdToken,
-  isFirebaseConfigured,
-} from "@/lib/firebase";
+  getSupabaseAccessToken,
+  isSupabaseConfigured,
+  supabaseSendPasswordReset,
+  supabaseSignIn,
+  supabaseSignUp,
+} from "@/lib/supabase";
 import logo from "@/assets/logo.svg";
 import { useQuery } from "convex/react";
 import {
@@ -74,12 +74,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [notice, setNotice] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
 
-  const firebaseClientConfigured = isFirebaseConfigured();
+  const supabaseClientConfigured = isSupabaseConfigured();
   const authStatus = useQuery(api.authStatus.authStatus);
   const serverUnconfigured =
-    firebaseClientConfigured &&
+    supabaseClientConfigured &&
     authStatus !== undefined &&
-    authStatus.firebaseConfigured === false;
+    authStatus.supabaseConfigured === false;
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
@@ -88,9 +88,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
   const exchangeTokenAndGo = async () => {
-    const idToken = await getFirebaseIdToken();
-    if (idToken) {
-      await signIn("firebase", { idToken });
+    const accessToken = await getSupabaseAccessToken();
+    if (accessToken) {
+      await signIn("supabase", { accessToken });
     }
     navigate(redirect);
   };
@@ -102,9 +102,23 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setNotice(null);
     try {
       if (mode === "signUp") {
-        await firebaseSignUp({ email, password, name });
+        const { needsEmailConfirmation } = await supabaseSignUp({
+          email,
+          password,
+          name,
+        });
+        if (needsEmailConfirmation) {
+          // Supabase email confirmation is enabled — the user must confirm
+          // before their account can be used.
+          setNotice(
+            `Almost there! We sent a confirmation link to ${email.trim()}. ` +
+              "Click it to activate your account, then sign in.",
+          );
+          setIsLoading(false);
+          return;
+        }
       } else {
-        await firebaseSignIn(email, password);
+        await supabaseSignIn(email, password);
       }
       await exchangeTokenAndGo();
     } catch (err) {
@@ -120,7 +134,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setError(null);
     setNotice(null);
     try {
-      await firebaseSendPasswordReset(email);
+      await supabaseSendPasswordReset(email);
       setNotice(
         `If an account exists for ${email}, a password reset link is on its way. Check your inbox.`,
       );
@@ -163,7 +177,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="pl-9"
-          disabled={isLoading || !firebaseClientConfigured}
+          disabled={isLoading || !supabaseClientConfigured}
           required
         />
       </div>
@@ -201,7 +215,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           className="pr-9"
-          disabled={isLoading || !firebaseClientConfigured}
+          disabled={isLoading || !supabaseClientConfigured}
           required
           minLength={mode === "signUp" ? 6 : undefined}
         />
@@ -222,22 +236,22 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     </div>
   );
 
-  const statusBanner = !firebaseClientConfigured ? (
+  const statusBanner = !supabaseClientConfigured ? (
     <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
       <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
       Email sign-in isn't configured for this deployment yet. Ask the
       administrator to add the{" "}
-      <code className="font-mono">VITE_FIREBASE_API_KEY</code>,{" "}
-      <code className="font-mono">VITE_FIREBASE_AUTH_DOMAIN</code> and{" "}
-      <code className="font-mono">VITE_FIREBASE_PROJECT_ID</code> project keys
-      — or continue as Guest below.
+      <code className="font-mono">VITE_SUPABASE_URL</code> and{" "}
+      <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> project keys —
+      or continue as Guest below.
     </div>
   ) : serverUnconfigured ? (
     <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
       <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
       Email sign-in is partially configured. Ask the administrator to add the{" "}
-      <code className="font-mono">FIREBASE_SERVICE_ACCOUNT_JSON</code> project
-      key so identity tokens can be verified.
+      <code className="font-mono">SUPABASE_URL</code> and{" "}
+      <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> project keys
+      so access tokens can be verified.
     </div>
   ) : null;
 
@@ -302,7 +316,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   <Button
                     type="submit"
                     className="w-full"
-                    disabled={isLoading || !firebaseClientConfigured || !email}
+                    disabled={isLoading || !supabaseClientConfigured || !email}
                   >
                     {isLoading ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -354,7 +368,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                           placeholder="Alex Rivera"
                           value={name}
                           onChange={(e) => setName(e.target.value)}
-                          disabled={isLoading || !firebaseClientConfigured}
+                          disabled={isLoading || !supabaseClientConfigured}
                         />
                       </div>
                     )}
@@ -397,7 +411,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       className="w-full"
                       disabled={
                         isLoading ||
-                        !firebaseClientConfigured ||
+                        !supabaseClientConfigured ||
                         !email ||
                         !password
                       }

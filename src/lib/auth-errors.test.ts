@@ -1,44 +1,44 @@
 // ---------------------------------------------------------------------------
-// Phase 14 — Auth error classification tests (Firebase Authentication).
+// Phase 14 — Auth error classification tests (Supabase Authentication).
 // Every surfaced message must be safe (no secrets/tokens/stack traces) and
-// actionable (maps known Firebase auth/* codes to friendly guidance, and
+// actionable (maps known Supabase error codes to friendly guidance, and
 // calls out missing deployment keys when relevant).
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
 import { classifyAuthError } from "./auth-errors";
 
-function firebaseError(code: string): Error {
-  const error = new Error(`Firebase: ${code}.`);
+function supabaseError(code: string): Error {
+  const error = new Error(`Supabase: ${code}.`);
   (error as { code?: string }).code = code;
   return error;
 }
 
 describe("classifyAuthError", () => {
-  it("maps known Firebase codes to friendly messages", () => {
-    expect(classifyAuthError(firebaseError("auth/email-already-in-use"))).toMatch(/already exists/i);
-    expect(classifyAuthError(firebaseError("auth/invalid-email"))).toMatch(/looks invalid/i);
-    expect(classifyAuthError(firebaseError("auth/weak-password"))).toMatch(/too weak/i);
-    expect(classifyAuthError(firebaseError("auth/wrong-password"))).toMatch(/incorrect/i);
-    expect(classifyAuthError(firebaseError("auth/user-not-found"))).toMatch(/no account/i);
-    expect(classifyAuthError(firebaseError("auth/invalid-credential"))).toMatch(/incorrect/i);
-    expect(classifyAuthError(firebaseError("auth/too-many-requests"))).toMatch(/too many attempts/i);
-    expect(classifyAuthError(firebaseError("auth/network-request-failed"))).toMatch(/connection/i);
+  it("maps known Supabase codes to friendly messages", () => {
+    expect(classifyAuthError(supabaseError("invalid_credentials"))).toMatch(/incorrect/i);
+    expect(classifyAuthError(supabaseError("email_exists"))).toMatch(/already exists/i);
+    expect(classifyAuthError(supabaseError("user_already_exists"))).toMatch(/already exists/i);
+    expect(classifyAuthError(supabaseError("weak_password"))).toMatch(/too weak/i);
+    expect(classifyAuthError(supabaseError("email_not_confirmed"))).toMatch(/confirmed/i);
+    expect(classifyAuthError(supabaseError("invalid_email"))).toMatch(/invalid/i);
+    expect(classifyAuthError(supabaseError("over_email_send_rate_limit"))).toMatch(/too many attempts/i);
+    expect(classifyAuthError(supabaseError("over_request_rate_limit"))).toMatch(/too many attempts/i);
   });
 
   it("points at missing deployment config for backend exchange errors", () => {
     const r = classifyAuthError(
-      new Error("Firebase is not configured (FIREBASE_SERVICE_ACCOUNT_JSON missing)."),
+      new Error("Supabase is not configured (SUPABASE_SERVICE_ROLE_KEY missing)."),
     );
-    expect(r).toMatch(/FIREBASE_SERVICE_ACCOUNT_JSON/);
+    expect(r).toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
     expect(r).toMatch(/Guest/i);
   });
 
   it("never leaks the key or tokens in the message", () => {
     const r = classifyAuthError(
-      new Error("Firebase is not configured (FIREBASE_SERVICE_ACCOUNT_JSON missing)."),
+      new Error("Supabase is not configured (SUPABASE_SERVICE_ROLE_KEY missing)."),
     );
-    expect(r).not.toMatch(/sk-|Bearer|private_key|BEGIN|AIza/i);
+    expect(r).not.toMatch(/eyJ|Bearer|service_role_key=|BEGIN|private_key/i);
   });
 
   it("maps network / timeout failures", () => {
@@ -47,7 +47,7 @@ describe("classifyAuthError", () => {
   });
 
   it("handles expired sessions", () => {
-    expect(classifyAuthError(new Error("Firebase ID token has expired"))).toMatch(/expired/i);
+    expect(classifyAuthError(new Error("Supabase access token has expired"))).toMatch(/expired/i);
   });
 
   it("falls back to a safe generic message", () => {

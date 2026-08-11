@@ -3,8 +3,8 @@
 // to safe, actionable, user-facing messages.
 //
 // Safety: never include provider secrets, stack traces, tokens or headers in
-// the surfaced messages. Firebase SDK errors carry a stable `code` like
-// "auth/wrong-password"; Convex exchange errors surface as plain Error
+// the surfaced messages. Supabase SDK errors carry a stable `code` like
+// "invalid_credentials"; Convex exchange errors surface as plain Error
 // messages from the backend (which are already sanitized server-side).
 // ---------------------------------------------------------------------------
 
@@ -19,57 +19,59 @@ function codeOf(error: unknown): string {
   return typeof candidate === "string" ? candidate : "";
 }
 
-const FIREBASE_MESSAGES: Record<string, string> = {
-  "auth/email-already-in-use":
-    "An account with this email already exists. Sign in instead, or use a different email address.",
-  "auth/invalid-email":
-    "That email address looks invalid. Please check it and try again.",
-  "auth/weak-password":
-    "That password is too weak. Use at least 6 characters — ideally a mix of letters, numbers and symbols.",
-  "auth/wrong-password":
-    "The password is incorrect. Check it and try again, or use “Forgot password?” to reset it.",
-  "auth/user-not-found":
-    "No account exists for that email. Create an account instead.",
-  "auth/invalid-credential":
+const SUPABASE_MESSAGES: Record<string, string> = {
+  invalid_credentials:
     "The email or password is incorrect. Check both and try again, or reset your password.",
-  "auth/too-many-requests":
+  email_exists:
+    "An account with this email already exists. Sign in instead, or use a different email address.",
+  user_already_exists:
+    "An account with this email already exists. Sign in instead, or use a different email address.",
+  weak_password:
+    "That password is too weak. Use at least 6 characters — ideally a mix of letters, numbers and symbols.",
+  over_email_send_rate_limit:
     "Too many attempts. Please wait a moment and try again.",
-  "auth/network-request-failed":
+  over_request_rate_limit:
+    "Too many attempts. Please wait a moment and try again.",
+  email_not_confirmed:
+    "This email hasn't been confirmed yet. Check your inbox for the confirmation link, then try again.",
+  invalid_email:
+    "That email address looks invalid. Please check it and try again.",
+  validation_failed:
+    "Some of the details you entered look invalid. Please check them and try again.",
+  signup_disabled:
+    "New account creation is currently disabled for this project.",
+  email_provider_disabled:
+    "Email/password sign-in is currently disabled for this project.",
+  bad_json:
     "Unable to reach the sign-in service right now. Check your connection and try again.",
-  "auth/operation-not-allowed":
-    "Email/password sign-in is currently disabled for this Firebase project.",
-  "auth/configuration-not-found":
-    "Firebase auth isn't configured for this deployment. Ask the administrator to add the VITE_FIREBASE_* keys, then try again.",
-  "auth/unauthorized-domain":
-    "This domain isn't authorized for Firebase sign-in. Ask the administrator to add it to the Firebase console's authorized domains.",
 };
 
 /**
- * Classify any auth error (Firebase SDK error or backend exchange error) into
+ * Classify any auth error (Supabase SDK error or backend exchange error) into
  * a safe, actionable message. Generic by default — never leaks internals.
  */
 export function classifyAuthError(error: unknown): string {
   const msg = messageOf(error);
   const code = codeOf(error);
 
-  const known = FIREBASE_MESSAGES[code];
+  const known = SUPABASE_MESSAGES[code];
   if (known) return known;
 
   if (
-    /not configured|firebase_service_account|vite_firebase|missing.*key|invalid.*service account/i.test(
+    /not configured|supabase_service_role|vite_supabase|missing.*key|invalid.*service role/i.test(
       msg,
     )
   ) {
     return (
       "Email sign-in isn't fully configured for this deployment yet. Ask the administrator to " +
-      "add the VITE_FIREBASE_* keys and the FIREBASE_SERVICE_ACCOUNT_JSON key, then try again. " +
-      "You can also continue as Guest."
+      "add the VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY keys plus the SUPABASE_URL and " +
+      "SUPABASE_SERVICE_ROLE_KEY keys, then try again. You can also continue as Guest."
     );
   }
   if (/network|unreachable|temporarily unavailable|timeout|ECONN/i.test(msg)) {
     return "Unable to reach the sign-in service right now. Check your connection and try again.";
   }
-  if (/invalid firebase|unverified|expired.*token|id token/i.test(msg)) {
+  if (/invalid supabase|unverified|expired.*token|access token|jwt/i.test(msg)) {
     return "Your sign-in session expired. Please sign in again.";
   }
   return "Unable to sign in. Please try again.";

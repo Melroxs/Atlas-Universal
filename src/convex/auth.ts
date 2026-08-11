@@ -2,8 +2,8 @@
 
 import { convexAuth } from "@convex-dev/auth/server";
 import { Anonymous } from "@convex-dev/auth/providers/Anonymous";
-import { Firebase } from "./auth/firebaseProvider";
+import { Supabase } from "./auth/supabaseProvider";
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
-  providers: [Firebase, Anonymous],
+  providers: [Supabase, Anonymous],
 });

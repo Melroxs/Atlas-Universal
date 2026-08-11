@@ -260,6 +260,31 @@ export const askAtlas = action({
       .map((x) => x.item);
 
     // ------------------------------------------------------------------
+    // 1b. Archive context — imported company data (Phase 13)
+    // ------------------------------------------------------------------
+    const mentionsCompanyData = /(archive|zip|rar|company (data|files)|uploaded|import|company files|data package|what did (you|atlas) find|what\'?s in (the|that)|extracted|ingest)/i.test(
+      q,
+    );
+    let archives: Array<{
+      _id: string;
+      filename: string;
+      status: string;
+      checksum: string;
+      stats?: Record<string, unknown> | null;
+      warnings?: string[];
+    }> = [];
+    let archiveSummaryText: string | null = null;
+    if (mentionsCompanyData) {
+      archives = (await ctx.runQuery(internal.archive.internal.listArchivesByTenant, {
+        tenantId,
+        limit: 10,
+      })) as typeof archives;
+      if (archives.length > 0) {
+        archiveSummaryText = buildArchiveSummaryText(archives);
+      }
+    }
+
+    // ------------------------------------------------------------------
     // 2. Assemble evidence list
     // ------------------------------------------------------------------
     interface Evidence {
@@ -316,6 +341,20 @@ export const askAtlas = action({
         evidenceType: "RULE",
       });
     }
+    for (const a of archives) {
+      const st = a.stats ?? {};
+      const snippet =
+        a.status === "completed" || a.status === "completed_with_warnings"
+          ? `${st.ingested ?? 0} files ingested${(st.potentialClaims as unknown[])?.length ? ` · ${(st.potentialClaims as unknown[]).length} potential claim${(st.potentialClaims as unknown[]).length === 1 ? "" : "s"}` : ""} · checksum ${String(a.checksum).slice(0, 10)}…`
+          : `Status: ${a.status}${a.warnings?.length ? ` · ${a.warnings.length} warning${a.warnings.length === 1 ? "" : "s"}` : ""}`;
+      evidence.push({
+        kind: "archive",
+        title: `Imported archive — ${a.filename}`,
+        snippet,
+        relevance: 0.7,
+        evidenceType: "OBSERVATION",
+      });
+    }
     // Authority evidence sits alongside org evidence for mixed questions.
     if (authorityEvidence.length > 0) {
       evidence.push(...authorityEvidence);
@@ -332,7 +371,20 @@ export const askAtlas = action({
     let mode: "ai" | "local" = "local";
     let suggestedActions: string[] = [];
 
-    if (evidence.length === 0) {
+    // Direct, deterministic answers about imported company data: real records
+    // only — never fabricated metrics. AI can still enrich the same evidence.
+    const asksAboutFindings = /(what did (you|atlas) (find|see|learn)|what\'?s (in|inside) (the|that)|what.*(company|archive|zip|upload)|show me (what|the|where)|summar\w+ (the )?(import|archive|upload|company))/i.test(
+      q,
+    );
+    if (asksAboutFindings && archiveSummaryText) {
+      answer = archiveSummaryText;
+      classification = "OBSERVATION";
+      confidence = 0.85;
+      limitations =
+        "This summary is derived from the actual archive processing records in this workspace.";
+      suggestedActions = ["Open the Knowledge base", "Review archive inventory"];
+      mode = "local";
+    } else if (evidence.length === 0) {
       answer =
         "I don't have enough coverage in your knowledge base to answer that yet. " +
         "Your knowledge graph currently contains no documents or entities matching this question. " +
@@ -479,6 +531,99 @@ export const askAtlas = action({
 });
 
 // ---------------------------------------------------------------------------
+
+/** Build a REAL ingestion summary from processed archive records (Phase 13). */
+function buildArchiveSummaryText(
+  archives: Array<{
+    filename: string;
+    status: string;
+    stats?: Record<string, unknown> | null;
+    warnings?: string[];
+  }>,
+): string | null {
+  const finished = archives.filter((a) =>
+    ["completed", "completed_with_warnings", "failed"].includes(a.status),
+  );
+  if (finished.length === 0) {
+    const active = archives[0];
+    if (!active) return null;
+    return `You've uploaded “${active.filename}”, which is still ${active.status}. I'll report the full summary here as soon as processing finishes.`;
+  }
+
+  const parts: string[] = [];
+  let totalFiles = 0;
+  let totalIngested = 0;
+  let totalDuplicates = 0;
+  let totalUnsupported = 0;
+  let totalBlocked = 0;
+  let totalFailed = 0;
+  let totalClaims = 0;
+  let totalCustomers = 0;
+  let totalProjects = 0;
+  let totalPolicies = 0;
+  let totalEstimates = 0;
+  let totalInvoices = 0;
+  const warnings: string[] = [];
+
+  for (const a of finished) {
+    const st = a.stats ?? {};
+    totalFiles += typeof st.totalFiles === "number" ? st.totalFiles : 0;
+    totalIngested += typeof st.ingested === "number" ? st.ingested : 0;
+    totalDuplicates += typeof st.duplicates === "number" ? st.duplicates : 0;
+    totalUnsupported += typeof st.unsupported === "number" ? st.unsupported : 0;
+    totalBlocked += typeof st.blocked === "number" ? st.blocked : 0;
+    totalFailed += typeof st.failed === "number" ? st.failed : 0;
+    totalClaims += Array.isArray(st.potentialClaims) ? st.potentialClaims.length : 0;
+    totalCustomers += typeof st.customers === "number" ? st.customers : 0;
+    totalProjects += typeof st.projects === "number" ? st.projects : 0;
+    totalPolicies += typeof st.policies === "number" ? st.policies : 0;
+    totalEstimates += typeof st.estimates === "number" ? st.estimates : 0;
+    totalInvoices += typeof st.invoices === "number" ? st.invoices : 0;
+    warnings.push(...(a.warnings ?? []));
+  }
+
+  parts.push(
+    `I processed ${totalFiles.toLocaleString()} files across ${finished.length} imported archive${finished.length === 1 ? "" : "s"}: ${totalIngested.toLocaleString()} were ingested into the knowledge base.`,
+  );
+  const extras: string[] = [];
+  if (totalCustomers > 0) extras.push(`${totalCustomers} customer${totalCustomers === 1 ? "" : "s"}`);
+  if (totalProjects > 0) extras.push(`${totalProjects} active project${totalProjects === 1 ? "" : "s"}`);
+  if (totalVendors(archives) > 0) extras.push(`${totalVendors(archives)} vendor${totalVendors(archives) === 1 ? "" : "s"}`);
+  if (totalPolicies > 0) extras.push(`${totalPolicies} polic${totalPolicies === 1 ? "y" : "ies"}/procedures`);
+  if (totalEstimates > 0) extras.push(`${totalEstimates} estimate${totalEstimates === 1 ? "" : "s"}`);
+  if (totalInvoices > 0) extras.push(`${totalInvoices} invoice${totalInvoices === 1 ? "" : "s"}`);
+  if (extras.length > 0) {
+    parts.push(`Atlas found ${extras.join(", ")} in the imported data.`);
+  }
+  if (totalClaims > 0) {
+    parts.push(
+      `I identified ${totalClaims} potential claim${totalClaims === 1 ? "" : "s"} from document identifiers and folder context — Atlas has not created any claim records yet; those need your confirmation.`,
+    );
+  }
+  const issues: string[] = [];
+  if (totalDuplicates > 0) issues.push(`${totalDuplicates} exact duplicate${totalDuplicates === 1 ? "" : "s"} (ingested once)`);
+  if (totalUnsupported > 0) issues.push(`${totalUnsupported} file${totalUnsupported === 1 ? "" : "s"} in unsupported formats`);
+  if (totalBlocked > 0) issues.push(`${totalBlocked} file${totalBlocked === 1 ? "" : "s"} blocked for security`);
+  if (totalFailed > 0) issues.push(`${totalFailed} file${totalFailed === 1 ? "" : "s"} that failed to process`);
+  if (issues.length > 0) {
+    parts.push(`Heads up: ${issues.join(", ")}.`);
+  }
+  if (warnings.length > 0 && parts.length < 4) {
+    parts.push(warnings[0]);
+  }
+  parts.push("Ask me about any of it — I'll show you the source for every answer.");
+  return parts.join(" ");
+}
+
+/** Vendor count helper for buildArchiveSummaryText (stats may be absent). */
+function totalVendors(
+  archives: Array<{ stats?: Record<string, unknown> | null }>,
+): number {
+  return archives.reduce((sum, a) => {
+    const st = a.stats ?? {};
+    return sum + (typeof st.vendors === "number" ? st.vendors : 0);
+  }, 0);
+}
 
 function composeLocalAnswer(
   q: string,

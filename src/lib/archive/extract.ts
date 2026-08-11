@@ -138,9 +138,12 @@ async function extractRarFiles(bytes: Uint8Array): Promise<RawExtractedFile[]> {
   const wasmBinary = await loadUnrarWasm();
   let extractor: Awaited<ReturnType<typeof createExtractorFromData>>;
   try {
+    const data = new Uint8Array(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    ).buffer as ArrayBuffer;
     extractor = await createExtractorFromData({
       wasmBinary,
-      data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+      data,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

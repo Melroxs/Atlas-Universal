@@ -12,8 +12,9 @@ import type { ClaimHint } from "./types";
 /** Claim-number patterns that are specific enough to trust. */
 const CLAIM_PATTERNS: Array<{ re: RegExp; label: string }> = [
   { re: /(?:claim|clm)[-_. ]?(\d{3,12})/i, label: "claim number" },
-  { re: /\b(?:CL|CLM|CN)\d{4,12}\b/i, label: "claim id" },
-  { re: /\b\d{4,12}\b/, label: "long number" },
+  // Followed by a separator/end so "CL88210044_invoice.pdf" still matches.
+  { re: /\b(?:CL|CLM|CN)\d{4,12}(?=[._-]|\b)/i, label: "claim id" },
+  { re: /\b\d{4,12}(?=[._-]|\b)/, label: "long number" },
 ];
 
 const SUPPORTING_CONTEXT =
@@ -66,17 +67,32 @@ export function extractClaimHints(path: string): ClaimExtraction {
     }
   }
 
-  // 2. Folder-level claim identity (Claims/12345/…).
+  // 2. Folder-level claim identity. Supports both "Claims/12345" and
+  //    "…/Claim-12345/…" styles. The LAST id-bearing segment under the
+  //    Claims path wins, so "Claims/2026/Claim-12345" resolves to 12345,
+  //    never the year. A bare 4-digit year (Claims/2026) is treated as a
+  //    year, not a claim id, unless the segment explicitly says “claim”.
   if (hints.length === 0 && folder) {
-    const folderMatch = folder.match(/claims?[-_. ]?(\d{3,12})/i);
-    if (folderMatch) {
-      const num = folderMatch[1];
+    const segments = folder.split("/");
+    const claimIdx = segments.findIndex((s) => /^claims?$/i.test(s));
+    const rest = claimIdx >= 0 ? segments.slice(claimIdx + 1) : [];
+    let folderId: { num: string; label: string } | null = null;
+    for (let i = rest.length - 1; i >= 0; i--) {
+      const seg = rest[i];
+      const m = seg.match(/^(?:claim[-_. ]?)?(\d{3,12})$/i);
+      if (!m) continue;
+      const num = m[1];
+      if (/^(19|20)\d{2}$/.test(num) && !/claim/i.test(seg)) continue;
+      folderId = { num, label: seg };
+      break;
+    }
+    if (folderId) {
       hints.push({
-        claimNumber: num,
+        claimNumber: folderId.num,
         confidence: 0.7,
-        reasons: [`Located under a claim folder (“…/${folderMatch[0]}”).`],
+        reasons: [`Located under a claim folder (“…/${folderId.label}”).`],
       });
-      context.push(folderMatch[0]);
+      context.push(folderId.label);
     } else if (CLAIM_FOLDER.test(folder + "/")) {
       // Inside a Claims folder but no explicit number — low confidence.
       hints.push({

@@ -1,5 +1,7 @@
 import { api } from "@/convex/_generated/api";
+import ArchiveUpload from "@/components/archive-upload";
 import {
+  ArchiveStatusBadge,
   ClassificationBadge,
   DocStatusBadge,
   EmptyPanel,
@@ -7,9 +9,11 @@ import {
   formatBytes,
   formatDate,
 } from "@/components/atlas-ui";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
+  Archive,
   Database,
   FileText,
   FileUp,
@@ -31,6 +35,8 @@ export default function Knowledge() {
   const processDocument = useAction(api.ingestion.processDocument);
   const seedDemo = useMutation(api.seed.seedDemoData);
   const runDetectors = useAction(api.recommendations.runDetectors);
+  const archives = useQuery(api.archive.listArchives);
+  const archiveStats = useQuery(api.archive.archiveStats);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -155,6 +161,108 @@ export default function Knowledge() {
           )
         }
       />
+
+      {/* Company data archives — Phase 13 */}
+      {!isViewer && (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Archive className="size-4 text-amber-600 dark:text-amber-300" />
+              <h2 className="text-sm font-semibold">Company data archives</h2>
+              {archiveStats && archiveStats.total > 0 && (
+                <span className="font-mono text-xs text-muted-foreground">
+                  {archiveStats.total} archive{archiveStats.total === 1 ? "" : "s"}
+                  {archiveStats.filesIngested > 0
+                    ? ` · ${archiveStats.filesIngested.toLocaleString()} files ingested`
+                    : ""}
+                  {archiveStats.potentialClaims > 0
+                    ? ` · ${archiveStats.potentialClaims} potential claim${archiveStats.potentialClaims === 1 ? "" : "s"}`
+                    : ""}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <ArchiveUpload />
+
+          {(archives ?? []).length > 0 && (
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card/50">
+              <div className="divide-y divide-border/50">
+                {(archives ?? []).map((a) => {
+                  const st = a.stats as Record<string, unknown> | null | undefined;
+                  const ingested = typeof st?.ingested === "number" ? st.ingested : 0;
+                  const totalFiles = typeof st?.totalFiles === "number" ? st.totalFiles : a.fileCount;
+                  const pct =
+                    a.status === "completed" ||
+                    a.status === "completed_with_warnings" ||
+                    a.status === "failed" ||
+                    a.status === "cancelled"
+                      ? 1
+                      : totalFiles > 0
+                        ? Math.min(0.99, a.progress)
+                        : 0;
+                  return (
+                    <button
+                      key={a._id}
+                      type="button"
+                      onClick={() =>
+                        navigate(`/dashboard/knowledge/archives/${a._id}`)
+                      }
+                      className="flex w-full items-center gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-400/10 text-amber-600 dark:text-amber-300 ring-1 ring-amber-400/20">
+                        <Archive className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">
+                          {a.filename}
+                        </p>
+                        <p className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                          <span>{formatBytes(a.compressedSize)}</span>
+                          <span>·</span>
+                          <span>
+                            {totalFiles.toLocaleString()} files ·{" "}
+                            {ingested.toLocaleString()} ingested
+                          </span>
+                          {a.warnings.length > 0 && (
+                            <>
+                              <span>·</span>
+                              <span className="text-amber-600 dark:text-amber-300">
+                                {a.warnings.length} warning{a.warnings.length === 1 ? "" : "s"}
+                              </span>
+                            </>
+                          )}
+                        </p>
+                        {!["completed", "completed_with_warnings", "failed", "cancelled"].includes(
+                          a.status,
+                        ) && (
+                          <div className="mt-2 h-1 w-full max-w-xs overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-teal-500 transition-all"
+                              style={{ width: `${Math.round(pct * 100)}%` }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <div className="hidden shrink-0 items-center gap-2 sm:flex">
+                        {a.status === "completed_with_warnings" && (
+                          <Badge variant="outline" className="border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300">
+                            review warnings
+                          </Badge>
+                        )}
+                        <ArchiveStatusBadge status={a.status} />
+                      </div>
+                      <div className="hidden shrink-0 font-mono text-[11px] text-muted-foreground/60 md:block">
+                        {formatDate(a.createdAt)}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Pipeline status */}
       <div className="flex flex-wrap items-center gap-2 text-xs">

@@ -139,6 +139,56 @@ export function DocStatusBadge({ status }: { status: string }) {
   );
 }
 
+const ARCHIVE_STATUS_STYLES: Record<string, string> = {
+  completed: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  completed_with_warnings: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  uploaded: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  validating: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  extracting: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  inventorying: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  classifying: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  ingesting: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  indexing: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  enriching: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  cancelled: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function ArchiveStatusBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono uppercase tracking-wide", ARCHIVE_STATUS_STYLES[status] ?? "")}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
+const FILE_INGEST_STYLES: Record<string, string> = {
+  ingested: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  queued: "border-sky-400/30 bg-sky-400/10 text-sky-600 dark:text-sky-300",
+  ingesting: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  duplicate: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
+  unsupported: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  skipped: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  too_large: "border-muted-foreground/30 bg-muted text-muted-foreground",
+  blocked: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  failed: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  pending: "border-muted-foreground/30 bg-muted text-muted-foreground",
+};
+
+export function FileIngestBadge({ status }: { status: string }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-mono uppercase tracking-wide", FILE_INGEST_STYLES[status] ?? "")}
+    >
+      {status.replace(/_/g, " ")}
+    </Badge>
+  );
+}
+
 const CLASS_STYLES: Record<string, string> = {
   SOP: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
   Policy: "border-cyan-400/30 bg-cyan-400/10 text-cyan-600 dark:text-cyan-300",

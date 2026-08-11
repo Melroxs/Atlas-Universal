@@ -17,6 +17,18 @@ export const getArchiveRecord = internalQuery({
   },
 });
 
+/** Recent archives for a tenant (Ask Atlas / summaries). */
+export const listArchivesByTenant = internalQuery({
+  args: { tenantId: v.id("tenants"), limit: v.number() },
+  handler: async (ctx, { tenantId, limit }) => {
+    return await ctx.db
+      .query("archiveIngestions")
+      .withIndex("by_tenant_created", (q) => q.eq("tenantId", tenantId))
+      .order("desc")
+      .take(limit);
+  },
+});
+
 export const listFilesByArchive = internalQuery({
   args: { archiveId: v.id("archiveIngestions") },
   handler: async (ctx, { archiveId }) => {

@@ -262,6 +262,10 @@ export function buildUploadPlan(analysis: ArchiveAnalysis): ArchiveUploadPlan {
   const skipped = analysis.entries.filter(
     (e) => e.status !== "ok" || !e.supported,
   );
+  // Never keep raw bytes for files that won't be uploaded — duplicates can
+  // hold large buffers (they were extracted before dedupe) and must not stay
+  // in memory or ever be sent.
+  for (const e of skipped) delete e.bytes;
   return { ingest, skipped };
 }
 

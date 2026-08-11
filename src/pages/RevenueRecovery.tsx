@@ -68,6 +68,165 @@ function claimStatusTone(status: string): string {
   return "border-border/70 bg-muted/40 text-muted-foreground";
 }
 
+// ---------------------------------------------------------------------------
+// Phase 14 — Command Center analytics (pure Tailwind renders, no chart dep)
+// ---------------------------------------------------------------------------
+
+interface TrendPoint {
+  month: string;
+  label: string;
+  claimsCreated: number;
+  findingsOpened: number;
+  supplementsSubmitted: number;
+}
+
+function RecoveryTrendChart({ trend }: { trend: TrendPoint[] }) {
+  const max = Math.max(
+    1,
+    ...trend.flatMap((t) => [
+      t.claimsCreated,
+      t.findingsOpened,
+      t.supplementsSubmitted,
+    ]),
+  );
+  const hasActivity = trend.some(
+    (t) =>
+      t.claimsCreated > 0 || t.findingsOpened > 0 || t.supplementsSubmitted > 0,
+  );
+  if (!hasActivity) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <Sparkles className="size-6 text-muted-foreground/40" />
+        <p className="text-sm text-muted-foreground">
+          No claim, finding or supplement activity recorded in the last 12 months yet.
+        </p>
+      </div>
+    );
+  }
+  const pct = (n: number) => `${Math.max(0, Math.round((n / max) * 100))}%`;
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <span className="size-2 rounded-sm bg-teal-500/80 dark:bg-teal-400/70" /> Claims created
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2 rounded-sm bg-amber-500/80 dark:bg-amber-400/70" /> Findings opened
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="size-2 rounded-sm bg-sky-500/80 dark:bg-sky-400/70" /> Supplements submitted
+        </span>
+      </div>
+      <div className="flex items-end gap-1.5">
+        {trend.map((t) => (
+          <div key={t.month} className="flex flex-1 flex-col items-center gap-1.5">
+            <div className="flex h-24 w-full items-end justify-center gap-[3px]">
+              <div
+                className="w-2.5 rounded-t-sm bg-teal-500/80 dark:bg-teal-400/70"
+                style={{ height: pct(t.claimsCreated) }}
+                title={`${t.claimsCreated} claim${t.claimsCreated === 1 ? "" : "s"} created`}
+              />
+              <div
+                className="w-2.5 rounded-t-sm bg-amber-500/80 dark:bg-amber-400/70"
+                style={{ height: pct(t.findingsOpened) }}
+                title={`${t.findingsOpened} finding${t.findingsOpened === 1 ? "" : "s"} opened`}
+              />
+              <div
+                className="w-2.5 rounded-t-sm bg-sky-500/80 dark:bg-sky-400/70"
+                style={{ height: pct(t.supplementsSubmitted) }}
+                title={`${t.supplementsSubmitted} supplement${t.supplementsSubmitted === 1 ? "" : "s"} submitted`}
+              />
+            </div>
+            <span className="font-mono text-[9px] text-muted-foreground">{t.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CarrierRecoveryTable({
+  carriers,
+}: {
+  carriers: Array<{
+    carrier: string;
+    claimCount: number;
+    outstanding: number;
+    potential: number;
+  }>;
+}) {
+  if (carriers.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <Radar className="size-6 text-muted-foreground/40" />
+        <p className="text-sm text-muted-foreground">
+          No carrier-level recovery figures yet — add claims with a carrier to see the breakdown.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Carrier</TableHead>
+          <TableHead className="text-right">Claims</TableHead>
+          <TableHead className="text-right">Outstanding</TableHead>
+          <TableHead className="text-right">Potential</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {carriers.map((c) => (
+          <TableRow key={c.carrier}>
+            <TableCell className="font-medium text-foreground">{c.carrier}</TableCell>
+            <TableCell className="text-right font-mono text-xs">{c.claimCount}</TableCell>
+            <TableCell className="text-right font-mono text-xs text-rose-600 dark:text-rose-300">
+              {money(c.outstanding)}
+            </TableCell>
+            <TableCell className="text-right font-mono text-xs text-amber-600 dark:text-amber-300">
+              {money(c.potential)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+function LifecycleDistribution({
+  distribution,
+}: {
+  distribution: Array<{ status: string; label: string; count: number }>;
+}) {
+  if (distribution.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-8 text-center">
+        <ClipboardList className="size-6 text-muted-foreground/40" />
+        <p className="text-sm text-muted-foreground">No claims recorded yet.</p>
+      </div>
+    );
+  }
+  const maxCount = Math.max(1, ...distribution.map((d) => d.count));
+  return (
+    <div className="space-y-3">
+      {distribution.map((d) => (
+        <div key={d.status}>
+          <div className="mb-1 flex items-center justify-between gap-3 text-xs">
+            <span className="truncate font-medium text-foreground">{d.label}</span>
+            <span className="shrink-0 font-mono text-muted-foreground">{d.count}</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-teal-500/70 dark:bg-teal-400/60"
+              style={{ width: `${Math.max(2, Math.round((d.count / maxCount) * 100))}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function RevenueRecovery() {
   const navigate = useNavigate();
   const counts = useQuery(api.insurance.claims.claimCounts);
@@ -81,6 +240,7 @@ export default function RevenueRecovery() {
   const reconstructClaims = useAction(api.insurance.candidates.reconstructClaims);
   const loadDemo = useMutation(api.insurance.demoData.loadDemoData);
   const removeDemo = useMutation(api.insurance.demoData.removeDemoData);
+  const analytics = useQuery(api.insurance.claims.recoveryAnalytics, {});
   const [scanning, setScanning] = useState(false);
   const [busyCandidate, setBusyCandidate] = useState<string | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
@@ -442,6 +602,37 @@ export default function RevenueRecovery() {
           ))}
         </div>
       </Panel>
+
+      {/* Command center analytics — every number derived from actual records */}
+      {analytics === undefined ? (
+        <div className="flex items-center gap-3 py-4 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
+          Loading command center analytics…
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <Panel
+            title="Recovery activity — last 12 months"
+            description="Claims created, findings opened and supplements submitted, bucketed by the month they actually happened. A per-month payment line is intentionally absent: no payment history table exists, so it could not be honest."
+          >
+            <RecoveryTrendChart trend={analytics.trend} />
+          </Panel>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Panel
+              title="Recovery by carrier"
+              description="Outstanding and potential recovery grouped by carrier — the same reconcile definition as the claims table. Claims without a carrier stay in the view as “Unknown carrier”."
+            >
+              <CarrierRecoveryTable carriers={analytics.carriers} />
+            </Panel>
+            <Panel
+              title="Claims by lifecycle stage"
+              description="How open claims are distributed across the recovery pipeline today."
+            >
+              <LifecycleDistribution distribution={analytics.statusDistribution} />
+            </Panel>
+          </div>
+        </div>
+      )}
 
       {/* Claims table */}
       {claims === undefined ? (

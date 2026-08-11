@@ -637,11 +637,17 @@ export function buildCarrierBreakdown(
 ): CarrierRecoveryBreakdown[] {
   const byClaim = new Map<
     string,
-    { carrier: string; supplements: typeof supplements; findings: typeof findings }
+    {
+      claim: (typeof claims)[number];
+      carrier: string;
+      supplements: typeof supplements;
+      findings: typeof findings;
+    }
   >();
   for (const c of claims) {
     const id = String(c._id);
     byClaim.set(id, {
+      claim: c,
       carrier: c.carrier?.trim() ? c.carrier : "Unknown carrier",
       supplements: [],
       findings: [],
@@ -658,7 +664,10 @@ export function buildCarrierBreakdown(
 
   const perCarrier = new Map<string, CarrierRecoveryBreakdown>();
   for (const bucket of byClaim.values()) {
-    const rec = reconcileClaim(bucket as never, bucket.supplements);
+    // The SAME reconcile definition as the claims table: pass the actual
+    // claim record (not the bucket wrapper) so estimate/payment/approval
+    // fields are honored.
+    const rec = reconcileClaim(bucket.claim as never, bucket.supplements);
     const potential = bucket.findings
       .filter((f) => f.status === "open")
       .reduce((sum, f) => sum + (f.estimatedAmount ?? 0), 0);

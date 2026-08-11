@@ -36,7 +36,15 @@ export function sttConfigured(env: VoiceEnv): boolean {
 }
 
 export function ttsConfigured(env: VoiceEnv): boolean {
-  return Boolean(env.VOICE_TTS_API_KEY && env.VOICE_TTS_API_KEY.trim().length > 0);
+  return Boolean(
+    (env.VOICE_TTS_API_KEY && env.VOICE_TTS_API_KEY.trim().length > 0) ||
+      (env.CARTESIA_API_KEY && env.CARTESIA_API_KEY.trim().length > 0),
+  );
+}
+
+/** True when the dedicated Cartesia TTS key is present. */
+export function cartesiaConfigured(env: VoiceEnv): boolean {
+  return Boolean(env.CARTESIA_API_KEY && env.CARTESIA_API_KEY.trim().length > 0);
 }
 
 /** Honest, sanitized error thrown when STT isn't configured server-side. */
@@ -61,12 +69,19 @@ export function voiceStatusFromEnv(env: VoiceEnv): VoiceProviderStatus {
     stt: stt ? "server" : "browser",
     tts: tts ? "server" : "browser",
     ...(stt ? { sttProvider: env.VOICE_STT_PROVIDER ?? "openai-compatible" } : {}),
-    ...(tts ? { ttsProvider: env.VOICE_TTS_PROVIDER ?? "openai-compatible" } : {}),
+    ...(tts
+      ? {
+          ttsProvider:
+            env.VOICE_TTS_PROVIDER ??
+            (cartesiaConfigured(env) ? "cartesia" : "openai-compatible"),
+        }
+      : {}),
     serverConfigured: stt || tts,
   };
 }
 
 const VOICE_ENV = (): VoiceEnv => ({
+  CARTESIA_API_KEY: process.env.CARTESIA_API_KEY,
   VOICE_STT_API_KEY: process.env.VOICE_STT_API_KEY,
   VOICE_STT_URL: process.env.VOICE_STT_URL,
   VOICE_STT_MODEL: process.env.VOICE_STT_MODEL,
@@ -134,9 +149,64 @@ export const transcribeAudio = action({
 });
 
 /**
- * Server-side text-to-speech. Only available when VOICE_TTS_API_KEY is set;
- * otherwise throws an honest "not configured" error so the client falls back
- * to browser speech synthesis. Returns base64 audio (mp3).
+ * Cartesia low-latency TTS (Sonic). Server-side only — the API key never
+ * leaves the server. Returns base64 mp3 audio with the same shape as the
+ * OpenAI-compatible path so the client transport is identical.
+ */
+const DEFAULT_CARTESIA_VOICE_ID = "db6b0ed5-d5d3-463d-ae85-518a07d3c2b4";
+
+async function cartesiaSynthesize(
+  apiKey: string,
+  text: string,
+  voiceValue: string,
+): Promise<{ audioB64: string }> {
+  // Cartesia voices are referenced either by stable UUID (mode "id") or by
+  // name (mode "name") — accept both so VOICE_TTS_VOICE stays human-friendly.
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    voiceValue,
+  );
+  const body = JSON.stringify({
+    model_id: "sonic-3.5",
+    transcript: text.slice(0, 1000),
+    voice: isUuid ? { mode: "id", id: voiceValue } : { mode: "name", name: voiceValue },
+    output_format: {
+      container: "mp3",
+      sample_rate: 44100,
+      bit_rate: 128000,
+    },
+    generation_config: { volume: 1, speed: 1 },
+  });
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.cartesia.ai/tts/bytes", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Cartesia-Version": "2026-03-01",
+        "Content-Type": "application/json",
+      },
+      body,
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new Error("Voice synthesis service is unreachable right now.");
+  }
+  if (!res.ok) {
+    // Sanitized: provider bodies may echo request details; status only.
+    throw new Error(`Voice synthesis failed (${res.status}).`);
+  }
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length === 0) throw new Error("Voice synthesis returned no audio.");
+  return { audioB64: buf.toString("base64") };
+}
+
+/**
+ * Server-side text-to-speech. When the dedicated CARTESIA_API_KEY is set,
+ * speech is synthesized with Cartesia (low-latency Sonic); otherwise the
+ * OpenAI-compatible VOICE_TTS_* path is used when configured. If nothing is
+ * configured it throws an honest "not configured" error so the client falls
+ * back to browser speech synthesis. Returns base64 audio (mp3).
  */
 export const synthesizeSpeech = action({
   args: { text: v.string(), voice: v.optional(v.string()) },
@@ -146,6 +216,13 @@ export const synthesizeSpeech = action({
     const env = VOICE_ENV();
     if (!ttsConfigured(env)) {
       throw ttsUnconfiguredError();
+    }
+    // Dedicated Cartesia key takes over when present — the recommended
+    // low-latency provider for Atlas's voice responses.
+    if (cartesiaConfigured(env)) {
+      const chosenVoice = voice ?? env.VOICE_TTS_VOICE ?? DEFAULT_CARTESIA_VOICE_ID;
+      const audio = await cartesiaSynthesize(env.CARTESIA_API_KEY!, text, chosenVoice);
+      return { audioB64: audio.audioB64, mimeType: "audio/mpeg", provider: "cartesia" };
     }
     const base = (env.VOICE_TTS_URL ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     const model = env.VOICE_TTS_MODEL ?? "tts-1";

@@ -51,6 +51,27 @@ describe("voiceStatusFromEnv", () => {
     expect(status.ttsProvider).toBe("elevenlabs");
   });
 
+  it("reports Cartesia as the server TTS provider when its key is present", () => {
+    const status = voiceStatusFromEnv({ CARTESIA_API_KEY: "sk_car_test" });
+    expect(status.tts).toBe("server");
+    expect(status.ttsProvider).toBe("cartesia");
+    expect(status.stt).toBe("browser");
+    expect(status.serverConfigured).toBe(true);
+  });
+
+  it("treats a blank Cartesia key as unconfigured", () => {
+    expect(ttsConfigured({ CARTESIA_API_KEY: "   " })).toBe(false);
+    const status = voiceStatusFromEnv({ CARTESIA_API_KEY: "" });
+    expect(status.tts).toBe("browser");
+    expect(status.ttsProvider).toBeUndefined();
+  });
+
+  it("never leaks the Cartesia key value into status", () => {
+    const status = voiceStatusFromEnv({ CARTESIA_API_KEY: "sk_car_secret-123" });
+    expect(JSON.stringify(status)).not.toContain("secret");
+    expect(JSON.stringify(status)).not.toContain("sk_car");
+  });
+
   it("never leaks the key value into status", () => {
     const status = voiceStatusFromEnv({ VOICE_STT_API_KEY: "sk-secret-123", VOICE_TTS_API_KEY: "sk-secret-456" });
     expect(JSON.stringify(status)).not.toContain("secret");

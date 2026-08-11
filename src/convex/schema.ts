@@ -1271,6 +1271,112 @@ const schema = defineSchema(
       .index("by_tenant", ["tenantId"])
       .index("by_claim", ["claimId"]),
 
+    // ------------------------------------------------------------------
+    // Phase 13 — Compressed Company Data Ingestion (ZIP/RAR archives)
+    // ------------------------------------------------------------------
+    // A tenant-scoped archive ingestion record + its file inventory. The raw
+    // archive is treated as untrusted input: every extracted path is
+    // normalized/rejected client-side AND re-validated server-side, resource
+    // limits are enforced at both layers, and no file can escape its tenant.
+
+    archiveIngestions: defineTable({
+      tenantId: v.id("tenants"),
+      filename: v.string(),
+      /** zip | rar */
+      fileType: v.string(),
+      compressedSize: v.number(),
+      extractedSize: v.number(),
+      fileCount: v.number(),
+      /** uploaded → validating → extracting → inventorying → classifying →
+       *  ingesting → indexing → enriching → completed | completed_with_warnings
+       *  | failed | cancelled */
+      status: v.union(
+        v.literal("uploaded"),
+        v.literal("validating"),
+        v.literal("extracting"),
+        v.literal("inventorying"),
+        v.literal("classifying"),
+        v.literal("ingesting"),
+        v.literal("indexing"),
+        v.literal("enriching"),
+        v.literal("completed"),
+        v.literal("completed_with_warnings"),
+        v.literal("failed"),
+        v.literal("cancelled"),
+      ),
+      /** Derived from real counters — never invented. */
+      progress: v.number(),
+      checksum: v.string(),
+      /** Whether the raw archive blob was retained in storage (size-capped). */
+      rawRetained: v.boolean(),
+      rawStorageId: v.optional(v.id("_storage")),
+      uploadedBy: v.id("users"),
+      /** Snapshot of the limits applied to this ingestion. */
+      limits: v.optional(v.any()),
+      /** Derived summary — every number comes from processed records. */
+      stats: v.optional(v.any()),
+      warnings: v.array(v.string()),
+      startedAt: v.optional(v.number()),
+      completedAt: v.optional(v.number()),
+      failureReason: v.optional(v.string()),
+      createdAt: v.number(),
+      updatedAt: v.number(),
+    }).index("by_tenant_created", ["tenantId", "createdAt"]),
+
+    /** One normalized file discovered inside an archive. */
+    archiveFiles: defineTable({
+      tenantId: v.id("tenants"),
+      archiveId: v.id("archiveIngestions"),
+      /** Normalized, validated relative path (never absolute, never ../). */
+      path: v.string(),
+      filename: v.string(),
+      extension: v.string(),
+      mimeType: v.optional(v.string()),
+      size: v.number(),
+      checksum: v.string(),
+      /** Nesting depth inside the archive (0 = top level). */
+      depth: v.number(),
+      isDuplicate: v.boolean(),
+      duplicateOfPath: v.optional(v.string()),
+      /** Stem grouping for version detection (Estimate_v1/Estimate_v2 …). */
+      versionGroup: v.optional(v.string()),
+      isSuperseded: v.optional(v.boolean()),
+      supersedesPath: v.optional(v.string()),
+      /** True when a parser exists for this format. */
+      supported: v.boolean(),
+      classification: v.string(),
+      classificationBasis: v.optional(v.string()),
+      classificationConfidence: v.number(),
+      /** Evidence-based claim hints from filename + folder context. */
+      claimHints: v.optional(v.any()),
+      /** Security-blocked (executable / credential / traversal). */
+      blocked: v.optional(v.boolean()),
+      blockReason: v.optional(v.string()),
+      /** pending | queued | ingesting | ingested | duplicate | unsupported |
+       *  failed | skipped | blocked | too_large */
+      ingestStatus: v.union(
+        v.literal("pending"),
+        v.literal("queued"),
+        v.literal("ingesting"),
+        v.literal("ingested"),
+        v.literal("duplicate"),
+        v.literal("unsupported"),
+        v.literal("failed"),
+        v.literal("skipped"),
+        v.literal("blocked"),
+        v.literal("too_large"),
+      ),
+      documentId: v.optional(v.id("documents")),
+      storageId: v.optional(v.id("_storage")),
+      error: v.optional(v.string()),
+      retryCount: v.number(),
+      processedAt: v.optional(v.number()),
+    })
+      .index("by_tenant", ["tenantId"])
+      .index("by_archive", ["archiveId"])
+      .index("by_archive_status", ["archiveId", "ingestStatus"])
+      .index("by_tenant_checksum", ["tenantId", "checksum"]),
+
     /** Persisted, evidence-labeled potential recovery findings. Deduped by
      *  findingKey. Every finding is a POTENTIAL opportunity — never a
      *  guarantee — and always carries its limitation. */

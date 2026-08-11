@@ -952,6 +952,7 @@ export const listClaims = query({
           readySupplements: readySupplements.length,
           outstanding: reconciliation.outstanding,
           hasDiscrepancy: reconciliation.hasDiscrepancy,
+          isDemo: claim.isDemo ?? false,
           stalled:
             claim.status !== "closed" &&
             typeof claim.updatedAt === "number" &&

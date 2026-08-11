@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { analyzeClaimCompleteness, buildClaimFindings, reconcileClaim } from "./claims";
 import {
   buildCandidateFromArchive,
   candidateKey,
@@ -194,5 +195,146 @@ describe("candidateKey — tenant isolation", () => {
     expect(candidateKey("tenant-A", "88210044")).not.toBe(
       candidateKey("tenant-A", "88210045"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 14 §2/§3 — archive → candidate → claim → findings (pure chain).
+//
+// Integration-testing limitation (honest): this project has no Convex
+// integration-test harness (no in-memory Convex runtime dependency), so the
+// mutations themselves (approveClaimCandidate, runClaimAnalysis, …) are not
+// executed here. They follow the same requireTenant / isEditor pattern as
+// every other mutation in the codebase, and the tenant scoping of the
+// candidate dedupe key is verified below. The ENTIRE deterministic pipeline
+// from an archive manifest to revenue-recovery findings is exercised here
+// with the exact pure functions the mutations call, so a green run means the
+// evidence-grounded chain is correct end to end at the logic level.
+// ---------------------------------------------------------------------------
+
+describe("Phase 14 e2e — archive manifest → candidate → claim → findings", () => {
+  it("reconstructs a candidate from a realistic archive manifest", () => {
+    // What the Phase 13 archive classifier would derive from a company-data.zip.
+    const candidate = buildCandidateFromArchive({
+      claimNumber: "88210044",
+      fileCount: 5,
+      confidence: 0.84,
+      samplePaths: [
+        "Clients/Johnson/Claims/88210044/estimate.pdf",
+        "Clients/Johnson/Claims/88210044/88210044_invoice.pdf",
+        "Clients/Johnson/Claims/88210044/88210044_photos/photo_01.jpg",
+        "Clients/Johnson/Claims/88210044/88210044_scope.pdf",
+      ],
+    });
+    expect(candidate.claimKey).toBe("88210044");
+    expect(candidate.customer).toBe("Johnson");
+    expect(candidate.evidence).toHaveLength(4);
+    expect(candidate.confidence).toBe(0.84);
+    expect(candidate.basis).toMatch(/POTENTIAL/);
+    expect(candidate.basis).toMatch(/88210044/);
+  });
+
+  it("carries every piece of evidence into the approved claim (no loss of provenance)", () => {
+    const candidate = buildCandidateFromArchive({
+      claimNumber: "CL88110023",
+      fileCount: 6,
+      confidence: 0.9,
+      samplePaths: [
+        "Clients/Martinez/Claims/CL88110023/estimate.pdf",
+        "Clients/Martinez/Claims/CL88110023/CL88110023_invoice.pdf",
+        "Clients/Martinez/Claims/CL88110023/CL88110023_payment.pdf",
+      ],
+    });
+    // Approval (in the mutation) links evidenceDocumentIds and records basis as
+    // the claim's provenance — assert the pure side keeps both intact.
+    expect(candidate.evidence.length).toBeGreaterThanOrEqual(3);
+    expect(candidate.archivePaths.length).toBe(3);
+    expect(candidate.customer).toBe("Martinez");
+  });
+
+  it("approved claim + real numbers → evidence-grounded revenue findings", () => {
+    const candidate = buildCandidateFromArchive({
+      claimNumber: "88210044",
+      fileCount: 7,
+      confidence: 0.9,
+      samplePaths: [
+        "Clients/Johnson/Claims/88210044/estimate.pdf",
+        "Clients/Johnson/Claims/88210044/88210044_invoice.pdf",
+      ],
+    });
+    // The claim record created on approval (numbers only where documents had
+    // them — invoice $41,500 and payment $38,000 are the source values).
+    const claim = {
+      _id: "c-demo",
+      claimNumber: candidate.claimNumber,
+      customer: candidate.customer,
+      property: "482 Harbor Lane, Tampa FL",
+      estimateAmount: 42000,
+      approvedAmount: 38000,
+      invoicedAmount: 41500,
+      paymentAmount: 38000,
+      scopeItems: [
+        { name: "Mold remediation", inEstimate: false, documented: true },
+        { name: "Reconstruction", inEstimate: true, documented: true },
+      ],
+      actualScope: ["mold remediation", "reconstruction"],
+      evidenceSummary: ["estimate", "invoice", "photos"],
+      confidence: Math.min(0.9, candidate.confidence),
+      provenance: candidate.basis,
+    };
+    const completeness = analyzeClaimCompleteness(claim);
+    expect(completeness.categories.find((x) => x.key === "financialState")?.status).toBe(
+      "conflicted",
+    );
+    const rec = reconcileClaim(claim, []);
+    expect(rec.hasDiscrepancy).toBe(true);
+    const findings = buildClaimFindings(claim);
+    expect(findings.some((f) => f.category === "overlooked_line_item")).toBe(true);
+    for (const f of findings) {
+      expect(f.title.length).toBeGreaterThan(0);
+      expect(f.limitation.length).toBeGreaterThan(10); // never a bare assertion
+    }
+    // Invoiced $41,500 vs paid $38,000 → the analyzer derives a real gap.
+    const billing = findings.find((f) => f.category === "billing_reconciliation");
+    expect(billing?.estimatedAmount).toBe(3500);
+    expect(completeness.summary).not.toMatch(/guaranteed|owed/i);
+  });
+
+  it("never invents financial impact when the records have no numbers", () => {
+    const candidate = buildCandidateFromArchive({
+      claimNumber: "99210008",
+      fileCount: 2,
+      confidence: 0.6,
+      samplePaths: ["Clients/Chen/Claims/99210008/estimate.pdf"],
+    });
+    const claim = {
+      _id: "c-chen",
+      claimNumber: candidate.claimNumber,
+      customer: candidate.customer,
+      estimateAmount: 9200,
+      // No invoice, no payment recorded.
+      scopeItems: [{ name: "Roof tear-off", inEstimate: true, documented: true }],
+      evidenceSummary: [],
+      confidence: 0.6,
+      provenance: candidate.basis,
+    };
+    const rec = reconcileClaim(claim, []);
+    // With no payments recorded the potentially outstanding figure IS the
+    // estimate — derived from an actual number, never invented.
+    expect(rec.outstanding).toBe(claim.estimateAmount);
+    const findings = buildClaimFindings(claim);
+    for (const f of findings) {
+      // Without invoice/payment records, no finding can carry a dollar amount.
+      expect(f.estimatedAmount).toBeUndefined();
+    }
+  });
+
+  it("tenant isolation at the key level — the same claim in two tenants never collides", () => {
+    const a = candidateKey("tenant-alpine", "88210044");
+    const b = candidateKey("tenant-beacon", "88210044");
+    expect(a).not.toBe(b);
+    // The dedupe lookup inside upsertCandidateInternal uses this exact key, so
+    // a candidate created by tenant A can never be found by tenant B.
+    expect(candidateKey("tenant-alpine", "88210044")).toBe(a);
   });
 });

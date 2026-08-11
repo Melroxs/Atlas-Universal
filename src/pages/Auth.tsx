@@ -60,6 +60,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
   const sendCode = async (email: string) => {
+    // When VLY_EMAIL_API_KEY is absent the relay rejects every send with a
+    // 401. Fail fast with the actionable message instead of firing a doomed
+    // network call — the amber banner already explains the configuration gap.
+    if (emailOtpUnconfigured) {
+      throw new Error("Failed to send verification email (status 401)");
+    }
     const formData = new FormData();
     formData.set("email", email);
     await signIn("email-otp", formData);

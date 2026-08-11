@@ -79,8 +79,39 @@ export default function RevenueRecovery() {
   const approveCandidate = useMutation(api.insurance.candidates.approveClaimCandidate);
   const rejectCandidate = useMutation(api.insurance.candidates.rejectClaimCandidate);
   const reconstructClaims = useAction(api.insurance.candidates.reconstructClaims);
+  const loadDemo = useMutation(api.insurance.demoData.loadDemoData);
+  const removeDemo = useMutation(api.insurance.demoData.removeDemoData);
   const [scanning, setScanning] = useState(false);
   const [busyCandidate, setBusyCandidate] = useState<string | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
+
+  const anyDemoClaims = (claims ?? []).some((c) => c.isDemo);
+
+  const handleLoadDemo = async () => {
+    setDemoBusy(true);
+    try {
+      const res = await loadDemo();
+      toast.success(
+        `Loaded ${res.claims} clearly-marked synthetic demo claims. Every record says “DEMO” — nothing here is real tenant data.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not load demo data");
+    } finally {
+      setDemoBusy(false);
+    }
+  };
+
+  const handleRemoveDemo = async () => {
+    setDemoBusy(true);
+    try {
+      const res = await removeDemo();
+      toast.success(`Removed ${res.removed} demo record${res.removed === 1 ? "" : "s"}.`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not remove demo data");
+    } finally {
+      setDemoBusy(false);
+    }
+  };
 
   // New claim dialog
   const [open, setOpen] = useState(false);
@@ -191,7 +222,30 @@ export default function RevenueRecovery() {
         title="Revenue Recovery"
         description="Atlas identifies, documents, prepares and tracks revenue that may otherwise be missed during the insurance claim and supplement process. Every number below comes from actual claim records — nothing is simulated."
         actions={
-          <Dialog open={open} onOpenChange={setOpen}>
+          <>
+            {anyDemoClaims ? (
+              <Button
+                variant="outline"
+                className="gap-2 text-rose-600 dark:text-rose-300"
+                onClick={() => void handleRemoveDemo()}
+                disabled={demoBusy}
+              >
+                {demoBusy ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                Clear demo data
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => void handleLoadDemo()}
+                disabled={demoBusy}
+                title="Loads a deterministic set of clearly-marked synthetic restoration claims so you can explore the Revenue Recovery workflow. Never mixed with real data."
+              >
+                {demoBusy ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+                Load demo data
+              </Button>
+            )}
+            <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
               <Button className="gap-2">
                 <Plus className="size-4" />
@@ -223,7 +277,8 @@ export default function RevenueRecovery() {
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </>
         }
       />
 
@@ -428,8 +483,16 @@ export default function RevenueRecovery() {
                   onClick={() => navigate(`/dashboard/revenue-recovery/${c._id}`)}
                 >
                   <TableCell>
-                    <p className="font-medium text-foreground">
+                    <p className="flex items-center gap-2 font-medium text-foreground">
                       {c.customer ?? c.property ?? c.claimNumber ?? "Unnamed claim"}
+                      {c.isDemo && (
+                        <Badge
+                          variant="outline"
+                          className="border-violet-400/40 bg-violet-400/10 font-mono text-[9px] text-violet-600 dark:text-violet-300"
+                        >
+                          DEMO
+                        </Badge>
+                      )}
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       {[c.claimNumber, c.property, c.carrier].filter(Boolean).join(" · ") || "No details yet"}

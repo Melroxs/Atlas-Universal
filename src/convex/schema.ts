@@ -1235,6 +1235,10 @@ const schema = defineSchema(
       /** How Atlas came to know what it knows about this claim. */
       provenance: v.optional(v.string()),
       confidence: v.number(),
+      /** True for the deterministic synthetic demo dataset (Phase 14 §17).
+       *  Demo records are clearly marked and can never be mistaken for real
+       *  tenant data — the UI badges them and the loader replaces/removes them. */
+      isDemo: v.optional(v.boolean()),
       createdBy: v.optional(v.id("users")),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -1264,6 +1268,8 @@ const schema = defineSchema(
       outstandingAmount: v.optional(v.number()),
       provenance: v.optional(v.string()),
       confidence: v.number(),
+      /** See insuranceClaims.isDemo — synthetic demo supplements stay marked. */
+      isDemo: v.optional(v.boolean()),
       createdBy: v.optional(v.id("users")),
       createdAt: v.number(),
       updatedAt: v.number(),
@@ -1397,6 +1403,8 @@ const schema = defineSchema(
       recommendedNextStep: v.string(),
       /** open | accepted | dismissed | resolved */
       status: v.string(),
+      /** See insuranceClaims.isDemo — synthetic demo findings stay marked. */
+      isDemo: v.optional(v.boolean()),
       createdAt: v.number(),
       updatedAt: v.number(),
     })

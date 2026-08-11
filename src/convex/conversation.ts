@@ -1538,6 +1538,192 @@ async function handleClaims(
     };
   }
 
+  // 1f) “Which claims are stale / stalled?” — freshness, evidence-derived.
+  if (/(which|are|any|all|show me).*(stale|stalled|inactive)|stale claims|inactive claims|claims.*stalled/i.test(low)) {
+    const all = await claimsList(conv);
+    const stale = all.filter((c) =>
+      (c.completeness?.categories ?? []).some((x) => x.status === "stale"),
+    );
+    if (stale.length === 0) {
+      const answer =
+        all.length === 0
+          ? "There are no claims in Atlas yet, so there's nothing that can be stale."
+          : `I checked all ${all.length} claim${all.length === 1 ? "" : "s"} — none have been inactive for 30+ days.`;
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const lines: string[] = [`${stale.length} claim${stale.length === 1 ? "" : "s"} ha${stale.length === 1 ? "s" : "ve"} been inactive for 30+ days:`];
+    for (const c of stale.slice(0, 6)) {
+      const f = (c.completeness?.categories ?? []).find((x) => x.status === "stale");
+      lines.push(`\u2022 ${claimLabel(c)} — ${f?.note ?? "no activity for 30+ days"}.`);
+    }
+    lines.push("Stale means there is no recorded activity — it doesn't mean the claim is wrong. Follow up or close it.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${stale.length} claims have been inactive for more than 30 days.`,
+      suggestedActions: ["Open Revenue Recovery", "What needs my attention?"],
+      authorityAnswers: [],
+      evidence: stale.slice(0, 3).map((c) => ({
+        kind: "claim_stale",
+        title: claimLabel(c),
+        snippet: (c.completeness?.categories ?? []).find((x) => x.status === "stale")?.note ?? "No activity for 30+ days.",
+      })),
+      toolPlan: null,
+      entityRefs: stale.slice(0, 5).map((c) => ({ id: c._id, name: claimLabel(c), entityTypeKey: "claim" })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1g) “Which claims have not been reconciled?”
+  if (/(not |haven'?t |were |still )?reconcil|unreconcil|reconciliation (gap|needed|required|due)/i.test(low)) {
+    const all = await claimsList(conv);
+    const unreconciled = all.filter(
+      (c) =>
+        c.reconciliation?.hasDiscrepancy ||
+        (c.completeness?.categories ?? []).some(
+          (x) => x.key === "invoices" && x.status === "missing",
+        ),
+    );
+    if (unreconciled.length === 0) {
+      const answer =
+        all.length === 0
+          ? "There are no claims in Atlas yet, so there's nothing to reconcile."
+          : `All ${all.length} claim${all.length === 1 ? "" : "s"} have invoice and payment records that balance — nothing needs reconciliation.`;
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [], pending: EMPTY_PENDING };
+    }
+    const lines: string[] = [`${unreconciled.length} claim${unreconciled.length === 1 ? "" : "s"} need${unreconciled.length === 1 ? "s" : ""} reconciliation:`];
+    for (const c of unreconciled.slice(0, 6)) {
+      const rec = c.reconciliation;
+      if (rec?.hasDiscrepancy) {
+        lines.push(`\u2022 ${claimLabel(c)} — ${rec.notes?.join(" ") ?? "financial records don't balance"}.`);
+      } else {
+        lines.push(`\u2022 ${claimLabel(c)} — no invoice or payment records on file yet.`);
+      }
+    }
+    lines.push("Atlas flags discrepancies but never silently resolves them — reconcile from the source records.");
+    const answer = lines.join("\n");
+    return {
+      answer,
+      spoken: spokenFor(answer) || `${unreconciled.length} claims need reconciliation.`,
+      suggestedActions: ["Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: unreconciled.slice(0, 3).map((c) => ({
+        kind: "claim_reconciliation",
+        title: claimLabel(c),
+        snippet: c.reconciliation?.notes?.join(" ") ?? "No invoice or payment records on file.",
+      })),
+      toolPlan: null,
+      entityRefs: unreconciled.slice(0, 5).map((c) => ({ id: c._id, name: claimLabel(c), entityTypeKey: "claim" })),
+      pending: EMPTY_PENDING,
+    };
+  }
+
+  // 1h) “Why is this claim flagged / why does it need attention?”
+  if (/(why (is|does|was|did|are|do)).*(claim|flagged)|why.*(flagged|needs? attention|on the (list|radar))/i.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim do you mean? Say \u201cwhy is the Johnson claim flagged?\u201d or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const reasons: string[] = [];
+    const open = resolved.row.openFindings?.length ?? 0;
+    if (open > 0) {
+      for (const f of (resolved.row.openFindings ?? []).slice(0, 3)) {
+        reasons.push(`\u2022 ${f.title ?? "Open finding"} (${Math.round((f.confidence ?? 0) * 100)}% confidence)${typeof f.estimatedAmount === "number" ? ` — potential ${f.estimatedAmount.toLocaleString()}` : ""}. ${f.limitation ?? "Potential — requires review."}`);
+      }
+    }
+    const bad = (resolved.row.completeness?.categories ?? []).filter((x) =>
+      ["missing", "needs_review", "conflicted", "stale"].includes(x.status),
+    );
+    for (const b of bad.slice(0, 4)) {
+      reasons.push(`\u2022 ${b.label}: ${b.note}`);
+    }
+    if (resolved.row.reconciliation?.hasDiscrepancy) {
+      reasons.push(`\u2022 Reconciliation: ${resolved.row.reconciliation.notes?.join(" ") ?? "records don't balance"}.`);
+    }
+    if (reasons.length === 0) {
+      const answer = `${claimLabel(resolved.row)} isn't currently flagged — no open findings, no reconciliation gap, and all required information categories are on file.`;
+      return { answer, spoken: answer, suggestedActions: ["Open Revenue Recovery"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [{ id: String(resolved.row._id), name: claimLabel(resolved.row), entityTypeKey: "claim" }], pending: EMPTY_PENDING, claimContext: { claimId: String(resolved.row._id) } };
+    }
+    const answer = [`Here's why ${claimLabel(resolved.row)} is flagged:`, ...reasons].join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`${claimLabel(resolved.row)} is flagged for ${reasons.length} reason${reasons.length === 1 ? "" : "s"}.`),
+      suggestedActions: ["What's missing?", "Prepare the supplement"],
+      authorityAnswers: [],
+      evidence: reasons.slice(0, 4).map((r) => ({ kind: "claim_reason", title: "Reason", snippet: r.replace(/^\u2022\s*/, "") })),
+      toolPlan: null,
+      entityRefs: [{ id: String(resolved.row._id), name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId: String(resolved.row._id) },
+    };
+  }
+
+  // 1i) “What evidence supports this supplement?”
+  if (/(evidence|what supports|supporting).*(supplement)|supplement.*(evidence|supported by)/i.test(low)) {
+    const resolved = await resolveClaim(conv, q, context);
+    if (!resolved.row) {
+      const answer = "Which claim's supplement? Say \u201cwhat evidence supports the Johnson supplement?\u201d or name the claim.";
+      return {
+        answer,
+        spoken: answer,
+        suggestedActions: [],
+        authorityAnswers: [],
+        evidence: [],
+        toolPlan: null,
+        entityRefs: [],
+        pending: resolved.options
+          ? { kind: "clarify_entity", options: resolved.options, question: q, claim: { resolve: true } }
+          : EMPTY_PENDING,
+      };
+    }
+    const claimId = String(resolved.row._id);
+    const pkg = (await conv.rq(api.insurance.claims.getClaimPackage, {
+      claimId: claimId as Id<"insuranceClaims">,
+    })) as {
+      supplements: Array<{ reason?: string; evidence?: string[]; status?: string }>;
+      findings: Array<{ title: string; evidence?: string[] }>;
+    };
+    const supp = pkg.supplements?.slice(-1)[0];
+    const findingEvidence = (pkg.findings ?? []).slice(0, 3).flatMap((f) => f.evidence ?? []);
+    const evidence = [...new Set([...(supp?.evidence ?? []), ...findingEvidence])].slice(0, 8);
+    if (!supp && evidence.length === 0) {
+      const answer = `There's no draft supplement or evidence list for ${claimLabel(resolved.row)} yet. Say \u201cprepare the supplement\u201d after running analysis, or check the claim package.`;
+      return { answer, spoken: answer, suggestedActions: ["Prepare the supplement"], authorityAnswers: [], evidence: [], toolPlan: null, entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }], pending: EMPTY_PENDING, claimContext: { claimId } };
+    }
+    const answer = [
+      supp
+        ? `The draft supplement for ${claimLabel(resolved.row)} — ${supp.reason ?? "no reason recorded"} — is supported by:`
+        : `Current evidence behind ${claimLabel(resolved.row)}'s findings:`,
+      ...(evidence.length > 0 ? evidence.map((e) => `\u2022 ${e}`) : ["\u2022 No explicit evidence list on file yet — attach documents to the claim first."]),
+      supp?.status === "draft"
+        ? "This is a DRAFT. Nothing here is submitted or approved until a person reviews and approves it."
+        : "Evidence is listed for review — it does not by itself prove the supplement is owed.",
+    ].join("\n");
+    return {
+      answer,
+      spoken: spokenFor(`${evidence.length} evidence item${evidence.length === 1 ? "" : "s"} currently support${evidence.length === 1 ? "s" : ""} the supplement position.`),
+      suggestedActions: ["Review the supplement", "Open Revenue Recovery"],
+      authorityAnswers: [],
+      evidence: evidence.slice(0, 6).map((e) => ({ kind: "supplement_evidence", title: "Supporting evidence", snippet: e })),
+      toolPlan: null,
+      entityRefs: [{ id: claimId, name: claimLabel(resolved.row), entityTypeKey: "claim" }],
+      pending: EMPTY_PENDING,
+      claimContext: { claimId },
+    };
+  }
+
   // 2) Create a claim (never fabricates fields; asks for the rest).
   if (/(create|add|new)\s+(a |an |the |new )?claim/i.test(low)) {
     const rest = low.replace(/(create|add|new)\s+(a |an |the |new )?claim/i, "").trim();

@@ -1,9 +1,10 @@
 /**
  * Phase 13 — configurable archive resource limits.
  *
- * Defaults are sane for a first MVP and are re-validated server-side by
- * src/convex/archive/limits.ts (the server copy is authoritative — the client
- * copy is a mirror used for early, honest feedback before anything uploads).
+ * Defaults are sane for a first MVP and are re-validated server-side by the
+ * archive RPCs (e.g. archive_submit_inventory_batch) — the server is
+ * authoritative; this client copy is a mirror used for early, honest feedback
+ * before anything uploads.
  *
  * Limits are deliberately explicit: if an archive exceeds one, the pipeline
  * STOPS SAFELY and reports which limit was hit. It never claims partial

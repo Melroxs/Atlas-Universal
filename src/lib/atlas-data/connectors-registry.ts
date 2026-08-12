@@ -83,7 +83,7 @@ export const CONNECTOR_REGISTRY: ConnectorDefinition[] = [
     description:
       "Syncs PDFs, Word, Excel, CSV, Google Docs and Google Sheets into the knowledge base with change detection and de-duplication.",
     setupInstructions:
-      "Create an OAuth 2.0 Client ID in the Google Cloud Console, add GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to your project Keys, and register https://<your-deployment>.convex.site/google/oauth/callback as an authorized redirect URI.",
+      "Create an OAuth 2.0 Client ID in the Google Cloud Console, add GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET to your project Keys, and register https://<your-project>.supabase.co/functions/v1/connections-sync-google-drive/google/oauth/callback as an authorized redirect URI.",
     docsUrl: "https://developers.google.com/drive/api/guides/about-auth",
   },
   {

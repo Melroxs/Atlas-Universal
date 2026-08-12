@@ -46,7 +46,7 @@ begin
 end;
 $$;
 
-create or replace function public.events_get_detail(p_event_id uuid)
+create or replace function public.events_get_detail(p_eventId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -60,12 +60,12 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(e) into v_event from public.events e
-  where e._id = p_event_id and e."tenantId" = v_tenant;
+  where e._id = p_eventId and e."tenantId" = v_tenant;
   if v_event is null then raise exception 'Event not found.'; end if;
 
   select to_jsonb(c) into v_conn from public.connections c where c._id = (v_event ->> 'connectionId')::uuid;
   select coalesce(jsonb_agg(to_jsonb(n) order by n."createdAt" desc), '[]'::jsonb) into v_notifications
-  from public.notifications n where n."tenantId" = v_tenant and n."sourceEventId" = p_event_id;
+  from public.notifications n where n."tenantId" = v_tenant and n."sourceEventId" = p_eventId;
 
   if v_event ? 'actionId' and (v_event ->> 'actionId') is not null then
     select to_jsonb(t) into v_action from public.toolActions t where t._id = (v_event ->> 'actionId')::uuid;
@@ -156,7 +156,7 @@ begin
 end;
 $$;
 
-create or replace function public.events_retry(p_event_id uuid)
+create or replace function public.events_retry(p_eventId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -166,14 +166,14 @@ declare
   v_evt public.events;
 begin
   if v_user is null or v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
-  select * into v_evt from public.events e where e._id = p_event_id and e."tenantId" = v_tenant;
+  select * into v_evt from public.events e where e._id = p_eventId and e."tenantId" = v_tenant;
   if v_evt._id is null then raise exception 'Event not found.'; end if;
   if v_evt.status not in ('failed', 'retrying') then
     return jsonb_build_object('ok', false, 'reason',
       'Only failed or retrying events can be retried (this one is ' || v_evt.status || ').');
   end if;
   update public.events set status = 'received', attempts = 0, "lastError" = null
-  where _id = p_event_id;
+  where _id = p_eventId;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -295,7 +295,7 @@ begin
 end;
 $$;
 
-create or replace function public.workflows_get_instance_detail(p_instance_id uuid)
+create or replace function public.workflows_get_instance_detail(p_instanceId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -308,12 +308,12 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(wi) into v_instance from public.workflowInstances wi
-  where wi._id = p_instance_id and wi."tenantId" = v_tenant;
+  where wi._id = p_instanceId and wi."tenantId" = v_tenant;
   if v_instance is null then raise exception 'Workflow instance not found.'; end if;
   select coalesce(jsonb_agg(to_jsonb(ws) order by ws."createdAt"), '[]'::jsonb) into v_steps
-  from public.workflowSteps ws where ws."instanceId" = p_instance_id;
+  from public.workflowSteps ws where ws."instanceId" = p_instanceId;
   select coalesce(jsonb_agg(to_jsonb(wa) order by wa."createdAt"), '[]'::jsonb) into v_approvals
-  from public.workflowApprovals wa where wa."instanceId" = p_instance_id;
+  from public.workflowApprovals wa where wa."instanceId" = p_instanceId;
   return jsonb_build_object('instance', v_instance, 'steps', v_steps, 'approvals', v_approvals);
 end;
 $$;
@@ -396,7 +396,7 @@ begin
 end;
 $$;
 
-create or replace function public.workflows_decide_approval(p_approval_id uuid, p_decision text)
+create or replace function public.workflows_decide_approval(p_approvalId uuid, p_decision text)
 returns jsonb
 language plpgsql
 as $$
@@ -412,7 +412,7 @@ begin
   if p_decision not in ('approve', 'reject') then raise exception 'Invalid decision.'; end if;
 
   select * into v_approval from public.workflowApprovals wa
-  where wa._id = p_approval_id and wa."tenantId" = v_tenant;
+  where wa._id = p_approvalId and wa."tenantId" = v_tenant;
   if v_approval._id is null then raise exception 'Approval not found.'; end if;
   if v_approval.status <> 'pending' then
     return jsonb_build_object('ok', false, 'reason', 'This request is already ' || v_approval.status || '.');
@@ -432,7 +432,7 @@ begin
   end if;
 
   if v_approval."expiresAt" is not null and v_approval."expiresAt" < v_now then
-    update public.workflowApprovals set status = 'expired' where _id = p_approval_id;
+    update public.workflowApprovals set status = 'expired' where _id = p_approvalId;
     return jsonb_build_object('ok', false, 'reason', 'This request expired before it was decided.');
   end if;
 
@@ -441,7 +441,7 @@ begin
 
   if p_decision = 'reject' then
     update public.workflowApprovals set status = 'rejected', "decidedBy" = v_user, "decidedAt" = v_now
-    where _id = p_approval_id;
+    where _id = p_approvalId;
     update public.workflowInstances set status = 'failed',
       "failureReason" = 'The approval request was rejected.', "errorClass" = 'approval_rejected',
       "completedAt" = v_now, "updatedAt" = v_now
@@ -452,10 +452,10 @@ begin
       v_instance."triggerEventId", v_now, false);
   else
     update public.workflowApprovals set status = 'approved', "decidedBy" = v_user, "decidedAt" = v_now
-    where _id = p_approval_id;
+    where _id = p_approvalId;
     update public.workflowInstances set status = 'running',
       context = coalesce(context, '{}'::jsonb) || jsonb_build_object('approvalGranted',
-        jsonb_build_object('stepId', v_approval."stepId", 'approvalId', p_approval_id::text)),
+        jsonb_build_object('stepId', v_approval."stepId", 'approvalId', p_approvalId::text)),
       "updatedAt" = v_now
     where _id = v_instance._id;
     insert into public.notifications ("tenantId", severity, title, description, "sourceEventId", "createdAt", read)
@@ -463,13 +463,13 @@ begin
       'The workflow will continue from where it paused.', v_instance."triggerEventId", v_now, false);
   end if;
 
-  perform public.log_audit('workflow_approval_' || p_decision, 'workflow_approval', p_approval_id::text,
+  perform public.log_audit('workflow_approval_' || p_decision, 'workflow_approval', p_approvalId::text,
     jsonb_build_object('instanceId', v_instance._id::text, 'workflowId', v_instance."definitionId"));
   return jsonb_build_object('ok', true);
 end;
 $$;
 
-create or replace function public.workflows_cancel_instance(p_instance_id uuid)
+create or replace function public.workflows_cancel_instance(p_instanceId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -484,20 +484,20 @@ begin
     raise exception 'Only managers and above can cancel workflows.';
   end if;
   select * into v_instance from public.workflowInstances wi
-  where wi._id = p_instance_id and wi."tenantId" = v_tenant;
+  where wi._id = p_instanceId and wi."tenantId" = v_tenant;
   if v_instance._id is null then raise exception 'Workflow instance not found.'; end if;
   if v_instance.status in ('completed', 'failed', 'cancelled', 'timed_out') then
     return jsonb_build_object('ok', false, 'reason', 'This workflow already ended (' || v_instance.status || ').');
   end if;
   update public.workflowInstances set status = 'cancelled', "completedAt" = v_now, "updatedAt" = v_now
-  where _id = p_instance_id;
-  perform public.log_audit('workflow_cancelled', 'workflow_instance', p_instance_id::text,
+  where _id = p_instanceId;
+  perform public.log_audit('workflow_cancelled', 'workflow_instance', p_instanceId::text,
     jsonb_build_object('workflowId', v_instance."definitionId"));
   return jsonb_build_object('ok', true);
 end;
 $$;
 
-create or replace function public.workflows_retry_instance(p_instance_id uuid)
+create or replace function public.workflows_retry_instance(p_instanceId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -512,7 +512,7 @@ begin
     raise exception 'Only managers and above can retry workflows.';
   end if;
   select * into v_instance from public.workflowInstances wi
-  where wi._id = p_instance_id and wi."tenantId" = v_tenant;
+  where wi._id = p_instanceId and wi."tenantId" = v_tenant;
   if v_instance._id is null then raise exception 'Workflow instance not found.'; end if;
   if v_instance.status not in ('failed', 'timed_out') then
     return jsonb_build_object('ok', false, 'reason',
@@ -520,7 +520,7 @@ begin
   end if;
   update public.workflowInstances set status = 'running',
     "failureReason" = null, "errorClass" = null, "completedAt" = null, "updatedAt" = v_now
-  where _id = p_instance_id;
+  where _id = p_instanceId;
   return jsonb_build_object('ok', true);
 end;
 $$;

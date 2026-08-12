@@ -17,6 +17,22 @@ import { getSupabaseClient } from "@/lib/supabase";
 import type { ApiFn } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+/**
+ * RPC parameter mapping. Migrations declare parameters as `p_` + camelCase
+ * (e.g. `p_archiveId`), but Postgres folds unquoted identifiers to lowercase
+ * (`p_archiveid`), which is what PostgREST matches against. Pages call with
+ * plain camelCase keys (`archiveId`), so the data layer sends
+ * `p_` + lowercased key (`p_archiveid`).
+ */
+function toRpcArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(args)) {
+    const key = k.startsWith("p_") ? k : `p_${k}`;
+    out[key.toLowerCase()] = v;
+  }
+  return out;
+}
+
 export interface QueryOptions {
   /** Skip fetching entirely (e.g. before auth is ready). Default: false. */
   enabled?: boolean;
@@ -79,7 +95,7 @@ export function useQuery<TResult = any>(
     }
     (async () => {
       try {
-        const { data, error } = await supabase.rpc(fn.name, cleanArgs);
+        const { data, error } = await supabase.rpc(fn.name, toRpcArgs(cleanArgs));
         if (cancelled) return;
         if (error) throw error;
         const raw = (data ?? null) as unknown;
@@ -103,11 +119,14 @@ export function useMutation<TArgs = Record<string, unknown>, TResult = any>(
 ) {
   return useCallback(
     async (args?: TArgs): Promise<TResult> => {
+      if (fn.kind === "client" && fn.clientImpl) {
+        return (await fn.clientImpl((args ?? {}) as Record<string, unknown>)) as TResult;
+      }
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase is not configured.");
       const { data, error } = await supabase.rpc(
         fn.name,
-        (args ?? {}) as Record<string, unknown>,
+        toRpcArgs((args ?? {}) as Record<string, unknown>),
       );
       if (error) throw error;
       return data as TResult;

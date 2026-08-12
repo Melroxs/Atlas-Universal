@@ -1,9 +1,9 @@
 // ---------------------------------------------------------------------------
 // Browser voice transport — Web Speech API (real provider, no API key needed).
 //
-// The server-side Convex voice actions (src/convex/voice.ts) take over STT/TTS
-// when credentials are configured; otherwise the UI falls back to these
-// browser-native providers and reports that honestly.
+// Voice runs fully client-side: the browser's native Web Speech API is the
+// STT/TTS provider (no API key needed), and the UI reports honestly which
+// providers are in use.
 //
 // Runtime guarantees:
 // - Before the wake word, NOTHING is sent anywhere: recognition runs locally

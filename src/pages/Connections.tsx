@@ -228,14 +228,11 @@ export default function Connections() {
     setSearchParams({}, { replace: true });
   }, [searchParams, setSearchParams, runDueSyncs]);
 
-  const siteBase = ((import.meta.env.VITE_CONVEX_URL as string) ?? "").replace(
-    /\.convex\.cloud$/,
-    ".convex.site",
-  );
+  const siteBase = ((import.meta.env.VITE_SUPABASE_URL as string) ?? "").replace(/\/$/, "");
 
   const connectDrive = async () => {
     if (!siteBase) {
-      toast.error("Can't resolve the Convex site URL for OAuth redirects.");
+      toast.error("Can't resolve the Supabase project URL for OAuth redirects.");
       return;
     }
     setOauthBusy(true);
@@ -589,8 +586,8 @@ export default function Connections() {
               <code className="rounded bg-background/60 px-1 font-mono">GOOGLE_CLIENT_SECRET</code>{" "}
               to your project's Keys, and register{" "}
               <code className="rounded bg-background/60 px-1 font-mono">
-                {siteBase || "https://<your-deployment>.convex.site"}
-                /google/oauth/callback
+                {siteBase || "https://<your-project>.supabase.co"}
+                /functions/v1/connections-sync-google-drive/google/oauth/callback
               </code>{" "}
               as an authorized redirect URI in the Google Cloud Console.
             </span>

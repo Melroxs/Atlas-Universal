@@ -6,72 +6,56 @@ codebase, where each one must be configured, and where to obtain the value.
 **Where things run:**
 - **Vercel** — builds the frontend (`vite build`) and serves the static site.
   `VITE_*` variables are baked into the bundle at build time.
-- **Convex** — runs all backend code (mutations, queries, actions, HTTP routes).
-  Server-side `process.env` variables **must** be set in the **Convex dashboard**
-  (Deployments → your deployment → Settings → Environment Variables), per
-  environment (Production / Preview / Development), **not** in Vercel.
+- **Supabase** — Postgres schema, RLS, RPCs and Auth are managed in the
+  Supabase project (via `supabase/migrations/`). Edge Functions read their
+  secrets from the Supabase dashboard (Project Settings → Edge Functions →
+  Secrets).
 - **Both** — variables the build needs *and* the backend needs at runtime.
 
 ## Variable table
 
 | Variable | Environment | Required | Secret | Purpose | Where to obtain |
 |---|---|---|---|---|---|
-| `VITE_CONVEX_URL` | Vercel (Prod, Preview, Dev) | ✅ Required | No | Browser-facing Convex deployment URL (`https://<project>.convex.cloud`) | Convex dashboard → Deployments → URL |
-| `CONVEX_SITE_URL` | Convex (auto-provided) | ✅ Required* | No | Deployment URL used by the self-issuing auth provider (OIDC discovery) | Auto-injected by Convex; do not set manually |
-| `CONVEX_DEPLOY_KEY` | Vercel / CI | ✅ Required | **Yes** | Authenticates `npx convex deploy` so backend functions are pushed from builds | Convex dashboard → Settings → Deploy Key, or auto-set by the Convex Vercel integration |
-| `CONVEX_DEPLOY_URL` | Vercel / CI (optional) | Optional | No | Override URL used by the deploy integration | Auto-set by the Convex Vercel integration |
-| `VLY_INTEGRATION_KEY` | Convex **and** Vercel (build) | ✅ Required for AI | **Yes** | Freebuff/VLY gateway key for AI completions, embeddings and usage billing; also read by the Vite plugin at build | Freebuff platform / integration settings |
-| `VLY_INTEGRATION_BASE_URL` | Convex | Optional | No | VLY gateway base URL override (default `https://integrations.freebuff.com/`) | Freebuff platform (rarely needed) |
-| `VLY_EMAIL_API_KEY` | Convex | ✅ Required for email OTP | **Yes** | API key for the Freebuff email OTP service (`auth.freebuff.app/send_otp`) | Freebuff platform — obtain from your Freebuff dashboard or API settings |
-| `VLY_APP_NAME` | Convex | Optional | No | App name shown in one-time-code emails (default `"a freebuff.com application"`) | Your choice |
-| `VLY_CONVEX_AUTH_ISSUER` | Convex | Optional | No | Issuer for the custom-JWT auth provider (default `https://freebuff.com`) | Only if you issue your own federated tokens |
-| `GOOGLE_CLIENT_ID` | Convex | Optional | Yes* | Google Drive OAuth client ID | Google Cloud Console → APIs & Services → Credentials |
-| `GOOGLE_CLIENT_SECRET` | Convex | Optional | **Yes** | Google Drive OAuth client secret | Google Cloud Console → APIs & Services → Credentials |
+| `VITE_SUPABASE_URL` | Vercel (Prod, Preview, Dev) | ✅ Required | No | Supabase project URL (`https://<ref>.supabase.co`) | Supabase dashboard → Project Settings → API |
+| `VITE_SUPABASE_ANON_KEY` | Vercel (Prod, Preview, Dev) | ✅ Required | No* | Public anon key for the browser client; RLS gates all data | Supabase dashboard → Project Settings → API |
+| `VLY_INTEGRATION_KEY` | Supabase edge secrets (build plugin may also read it) | ✅ Required for AI | **Yes** | Freebuff/VLY gateway key for AI completions, embeddings and usage billing | Freebuff platform / integration settings |
+| `VLY_INTEGRATION_BASE_URL` | Supabase edge secrets | Optional | No | VLY gateway base URL override (default `https://integrations.freebuff.com/`) | Freebuff platform (rarely needed) |
+| `GOOGLE_CLIENT_ID` | Supabase edge secrets | Optional | Yes* | Google Drive OAuth client ID | Google Cloud Console → APIs & Services → Credentials |
+| `GOOGLE_CLIENT_SECRET` | Supabase edge secrets | Optional | **Yes** | Google Drive OAuth client secret | Google Cloud Console → APIs & Services → Credentials |
 | `NODE_ENV` | Runtime (auto) | — | No | Set by the runtime; enables VLY debug logging in dev | Auto-provided |
 
-\* `GOOGLE_CLIENT_ID` is not a "secret" per se but is sensitive; treat both Google
-values as secrets and never expose them to the browser.
+\* The anon key and `GOOGLE_CLIENT_ID` are not "secrets" per se, but treat all
+non-`VITE_` values as secrets and never expose them to the browser.
 
 ## Environment scoping
 
-### Production (Vercel: `Production` scope / Convex: `Production` environment)
+### Production (Vercel: `Production` scope)
 | Variable | Configured in |
 |---|---|
-| `VITE_CONVEX_URL` | Vercel |
-| `CONVEX_DEPLOY_KEY` | Vercel (or auto by integration) |
-| `CONVEX_DEPLOY_URL` | Vercel (auto by integration) |
-| `VLY_INTEGRATION_KEY` | **Both** Vercel (build) and Convex |
-| `VLY_INTEGRATION_BASE_URL` | Convex |
-| `VLY_EMAIL_API_KEY` | Convex |
-| `VLY_APP_NAME` | Convex |
-| `VLY_CONVEX_AUTH_ISSUER` | Convex (only if changed) |
-| `GOOGLE_CLIENT_ID` | Convex |
-| `GOOGLE_CLIENT_SECRET` | Convex |
-| `CONVEX_SITE_URL` | Auto-provided by Convex |
+| `VITE_SUPABASE_URL` | Vercel |
+| `VITE_SUPABASE_ANON_KEY` | Vercel |
+| `VLY_INTEGRATION_KEY` | Supabase edge secrets |
+| `VLY_INTEGRATION_BASE_URL` | Supabase edge secrets |
+| `GOOGLE_CLIENT_ID` | Supabase edge secrets (only when Drive is enabled) |
+| `GOOGLE_CLIENT_SECRET` | Supabase edge secrets (only when Drive is enabled) |
 
-### Preview (Vercel: `Preview` scope / Convex: `Preview` environment)
-Same set as Production. For preview deployments that point at a separate
-Convex deployment, set `VITE_CONVEX_URL` to that preview deployment's URL.
-Google Drive credentials may be omitted on preview unless you want Drive to
-work there too (each environment resolves its own redirect URI).
+### Preview (Vercel: `Preview` scope)
+Same set as Production. Preview deployments can point at a separate Supabase
+project by overriding `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY`. Google
+Drive credentials may be omitted on preview unless you want Drive to work
+there too (each environment resolves its own redirect URI).
 
-### Development (Vercel: `Development` scope / Convex: `Development` environment)
+### Development (Vercel: `Development` scope / local)
 Same set, plus locally:
-- `.env.local` with `VITE_CONVEX_URL` and (optionally) `CONVEX_DEPLOYMENT` for
-  `npx convex dev`.
-- Local `convex dev` deployments have `CONVEX_SITE_URL` injected automatically.
+- `.env.local` with `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from
+  `supabase start` (or your project's API keys).
 
 ## Notes
 
 - **Never** put secrets in `.env.example` (it is committed to GitHub).
-- `VLY_EMAIL_API_KEY` was formerly hardcoded in `src/convex/auth/emailOtp.ts`.
-  It has been moved to an environment variable for security. It must be set in
-  the **Convex** environment (not Vercel) since email sending runs server-side.
-- The Google OAuth callback route lives on Convex
-  (`/google/oauth/callback`), so the **redirect URI** to register in Google
-  Cloud Console is the **`*.convex.site`** URL
-  (`https://<project>.convex.site/google/oauth/callback`), *not* the Vercel
-  URL.
-- Storage (file uploads) uses Convex's built-in `_storage` — **no** env vars.
-- OCR: no engine is configured (`src/convex/lib/ocr.ts`), so **no** OCR env
-  vars exist today. When an engine is wired in, add its key here.
+- All database access is via RLS-gated Postgres RPCs — there are no backend
+  database credentials in the frontend.
+- Storage (file uploads) uses Supabase Storage buckets with tenant-scoped
+  RLS policies — **no** env vars.
+- OCR: no engine is configured, so **no** OCR env vars exist today. When an
+  engine is wired in, add its key here.

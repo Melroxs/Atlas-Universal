@@ -49,17 +49,19 @@ You must follow these conventions when using authentication.
 
 ## Auth is already set up.
 
-All convex authentication functions are already set up. The auth currently uses email OTP and anonymous users, but can support more.
+Authentication is fully backed by **Supabase Auth** (email/password sign-up,
+sign-in, anonymous guests). The `/auth` page handles all login/sign-up
+sequences, and a `handle_new_user` database trigger auto-creates the user's
+`profiles` row (including a `tenantId` once a workspace is created).
 
-The email OTP configuration is defined in `src/convex/auth/emailOtp.ts`. DO NOT MODIFY THIS FILE.
+## Using Supabase Auth on the backend
 
-Also, DO NOT MODIFY THESE AUTH FILES: `src/convex/auth.config.ts` and `src/convex/auth.ts`.
+Auth lives in Postgres: `auth.users` (managed by Supabase Auth) plus the
+`profiles`, `tenants`, and `memberships` tables. All data access goes through
+RLS-gated Postgres RPCs defined in `supabase/migrations/`. Sign-up triggers,
+role checks, and audit logging are all server-side.
 
-## Using Convex Auth on the backend
-
-On the `src/convex/users.ts` file, you can use the `getCurrentUser` function to get the current user's data.
-
-## Using Convex Auth on the frontend
+## Using Supabase Auth on the frontend
 
 The `/auth` page is already set up to use auth. Navigate to `/auth` for all log in / sign up sequences.
 
@@ -229,67 +231,52 @@ Always ensure your larger dialogs have a scroll in its content to ensure that it
 
 Ideally, instead of using a new page, use a Dialog instead. 
 
-# Using the Convex backend
+# Using the Supabase backend
 
-You will be implementing the convex backend. Follow your knowledge of convex and the documentation to implement the backend.
+All backend logic is Postgres. The schema and every RPC live in
+`supabase/migrations/` (numbered, applied in order by `supabase db push`).
 
-## The Convex Schema
+## The schema
 
-You must correctly follow the convex schema implementation.
+Tables keep the app's existing contract: `_id uuid` primary keys, `_creationTime`
+epoch-ms bigints, camelCase columns. Row Level Security is enabled on every
+table; the `anon`/`authenticated` roles get base GRANTs (0007) and RLS policies
+gate every read/write to the caller's own workspace.
 
-The schema is defined in `src/convex/schema.ts`.
+## RPC conventions
 
-Do not include the `_id` and `_creationTime` fields in your queries (it is included by default for each table).
-Do not index `_creationTime` as it is indexed for you. Never have duplicate indexes.
+- Read hooks and write mutations call Postgres RPCs through the registry in
+  `src/lib/api.ts` — the single typed contract between the frontend and backend
+  (the old Convex codegen equivalent).
+- Function names are snake_case (`tenants_get_my_workspace`); parameters are
+  `p_camelCase`; the data layer sends them lowercased (Postgres folds unquoted
+  param names).
+- RPCs that write on behalf of the caller run `security definer` with explicit
+  `auth.uid()` / role checks inside, so RLS can't block bootstrap operations
+  (e.g. creating your own tenant).
+- Write RPCs log to `auditLogs` via `log_audit`; roles are enforced with
+  `my_member_role()`.
 
+## Common mistakes to avoid
 
-## Convex Actions: Using CRUD operations
-
-When running anything that involves external connections, you must use a convex action with "use node" at the top of the file.
-
-You cannot have queries or mutations in the same file as a "use node" action file. Thus, you must use pre-built queries and mutations in other files.
-
-You can also use the pre-installed internal crud functions for the database:
-
-```ts
-// in convex/users.ts
-import { crud } from "convex-helpers/server/crud";
-import schema from "./schema.ts";
-
-export const { create, read, update, destroy } = crud(schema, "users");
-
-// in some file, in an action:
-const user = await ctx.runQuery(internal.users.read, { id: userId });
-
-await ctx.runMutation(internal.users.update, {
-  id: userId,
-  patch: {
-    status: "inactive",
-  },
-});
-```
-
-
-## Common Convex Mistakes To Avoid
-
-When using convex, make sure:
-- Document IDs are referenced as `_id` field, not `id`.
-- Document ID types are referenced as `Id<"TableName">`, not `string`.
-- Document object types are referenced as `Doc<"TableName">`.
-- Keep schemaValidation to false in the schema file.
-- You must correctly type your code so that it passes the type checker.
-- You must handle null / undefined cases of your convex queries for both frontend and backend, or else it will throw an error that your data could be null or undefined.
-- Always use the `@/folder` path, with `@/convex/folder/file.ts` syntax for importing convex files.
-- This includes importing generated files like `@/convex/_generated/server`, `@/convex/_generated/api`
-- Remember to import functions like useQuery, useMutation, useAction, etc. from `convex/react`
-- NEVER have return type validators.
+- Don't call `supabase.rpc` directly from pages — go through `src/lib/api.ts`.
+- RPC params are `p_`-prefixed and folded to lowercase by Postgres; keep the
+  `toRpcArgs` normalization in `src/hooks/use-supabase.ts` in sync.
+- jsonb patch updates must use `v #>> '{}'` (not `v::text`) or string values get
+  double-encoded with literal quotes.
+- Tables with RLS but no write policy (e.g. `intelligencePacks`) require
+  `security definer` RPCs — never add per-user INSERT policies to global
+  catalog tables.
+- Typecheck with `npx tsc -b --noEmit` and run `npm test` before pushing
+  migrations.
 
 ---
 
 # Atlas V1 Production Deployment
 
-Atlas V1 is a Vite + React SPA with a Convex backend. This section documents
-how the production baseline is deployed and how future changes ship.
+Atlas V1 is a Vite + React SPA backed by **Supabase** (Postgres, Auth, Storage,
+Edge Functions). This section documents how the production baseline is
+deployed and how future changes ship.
 
 ## Architecture
 
@@ -300,61 +287,52 @@ GitHub
 Vercel  ──►  serves the built SPA (dist/)
    \|
    v
-Convex  ──►  database / functions / actions / storage
+Supabase ──► Postgres (schema + RPCs) · Auth · Storage · Edge Functions
    \|
    v
 Atlas application
 ```
 
-Everything in `src/convex/` (schema, queries, mutations, actions, HTTP routes,
-auth, Google Drive sync, Ask Atlas) runs on Convex. Vercel only builds and
-hosts the frontend; the frontend talks to Convex through `VITE_CONVEX_URL`.
+All data and auth logic lives in Postgres (`supabase/migrations/`): tables,
+RLS policies, and the RPCs the frontend calls. Vercel only builds and hosts the
+frontend; the frontend talks to Supabase through `VITE_SUPABASE_URL`.
 
 ## Local development
 
 ```bash
-bun install
+npm install
 cp .env.example .env.local   # fill in values (see manifest below)
-bunx convex dev               # local Convex backend + regenerates code
-bun run dev                   # Vite dev server
+supabase start                # local Supabase stack (Docker)
+supabase db reset             # apply migrations from scratch
+npm run dev                   # Vite dev server
 ```
 
-`src/convex/_generated/` is intentionally gitignored — the Convex CLI
-regenerates it (`convex dev` locally, `convex deploy` on Vercel).
+The local stack's keys go into `.env.local` as `VITE_SUPABASE_URL` and
+`VITE_SUPABASE_ANON_KEY`. Migrations are versioned in `supabase/migrations/`
+and applied in order.
 
 ## Environment variables
 
-> Names only — values live in the Convex dashboard, Vercel project settings,
-> and the project's Keys/API keys UI. Never commit secrets.
+> Names only — values live in the Supabase project dashboard, Vercel project
+> settings, and the project's Keys/API keys UI. Never commit secrets.
 
 ### Frontend / public (safe in the browser)
 
 | Variable                   | Used by                        | Notes                                       |
 | -------------------------- | ------------------------------ | ------------------------------------------- |
-| `VITE_CONVEX_URL`          | `src/main.tsx`, `src/pages/Connections.tsx` | Convex deployment URL baked into the build. |
+| `VITE_SUPABASE_URL`        | `src/lib/supabase.ts`          | Supabase project URL baked into the build.   |
+| `VITE_SUPABASE_ANON_KEY`   | `src/lib/supabase.ts`          | Public anon key (RLS protects the data).    |
 | `VITE_VLY_APP_ID`          | `src/instrumentation.tsx`      | Freebuff app id for instrumentation (public). |
 | `VITE_VLY_MONITORING_URL`  | `src/instrumentation.tsx`      | Freebuff monitoring endpoint (public).       |
 
-### Convex CLI / deployment tooling
+### Supabase project (secrets — Supabase dashboard → Project Settings)
 
-| Variable                | Notes                                                        |
-| ----------------------- | ------------------------------------------------------------ |
-| `CONVEX_DEPLOYMENT`     | Deployment URL used by `npx convex dev` / `convex deploy`. On Vercel set this to the **production** deployment URL (e.g. `https://<deployment>.convex.cloud`). |
-| `CONVEX_DEPLOY_KEY`     | Deploy key for non-interactive `convex deploy` in CI (Convex dashboard → Deployment → Settings → Deploy Keys). Required for Vercel builds. |
+| Variable                  | Used in                          | Notes                                        |
+| ------------------------- | -------------------------------- | -------------------------------------------- |
+| `GOOGLE_CLIENT_ID`        | Google Drive connector           | Google OAuth client ID (server-side).        |
+| `GOOGLE_CLIENT_SECRET`    | Google Drive connector           | Google OAuth client secret (server-side).    |
 
-### Convex server (secrets — Convex dashboard → Environment Variables)
-
-| Variable                     | Used in                    | Notes                                                        |
-| ---------------------------- | -------------------------- | ------------------------------------------------------------ |
-| `CONVEX_SITE_URL`            | `src/convex/auth.config.ts`| Origin this app runs at (Convex Auth JWT issuer). Local: `http://localhost:5173`; production: the Vercel URL. |
-| `VLY_CONVEX_AUTH_ISSUER`     | `src/convex/auth.config.ts`| Optional. Freebuff federated-auth issuer (defaults to `https://freebuff.com`). |
-| `VLY_APP_NAME`               | `src/convex/auth/emailOtp.ts` | Optional. App name shown in emailed one-time passcodes. || `VLY_EMAIL_API_KEY`        | `src/convex/auth/emailOtp.ts` | **Required.** Freebuff email-relay key used to send OTP codes. Server-side only — never in `VITE_` form. |
-| `VLY_INTEGRATION_KEY`      | `src/convex/ai/provider.ts`   | Freebuff AI gateway key (auto-injected). Absent ⇒ Ask Atlas and extraction fall back to deterministic heuristics. |
-| `VLY_INTEGRATION_BASE_URL`   | `src/lib/vly-integrations.ts` | Optional gateway base URL override. |
-| `GOOGLE_CLIENT_ID`           | `src/convex/http.ts`, `connections.ts`, `connectionsSync.ts` | Google OAuth client ID for the Google Drive connector. |
-| `GOOGLE_CLIENT_SECRET`       | same as above              | Google OAuth client secret (server-side only). |
-
-Additional connector credentials are defined centrally in `src/convex/connectors/registry.ts`. The Connections page shows **"Not configured"** until the relevant variables exist, and **"Authorization required"** once they do — status is never faked. Roadmap connectors below are fully documented (real APIs, scopes, auth endpoints) but have no client yet:
+Additional connector credentials are defined centrally in `src/lib/atlas-data/connectors-registry.ts`. The Connections page shows **"Not configured"** until the relevant variables exist, and **"Authorization required"** once they do — status is never faked. Roadmap connectors below are fully documented (real APIs, scopes, auth endpoints) but have no client yet:
 
 | Variable | Connector | Purpose |
 |---|---|---|
@@ -370,23 +348,21 @@ Additional connector credentials are defined centrally in `src/convex/connectors
 ## Google OAuth setup
 
 1. Create an OAuth 2.0 Client ID in Google Cloud Console (Desktop/Web app).
-2. Add the authorized redirect URI — it is derived at runtime from the Convex
-   site URL, so register exactly:
-   `https://<your-deployment>.convex.cloud/google/oauth/callback`
-   (dev: `http://localhost:5173`-equivalent Convex URL + same path).
-3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on the Convex deployment
-   (dev dashboard and production dashboard).
+2. Add the authorized redirect URI — derived at runtime from `VITE_SUPABASE_URL`,
+   so register exactly:
+   `https://<your-project>.supabase.co/functions/v1/connections-sync-google-drive/google/oauth/callback`
+3. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in the Supabase project's
+   Edge Function secrets.
 
 Drive connects with `drive.readonly` scope. Connectors are only ever shown as
 "connected" after a real OAuth exchange — no simulated syncs exist.
 
-## Convex deployments
+## Supabase migrations
 
-- **Development:** `bunx convex dev` creates/runs the dev deployment and
-  regenerates `src/convex/_generated/`.
-- **Production:** `npx convex deploy` uploads functions to the deployment in
-  `CONVEX_DEPLOYMENT`. Server env vars for production are set in the Convex
-  dashboard for that deployment.
+- **Development:** `supabase start` runs the local stack; `supabase db push`
+  applies pending migrations, `supabase db reset` rebuilds from scratch.
+- **Production:** `supabase db push --linked` applies migrations to the linked
+  project; Edge Functions deploy with `supabase functions deploy`.
 
 ## Vercel deployment
 
@@ -395,26 +371,22 @@ Drive connects with `drive.readonly` scope. Connectors are only ever shown as
    Vite; output directory is `dist` (see `vercel.json` SPA rewrite).
 3. **Build command:**
    ```
-   npx convex deploy --cmd "npm run build" --yes
+   npm run build
    ```
-   This deploys the Convex functions to the production deployment first, then
-   runs the existing frontend build (`tsc -b && vite build`) with
-   `VITE_CONVEX_URL` available at build time.
+   The frontend build is `tsc -b && vite build`; it needs `VITE_SUPABASE_URL`
+   and `VITE_SUPABASE_ANON_KEY` available at build time.
 4. **Environment variables on Vercel:**
-   - `CONVEX_DEPLOYMENT` — production Convex deployment URL
-   - `CONVEX_DEPLOY_KEY` — deploy key (non-interactive auth for step 3)
-   - `VITE_CONVEX_URL` — same production URL (public, for the frontend build)
-   - `CONVEX_SITE_URL` — the Vercel production URL (e.g. `https://<app>.vercel.app`)
-   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — passed through to Convex env
-     during deploy
+   - `VITE_SUPABASE_URL` — production Supabase project URL (public)
+   - `VITE_SUPABASE_ANON_KEY` — public anon key (RLS protects the data)
+   - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — server-side, if Drive ships
 5. Deploy. Every subsequent push to the production branch triggers the same
    build automatically.
 
 ### Deployment flow for future changes
 
 ```
-Change code → validate locally (tsc + build) → commit → push GitHub
-   → Vercel builds automatically → Convex production functions deploy → live Atlas
+Change code → validate locally (tsc + build + supabase db reset) → commit → push GitHub
+   → Vercel builds automatically → supabase db push (apply migrations) → live Atlas
 ```
 
 ## Git workflow
@@ -439,11 +411,12 @@ Change code → validate locally (tsc + build) → commit → push GitHub
   only implemented connector. CRM / accounting / PM / email / communication
   connectors are catalog entries only ("coming soon") — nothing is faked.
 - **OCR:** Scanned PDFs report an honest error when no text layer exists; OCR
-  credentials are not configured yet (`src/convex/lib/ocr.ts` has the hook).
+  credentials are not configured yet (the ingestion pipeline in
+  `src/lib/actions/ingestion.ts` has the hook).
 - **Legacy formats:** `.doc` (old Word) is not supported; save as `.docx`.
 - **AI:** Ask Atlas and extraction degrade to deterministic heuristics when
   `VLY_INTEGRATION_KEY` is not configured.
 - **Background jobs:** connector sync is triggered on app load / after OAuth
   connect; scheduled cron sync is not enabled on the deployment.
-- **Auth:** email OTP + anonymous sign-in (Convex Auth). Google Drive OAuth is
-  separate from app sign-in.
+- **Auth:** email/password sign-up + anonymous guests (Supabase Auth). Google
+  Drive OAuth is separate from app sign-in.

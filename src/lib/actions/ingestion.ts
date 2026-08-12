@@ -32,7 +32,11 @@ async function rpc(
   fn: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const { data, error } = await supabase.rpc(fn, args);
+  // PostgREST matches lowercased parameter names (Postgres folds identifiers).
+  const clean = Object.fromEntries(
+    Object.entries(args).map(([k, v]) => [k.toLowerCase(), v]),
+  );
+  const { data, error } = await supabase.rpc(fn, clean);
   if (error) throw new Error(error.message);
   return data;
 }

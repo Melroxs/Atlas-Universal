@@ -3,13 +3,9 @@
 .env.*
 !.env.example
 
-# Local deployment target for `npx convex dev`
-convex/.env.local
-
 # Dependencies / build output
 node_modules
 dist
-src/convex/_generated
 
 # Secrets, keys and credentials (defensive)
 *.pem

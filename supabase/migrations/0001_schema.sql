@@ -29,19 +29,25 @@ $$;
 -- The tenant of the signed-in user (or null). Security definer so it can be
 -- used inside RLS policies without recursion; it only reads memberships for
 -- the caller's auth.uid() and takes no arguments.
+--
+-- Written as plpgsql (not sql) so its body — which references the memberships
+-- table created later in this migration — is compiled on first use instead of
+-- at function-creation time, keeping the helpers at the top of the file.
 create or replace function public.my_tenant_id()
 returns uuid
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select m."tenantId"
-  from public.memberships m
-  where m."userId" = auth.uid()
-    and m.status = 'active'
-  order by m."joinedAt" nulls last, m."_creationTime"
-  limit 1;
+begin
+  return (select m."tenantId"
+    from public.memberships m
+    where m."userId" = auth.uid()
+      and m.status = 'active'
+    order by m."joinedAt" nulls last, m."_creationTime"
+    limit 1);
+end;
 $$;
 
 -- True when the signed-in user is a member of a tenant.
@@ -58,17 +64,19 @@ $$;
 -- Role of the signed-in user inside their tenant (or null).
 create or replace function public.my_member_role()
 returns text
-language sql
+language plpgsql
 stable
 security definer
 set search_path = public
 as $$
-  select m.role
-  from public.memberships m
-  where m."userId" = auth.uid()
-    and m.status = 'active'
-  order by m."joinedAt" nulls last, m."_creationTime"
-  limit 1;
+begin
+  return (select m.role
+    from public.memberships m
+    where m."userId" = auth.uid()
+      and m.status = 'active'
+    order by m."joinedAt" nulls last, m."_creationTime"
+    limit 1);
+end;
 $$;
 
 -- Manager+ check ("owner", "admin", "manager").
@@ -95,12 +103,12 @@ $$;
 
 -- Append an audit log row for the current tenant (used by RPCs).
 create or replace function public.log_audit(
-  p_action_type text,
-  p_target_type text default null,
-  p_target_id text default null,
+  p_actionType text,
+  p_targetType text default null,
+  p_targetId text default null,
   p_metadata jsonb default null,
-  p_actor_type text default 'user',
-  p_actor_id uuid default auth.uid()
+  p_actorType text default 'user',
+  p_actorId uuid default auth.uid()
 )
 returns void
 language plpgsql
@@ -111,7 +119,7 @@ declare v_tenant uuid := public.my_tenant_id();
 begin
   if v_tenant is null then return; end if;
   insert into public.auditLogs ("tenantId", "actorType", "actorId", "actionType", "targetType", "targetId", "metadata")
-  values (v_tenant, p_actor_type, p_actor_id, p_action_type, p_target_type, p_target_id, p_metadata);
+  values (v_tenant, p_actorType, p_actorId, p_actionType, p_targetType, p_targetId, p_metadata);
 end;
 $$;
 
@@ -757,7 +765,7 @@ create table if not exists public.operatingLocations (
   region text,
   city text,
   "businessHours" jsonb,
-  primary boolean default false
+  "primary" boolean default false
 );
 create index if not exists operatinglocations_by_tenant_idx on public.operatingLocations ("tenantId");
 

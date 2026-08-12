@@ -1,12 +1,9 @@
 // ---------------------------------------------------------------------------
 // Onboarding industry branch questions (UI config only).
 //
-// These questions drive the Setup wizard's branching step. They previously
-// lived in src/convex/data/packs.ts, but that module ships ~38 KB of backend
-// pack data — importing it from a page dragged the whole file into the client
-// bundle AND pulled the Convex module into the client TypeScript program,
-// which was one of the reasons the platform deploy build ran out of time and
-// memory. Keep this file free of any Convex imports.
+// These questions drive the Setup wizard's branching step. They are UI-only
+// configuration and must stay free of backend imports (the pack catalog ships
+// separately in src/lib/atlas-data/packs.ts).
 // ---------------------------------------------------------------------------
 
 export const INDUSTRY_BRANCHES: Record<string, { question: string; options: string[] }[]> = {

@@ -334,7 +334,23 @@ export const api = {
     completeOnboarding: def<{ ok: boolean }>("onboarding_complete_onboarding", "mutation"),
   },
   intelligence: {
-    seedIntelligence: def<{ seeded: number }>("intelligence_seed_packs", "mutation"),
+    seedIntelligence: def<{ seeded: number }>(
+      "intelligence_seed_packs",
+      "client",
+      async () => {
+        const [{ PACK_SEEDS }, { getSupabaseClient }] = await Promise.all([
+          import("@/lib/atlas-data/packs"),
+          import("@/lib/supabase"),
+        ]);
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        const { data, error } = await supabase.rpc("intelligence_seed_packs", {
+          p_packs: PACK_SEEDS,
+        });
+        if (error) throw error;
+        return data as { seeded: number };
+      },
+    ),
     listWorkspacePacks: def<ObjArray>("intelligence_list_workspace_packs", "query"),
     listPackItems: def<ObjArray>("intelligence_list_pack_items", "query"),
     setPackActivation: def<{ activatedPacks: Obj }>("intelligence_set_pack_activation", "mutation"),

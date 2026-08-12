@@ -2,9 +2,9 @@
  * Shared types for Phase 13 — Compressed Company Data Ingestion.
  *
  * These types are the contract between the client-side analysis pipeline
- * (extract → classify → dedupe → manifest) and the Convex backend. The
+ * (extract → classify → dedupe → manifest) and the Supabase backend. The
  * backend re-validates everything before anything becomes knowledge, so this
- * module is PURE — no DOM, no Convex, no node imports.
+ * module is PURE — no DOM, no runtime imports.
  */
 
 export type ArchiveFormat = "zip" | "rar" | "unknown";

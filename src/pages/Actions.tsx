@@ -102,11 +102,9 @@ interface HistoryRow {
 }
 
 // ---------------------------------------------------------------------------
-// Local mirrors of the server tool-schema types. These used to be imported
-// (type-only) from src/convex/tools/*, but that pulled the Convex modules into
-// the client TypeScript program, making the deploy build exceed its time/memory
-// budget. The shapes are stable contract types — kept in sync with the server
-// registry (src/convex/tools/registry.ts, src/convex/tools/policy.ts).
+// Local tool-schema types. The shapes are stable contract types — kept in sync
+// with the tools catalog in src/lib/atlas-data/tools-registry.ts and the
+// server-side tool RPCs.
 // ---------------------------------------------------------------------------
 
 interface ToolField {

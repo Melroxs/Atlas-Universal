@@ -143,6 +143,12 @@ export default function Setup() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile, workspace]);
 
+  // Resume past the workspace-name step when a workspace already exists
+  // (e.g. the page reloaded mid-onboarding).
+  useEffect(() => {
+    if (workspace && step === 1) setStep(2);
+  }, [workspace, step]);
+
   const branchQuestions = useMemo(
     () => (form.industry ? INDUSTRY_BRANCHES[form.industry.toLowerCase()] : undefined),
     [form.industry],

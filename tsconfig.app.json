@@ -28,19 +28,5 @@
     }
   },
   "include": ["src", "vly-toolbar-readonly.tsx"],
-  "exclude": [
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
-    // The Convex backend is typechecked and codegen'd by `bunx convex dev --once`
-    // (and by the platform's `convex deploy` step, which runs before this build).
-    // Excluding it here keeps these server-only files (conversation.ts, everest/*,
-    // workflows/*, insurance/*, ...) out of the client program's root set. They are
-    // still pulled in transitively by the generated `_generated/api` type imports
-    // (unavoidable — that is how typed Convex client calls work), so the client
-    // side of the type graph stays checked. The deploy `build` script runs `vite
-    // build` only (no `tsc -b`) because that full re-check plus bundling exceeded
-    // the platform container's time/memory budget; type safety is enforced by this
-    // per-turn `tsc -b --noEmit` check and by `convex dev --once`.
-    "src/convex/**"
-  ]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

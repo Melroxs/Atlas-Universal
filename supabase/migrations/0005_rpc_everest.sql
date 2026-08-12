@@ -59,7 +59,7 @@ begin
   on conflict ("tenantId") do nothing;
 
   execute 'update public.organizationContexts set "updatedAt" = ' || public.epoch_ms() || ', ' ||
-    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v::text) end, ', ')
+    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v #>> '{}') end, ', ')
      from jsonb_each(p_patch) e(k, v)
      where k not in ('_id', '_creationTime', 'tenantId'))
     || ' where "tenantId" = ' || quote_literal(v_tenant::text);
@@ -100,11 +100,11 @@ begin
       name = p_name, kind = p_kind, timezone = p_timezone, jurisdiction = p_jurisdiction,
       country = p_country, region = p_region, city = p_city,
       "businessHours" = coalesce(p_businessHours, "businessHours"),
-      primary = coalesce(p_primary, primary)
+      "primary" = coalesce(p_primary, "primary")
     where _id = p_id;
   else
     insert into public.operatingLocations (
-      "tenantId", name, kind, timezone, jurisdiction, country, region, city, "businessHours", primary
+      "tenantId", name, kind, timezone, jurisdiction, country, region, city, "businessHours", "primary"
     )
     values (v_tenant, p_name, p_kind, p_timezone, p_jurisdiction, p_country, p_region, p_city, p_businessHours, coalesce(p_primary, false));
   end if;
@@ -254,12 +254,14 @@ end;
 $$;
 
 create or replace function public.everest_decide_impact_review(
-  p_assessment_id uuid,
+  p_assessmentId uuid,
   p_decision text,
   p_note text default null
 )
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_user uuid := auth.uid();
@@ -273,7 +275,7 @@ begin
   end if;
   if p_decision not in ('approved', 'rejected', 'disputed') then raise exception 'Invalid decision.'; end if;
 
-  select * into v_assessment from public.impactAssessments a where a._id = p_assessment_id;
+  select * into v_assessment from public.impactAssessments a where a._id = p_assessmentId;
   if v_assessment._id is null then raise exception 'Assessment not found.'; end if;
   if v_assessment."affectedTenantIds" is not null
      and v_assessment."affectedTenantIds" <> '[]'::jsonb
@@ -283,9 +285,9 @@ begin
 
   update public.impactAssessments set status = p_decision,
     "reviewNote" = p_note, "decidedBy" = v_user, "decidedAt" = v_now
-  where _id = p_assessment_id;
+  where _id = p_assessmentId;
 
-  perform public.log_audit('authority_review_' || p_decision, 'impact_assessment', p_assessment_id::text,
+  perform public.log_audit('authority_review_' || p_decision, 'impact_assessment', p_assessmentId::text,
     jsonb_build_object('sourceId', v_assessment."sourceId", 'changeType', v_assessment."changeType", 'note', p_note));
   return jsonb_build_object('ok', true);
 end;
@@ -326,6 +328,8 @@ $$;
 create or replace function public.everest_seed(p_sources jsonb, p_knowledge jsonb)
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_user uuid := auth.uid();
@@ -380,7 +384,7 @@ $$;
 
 -- Conversation storage (used by the converse edge function via service role
 -- and by the client for history).
-create or replace function public.conversation_raw_messages(p_session_id uuid)
+create or replace function public.conversation_raw_messages(p_sessionId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -391,6 +395,6 @@ declare
 begin
   if v_user is null or v_tenant is null then return null; end if;
   return (select c.messages from public.conversationSessions c
-    where c._id = p_session_id and c."tenantId" = v_tenant);
+    where c._id = p_sessionId and c."tenantId" = v_tenant);
 end;
 $$;

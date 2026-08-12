@@ -101,9 +101,15 @@ begin
 end;
 $$;
 
+-- Security definer: this is the bootstrap insert — the caller has no
+-- membership yet, so RLS (which scopes by my_tenant_id()) would block the
+-- tenant/membership/profile rows it must create. The function still enforces
+-- auth + tenant scoping explicitly below.
 create or replace function public.tenants_create_tenant(p_name text)
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_user uuid := auth.uid();
@@ -228,7 +234,7 @@ begin
 end;
 $$;
 
-create or replace function public.tenants_update_member_role(p_user_id uuid, p_role text)
+create or replace function public.tenants_update_member_role(p_userId uuid, p_role text)
 returns jsonb
 language plpgsql
 as $$
@@ -247,7 +253,7 @@ begin
   end if;
 
   select * into v_membership from public.memberships m
-  where m."tenantId" = v_tenant and m."userId" = p_user_id limit 1;
+  where m."tenantId" = v_tenant and m."userId" = p_userId limit 1;
   if v_membership._id is null then raise exception 'Member not found.'; end if;
 
   if v_membership.role = 'owner' and p_role <> 'owner' then
@@ -258,13 +264,13 @@ begin
 
   update public.memberships set role = p_role where _id = v_membership._id;
 
-  perform public.log_audit('member_role_changed', 'user', p_user_id::text,
+  perform public.log_audit('member_role_changed', 'user', p_userId::text,
     jsonb_build_object('from', v_membership.role, 'to', p_role));
   return jsonb_build_object('ok', true);
 end;
 $$;
 
-create or replace function public.tenants_remove_member(p_user_id uuid)
+create or replace function public.tenants_remove_member(p_userId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -278,12 +284,12 @@ begin
     raise exception 'Only managers and above can remove members.';
   end if;
   select * into v_membership from public.memberships m
-  where m."tenantId" = v_tenant and m."userId" = p_user_id limit 1;
+  where m."tenantId" = v_tenant and m."userId" = p_userId limit 1;
   if v_membership._id is null then raise exception 'Member not found.'; end if;
   if v_membership.role = 'owner' then raise exception 'Owners cannot be removed.'; end if;
 
   delete from public.memberships where _id = v_membership._id;
-  perform public.log_audit('member_removed', 'user', p_user_id::text);
+  perform public.log_audit('member_removed', 'user', p_userId::text);
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -338,7 +344,7 @@ begin
   v_patch := v_patch || jsonb_build_object('updatedAt', public.epoch_ms());
 
   execute 'update public.companyProfiles set ' ||
-    (select string_agg(quote_ident(k) || ' = ' || quote_nullable(v::text), ', ' order by k)
+    (select string_agg(quote_ident(k) || ' = ' || quote_nullable(v #>> '{}'), ', ' order by k)
      from jsonb_each(v_patch) e(k, v))
     || ' where _id = ' || quote_literal(v_profile._id::text);
 
@@ -474,6 +480,8 @@ $$;
 create or replace function public.intelligence_seed_packs(p_packs jsonb)
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_pack jsonb;
@@ -536,7 +544,7 @@ begin
 end;
 $$;
 
-create or replace function public.intelligence_list_pack_items(p_pack_key text)
+create or replace function public.intelligence_list_pack_items(p_packKey text)
 returns jsonb
 language plpgsql
 stable
@@ -545,12 +553,12 @@ begin
   if auth.uid() is null then raise exception 'You must be signed in.'; end if;
   return coalesce((
     select jsonb_agg(to_jsonb(i) order by i."_creationTime")
-    from public.intelligenceItems i where i."packKey" = p_pack_key
+    from public.intelligenceItems i where i."packKey" = p_packKey
   ), '[]'::jsonb);
 end;
 $$;
 
-create or replace function public.intelligence_set_pack_activation(p_pack_key text, p_active boolean)
+create or replace function public.intelligence_set_pack_activation(p_packKey text, p_active boolean)
 returns jsonb
 language plpgsql
 as $$
@@ -561,15 +569,15 @@ begin
   if v_user is null or v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   if p_active then
     insert into public.tenantPacks ("tenantId", "packKey", "activatedAt", "activatedBy", status)
-    values (v_tenant, p_pack_key, public.epoch_ms(), v_user, 'active')
+    values (v_tenant, p_packKey, public.epoch_ms(), v_user, 'active')
     on conflict ("tenantId", "packKey") do update set status = 'active';
   else
     update public.tenantPacks set status = 'dismissed'
-    where "tenantId" = v_tenant and "packKey" = p_pack_key;
+    where "tenantId" = v_tenant and "packKey" = p_packKey;
   end if;
   perform public.log_audit(
     case when p_active then 'pack_activated' else 'pack_dismissed' end,
-    'intelligence_pack', null, jsonb_build_object('packKey', p_pack_key));
+    'intelligence_pack', null, jsonb_build_object('packKey', p_packKey));
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -619,7 +627,7 @@ begin
 end;
 $$;
 
-create or replace function public.documents_get_document(p_document_id uuid)
+create or replace function public.documents_get_document(p_documentId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -630,12 +638,12 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(d) into v_doc from public.documents d
-  where d._id = p_document_id and d."tenantId" = v_tenant;
+  where d._id = p_documentId and d."tenantId" = v_tenant;
   return v_doc;
 end;
 $$;
 
-create or replace function public.documents_get_document_detail(p_document_id uuid)
+create or replace function public.documents_get_document_detail(p_documentId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -649,19 +657,19 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(d) into v_doc from public.documents d
-  where d._id = p_document_id and d."tenantId" = v_tenant;
+  where d._id = p_documentId and d."tenantId" = v_tenant;
   if v_doc is null then return null; end if;
 
   select coalesce(jsonb_agg(to_jsonb(c) order by c."chunkIndex"), '[]'::jsonb) into v_chunks
-  from public.documentChunks c where c."documentId" = p_document_id;
+  from public.documentChunks c where c."documentId" = p_documentId;
 
   select coalesce(jsonb_agg(to_jsonb(e) order by e."_creationTime"), '[]'::jsonb) into v_entities
-  from public.entities e where e."tenantId" = v_tenant and e."sourceDocumentId" = p_document_id;
+  from public.entities e where e."tenantId" = v_tenant and e."sourceDocumentId" = p_documentId;
 
   select coalesce(jsonb_agg(to_jsonb(a) order by a."_creationTime" desc), '[]'::jsonb) into v_assertions
   from (
     select * from public.knowledgeAssertions a
-    where a."tenantId" = v_tenant and a."sourceDocumentId" = p_document_id
+    where a."tenantId" = v_tenant and a."sourceDocumentId" = p_documentId
     limit 40
   ) a;
 
@@ -669,7 +677,7 @@ begin
 end;
 $$;
 
-create or replace function public.documents_delete_document(p_document_id uuid)
+create or replace function public.documents_delete_document(p_documentId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -683,12 +691,12 @@ begin
     raise exception 'Only managers and above can delete documents.';
   end if;
   select * into v_doc from public.documents d
-  where d._id = p_document_id and d."tenantId" = v_tenant;
+  where d._id = p_documentId and d."tenantId" = v_tenant;
   if v_doc._id is null then raise exception 'Document not found.'; end if;
 
-  delete from public.documentChunks where "documentId" = p_document_id;
-  delete from public.documents where _id = p_document_id;
-  perform public.log_audit('document_deleted', 'document', p_document_id::text,
+  delete from public.documentChunks where "documentId" = p_documentId;
+  delete from public.documents where _id = p_documentId;
+  perform public.log_audit('document_deleted', 'document', p_documentId::text,
     jsonb_build_object('title', v_doc.title));
   return jsonb_build_object('ok', true);
 end;
@@ -720,7 +728,7 @@ begin
 end;
 $$;
 
-create or replace function public.knowledge_get_entity(p_entity_id uuid)
+create or replace function public.knowledge_get_entity(p_entityId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -733,7 +741,7 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(e) into v_entity from public.entities e
-  where e._id = p_entity_id and e."tenantId" = v_tenant;
+  where e._id = p_entityId and e."tenantId" = v_tenant;
   if v_entity is null then return null; end if;
 
   select coalesce(jsonb_agg(
@@ -742,12 +750,12 @@ begin
       from public.entities o where o._id = r."objectEntityId"
     ))
   ), '[]'::jsonb) into v_rels
-  from public.entityRelationships r where r."subjectEntityId" = p_entity_id;
+  from public.entityRelationships r where r."subjectEntityId" = p_entityId;
 
   select coalesce(jsonb_agg(to_jsonb(a) order by a."_creationTime" desc), '[]'::jsonb) into v_assertions
   from (
     select * from public.knowledgeAssertions a
-    where a."tenantId" = v_tenant and a."entityId" = p_entity_id limit 20
+    where a."tenantId" = v_tenant and a."entityId" = p_entityId limit 20
   ) a;
 
   return jsonb_build_object('entity', v_entity, 'relationships', v_rels, 'assertions', v_assertions);
@@ -823,7 +831,7 @@ begin
 end;
 $$;
 
-create or replace function public.knowledge_confirm_entity(p_entity_id uuid)
+create or replace function public.knowledge_confirm_entity(p_entityId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -833,10 +841,10 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select * into v_entity from public.entities e
-  where e._id = p_entity_id and e."tenantId" = v_tenant;
+  where e._id = p_entityId and e."tenantId" = v_tenant;
   if v_entity._id is null then raise exception 'Entity not found.'; end if;
   update public.entities set status = 'confirmed', confidence = greatest(coalesce(confidence, 0), 0.9)
-  where _id = p_entity_id;
+  where _id = p_entityId;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -889,7 +897,7 @@ begin
 end;
 $$;
 
-create or replace function public.recommendations_decide(p_recommendation_id uuid, p_status text)
+create or replace function public.recommendations_decide(p_recommendationId uuid, p_status text)
 returns jsonb
 language plpgsql
 as $$
@@ -903,7 +911,7 @@ begin
     raise exception 'Invalid decision.';
   end if;
   select * into v_rec from public.recommendations r
-  where r._id = p_recommendation_id and r."tenantId" = v_tenant;
+  where r._id = p_recommendationId and r."tenantId" = v_tenant;
   if v_rec._id is null then raise exception 'Recommendation not found.'; end if;
 
   if p_status <> 'dismissed' and public.my_member_role() not in ('owner', 'admin', 'manager') then
@@ -911,9 +919,9 @@ begin
   end if;
 
   update public.recommendations set status = p_status, "decidedBy" = v_user, "decidedAt" = public.epoch_ms()
-  where _id = p_recommendation_id;
+  where _id = p_recommendationId;
 
-  perform public.log_audit('recommendation_' || p_status, 'recommendation', p_recommendation_id::text,
+  perform public.log_audit('recommendation_' || p_status, 'recommendation', p_recommendationId::text,
     jsonb_build_object('title', v_rec.title));
   return jsonb_build_object('ok', true);
 end;
@@ -1038,7 +1046,7 @@ begin
 end;
 $$;
 
-create or replace function public.archive_get_detail(p_archive_id uuid)
+create or replace function public.archive_get_detail(p_archiveId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -1052,22 +1060,22 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(a) into v_archive from public.archiveIngestions a
-  where a._id = p_archive_id and a."tenantId" = v_tenant;
+  where a._id = p_archiveId and a."tenantId" = v_tenant;
   if v_archive is null then return null; end if;
 
   select coalesce(jsonb_agg(to_jsonb(f) order by f.path), '[]'::jsonb) into v_files
-  from (select * from public.archiveFiles f where f."archiveId" = p_archive_id order by path limit 2000) f;
+  from (select * from public.archiveFiles f where f."archiveId" = p_archiveId order by path limit 2000) f;
 
   select coalesce(jsonb_object_agg(f."documentId"::text, jsonb_build_object(
     '_id', d._id, 'title', d.title, 'classification', d.classification, 'status', d.status
   )), '{}'::jsonb) into v_docs
   from public.archiveFiles f
   join public.documents d on d._id = f."documentId"
-  where f."archiveId" = p_archive_id and f."documentId" is not null and d."tenantId" = v_tenant
+  where f."archiveId" = p_archiveId and f."documentId" is not null and d."tenantId" = v_tenant
   limit 300;
 
   select coalesce(jsonb_agg(to_jsonb(c) order by c."createdAt"), '[]'::jsonb) into v_candidates
-  from (select * from public.claimCandidates c where c."archiveId" = p_archive_id limit 50) c;
+  from (select * from public.claimCandidates c where c."archiveId" = p_archiveId limit 50) c;
 
   return jsonb_build_object('archive', v_archive, 'files', v_files, 'docs', v_docs, 'candidates', v_candidates);
 end;
@@ -1219,7 +1227,7 @@ begin
 end;
 $$;
 
-create or replace function public.archive_cancel(p_archive_id uuid)
+create or replace function public.archive_cancel(p_archiveId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -1233,21 +1241,21 @@ begin
     raise exception 'Only editors can cancel an import.';
   end if;
   select * into v_archive from public.archiveIngestions a
-  where a._id = p_archive_id and a."tenantId" = v_tenant;
+  where a._id = p_archiveId and a."tenantId" = v_tenant;
   if v_archive._id is null then raise exception 'Archive not found.'; end if;
   if v_archive.status in ('completed', 'completed_with_warnings', 'failed', 'cancelled') then
     raise exception 'This archive has already finished processing.';
   end if;
   update public.archiveIngestions set status = 'cancelled', "updatedAt" = public.epoch_ms(),
     "failureReason" = 'Cancelled by a user.'
-  where _id = p_archive_id;
-  perform public.log_audit('archive_cancelled', 'archiveIngestions', p_archive_id::text,
+  where _id = p_archiveId;
+  perform public.log_audit('archive_cancelled', 'archiveIngestions', p_archiveId::text,
     jsonb_build_object('filename', v_archive.filename));
   return jsonb_build_object('ok', true);
 end;
 $$;
 
-create or replace function public.archive_delete(p_archive_id uuid)
+create or replace function public.archive_delete(p_archiveId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -1261,12 +1269,12 @@ begin
     raise exception 'Only managers and above can delete an import.';
   end if;
   select * into v_archive from public.archiveIngestions a
-  where a._id = p_archive_id and a."tenantId" = v_tenant;
+  where a._id = p_archiveId and a."tenantId" = v_tenant;
   if v_archive._id is null then raise exception 'Archive not found.'; end if;
 
-  delete from public.archiveFiles where "archiveId" = p_archive_id;
-  delete from public.archiveIngestions where _id = p_archive_id;
-  perform public.log_audit('archive_deleted', 'archiveIngestions', p_archive_id::text,
+  delete from public.archiveFiles where "archiveId" = p_archiveId;
+  delete from public.archiveIngestions where _id = p_archiveId;
+  perform public.log_audit('archive_deleted', 'archiveIngestions', p_archiveId::text,
     jsonb_build_object('filename', v_archive.filename));
   return jsonb_build_object('ok', true);
 end;
@@ -1314,7 +1322,7 @@ begin
 end;
 $$;
 
-create or replace function public.ingestion_patch_document(p_document_id uuid, p_patch jsonb)
+create or replace function public.ingestion_patch_document(p_documentId uuid, p_patch jsonb)
 returns jsonb
 language plpgsql
 as $$
@@ -1322,20 +1330,20 @@ declare
   v_tenant uuid := public.my_tenant_id();
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
-  if not exists (select 1 from public.documents d where d._id = p_document_id and d."tenantId" = v_tenant) then
+  if not exists (select 1 from public.documents d where d._id = p_documentId and d."tenantId" = v_tenant) then
     raise exception 'Document not found.';
   end if;
   execute 'update public.documents set ' ||
-    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v::text) end, ', ')
+    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v #>> '{}') end, ', ')
      from jsonb_each(p_patch) e(k, v)
      where k not in ('_id', '_creationTime', 'tenantId'))
-    || ' where _id = ' || quote_literal(p_document_id::text);
+    || ' where _id = ' || quote_literal(p_documentId::text);
   return jsonb_build_object('ok', true);
 end;
 $$;
 
 create or replace function public.ingestion_insert_chunk(
-  p_document_id uuid,
+  p_documentId uuid,
   p_chunkIndex double precision,
   p_content text,
   p_embedding jsonb default null,
@@ -1349,7 +1357,7 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   insert into public.documentChunks ("tenantId", "documentId", "chunkIndex", content, embedding, "tokenCount")
-  values (v_tenant, p_document_id, p_chunkIndex, p_content, p_embedding, p_tokenCount);
+  values (v_tenant, p_documentId, p_chunkIndex, p_content, p_embedding, p_tokenCount);
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -1378,7 +1386,7 @@ begin
 end;
 $$;
 
-create or replace function public.ingestion_patch_entity(p_entity_id uuid, p_patch jsonb)
+create or replace function public.ingestion_patch_entity(p_entityId uuid, p_patch jsonb)
 returns jsonb
 language plpgsql
 as $$
@@ -1386,14 +1394,14 @@ declare
   v_tenant uuid := public.my_tenant_id();
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
-  if not exists (select 1 from public.entities e where e._id = p_entity_id and e."tenantId" = v_tenant) then
+  if not exists (select 1 from public.entities e where e._id = p_entityId and e."tenantId" = v_tenant) then
     raise exception 'Entity not found.';
   end if;
   execute 'update public.entities set ' ||
-    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v::text) end, ', ')
+    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v #>> '{}') end, ', ')
      from jsonb_each(p_patch) e(k, v)
      where k not in ('_id', '_creationTime', 'tenantId'))
-    || ' where _id = ' || quote_literal(p_entity_id::text);
+    || ' where _id = ' || quote_literal(p_entityId::text);
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -1577,7 +1585,7 @@ begin
 end;
 $$;
 
-create or replace function public.conversation_get_session(p_session_id uuid)
+create or replace function public.conversation_get_session(p_sessionId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -1588,11 +1596,11 @@ declare
 begin
   if v_user is null or v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   return (select to_jsonb(c) from public.conversationSessions c
-    where c._id = p_session_id and c."tenantId" = v_tenant);
+    where c._id = p_sessionId and c."tenantId" = v_tenant);
 end;
 $$;
 
-create or replace function public.conversation_delete_session(p_session_id uuid)
+create or replace function public.conversation_delete_session(p_sessionId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -1602,7 +1610,7 @@ declare
 begin
   if v_user is null or v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   delete from public.conversationSessions c
-  where c._id = p_session_id and c."tenantId" = v_tenant;
+  where c._id = p_sessionId and c."tenantId" = v_tenant;
   return jsonb_build_object('ok', true);
 end;
 $$;
@@ -1611,7 +1619,7 @@ create or replace function public.conversation_save_session(
   p_title text,
   p_messages jsonb,
   p_context jsonb default null,
-  p_session_id uuid default null
+  p_sessionId uuid default null
 )
 returns jsonb
 language plpgsql
@@ -1623,14 +1631,14 @@ declare
   v_now bigint := public.epoch_ms();
 begin
   if v_user is null or v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
-  if p_session_id is null then
+  if p_sessionId is null then
     insert into public.conversationSessions ("tenantId", "userId", title, messages, context, "updatedAt")
     values (v_tenant, v_user, p_title, p_messages, p_context, v_now)
     returning _id into v_id;
   else
     update public.conversationSessions set title = p_title, messages = p_messages,
       context = coalesce(p_context, context), "updatedAt" = v_now
-    where _id = p_session_id and "tenantId" = v_tenant
+    where _id = p_sessionId and "tenantId" = v_tenant
     returning _id into v_id;
   end if;
   return jsonb_build_object('sessionId', v_id);

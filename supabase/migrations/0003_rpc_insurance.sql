@@ -41,7 +41,7 @@ begin
 end;
 $$;
 
-create or replace function public.insurance_get_claim_package(p_claim_id uuid)
+create or replace function public.insurance_get_claim_package(p_claimId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -55,14 +55,14 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(c) into v_claim from public.insuranceClaims c
-  where c._id = p_claim_id and c."tenantId" = v_tenant;
+  where c._id = p_claimId and c."tenantId" = v_tenant;
   if v_claim is null then raise exception 'Claim not found.'; end if;
 
   select coalesce(jsonb_agg(to_jsonb(s) order by s."_creationTime" desc), '[]'::jsonb) into v_supplements
-  from public.claimSupplements s where s."claimId" = p_claim_id;
+  from public.claimSupplements s where s."claimId" = p_claimId;
 
   select coalesce(jsonb_agg(to_jsonb(f) order by f."_creationTime" desc), '[]'::jsonb) into v_findings
-  from public.claimFindings f where f."claimId" = p_claim_id;
+  from public.claimFindings f where f."claimId" = p_claimId;
 
   select coalesce(jsonb_agg(jsonb_build_object(
     '_id', d._id, 'title', d.title, 'classification', d.classification
@@ -76,7 +76,7 @@ begin
 end;
 $$;
 
-create or replace function public.insurance_get_claim_timeline(p_claim_id uuid)
+create or replace function public.insurance_get_claim_timeline(p_claimId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -89,19 +89,19 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(c) into v_claim from public.insuranceClaims c
-  where c._id = p_claim_id and c."tenantId" = v_tenant;
+  where c._id = p_claimId and c."tenantId" = v_tenant;
   if v_claim is null then raise exception 'Claim not found.'; end if;
 
   select coalesce(jsonb_agg(to_jsonb(s) order by s."_creationTime"), '[]'::jsonb) into v_supplements
-  from public.claimSupplements s where s."claimId" = p_claim_id;
+  from public.claimSupplements s where s."claimId" = p_claimId;
   select coalesce(jsonb_agg(to_jsonb(f) order by f."_creationTime"), '[]'::jsonb) into v_findings
-  from public.claimFindings f where f."claimId" = p_claim_id;
+  from public.claimFindings f where f."claimId" = p_claimId;
 
   return jsonb_build_object('claim', v_claim, 'supplements', v_supplements, 'findings', v_findings);
 end;
 $$;
 
-create or replace function public.insurance_get_supplement_document(p_claim_id uuid, p_supplement_id uuid)
+create or replace function public.insurance_get_supplement_document(p_claimId uuid, p_supplementId uuid)
 returns jsonb
 language plpgsql
 stable
@@ -113,10 +113,10 @@ declare
 begin
   if v_tenant is null then raise exception 'You must be signed in and belong to a workspace.'; end if;
   select to_jsonb(c) into v_claim from public.insuranceClaims c
-  where c._id = p_claim_id and c."tenantId" = v_tenant;
+  where c._id = p_claimId and c."tenantId" = v_tenant;
   if v_claim is null then raise exception 'Claim not found.'; end if;
   select to_jsonb(s) into v_sup from public.claimSupplements s
-  where s._id = p_supplement_id and s."tenantId" = v_tenant and s."claimId" = p_claim_id;
+  where s._id = p_supplementId and s."tenantId" = v_tenant and s."claimId" = p_claimId;
   if v_sup is null then raise exception 'Supplement not found.'; end if;
   return jsonb_build_object('claim', v_claim, 'supplement', v_sup);
 end;
@@ -318,7 +318,7 @@ begin
 end;
 $$;
 
-create or replace function public.insurance_update_claim(p_claim_id uuid, p_patch jsonb)
+create or replace function public.insurance_update_claim(p_claimId uuid, p_patch jsonb)
 returns jsonb
 language plpgsql
 as $$
@@ -330,22 +330,22 @@ begin
   if public.my_member_role() not in ('owner', 'admin', 'manager', 'analyst') then
     raise exception 'Only editors and above can update claims.';
   end if;
-  if not exists (select 1 from public.insuranceClaims c where c._id = p_claim_id and c."tenantId" = v_tenant) then
+  if not exists (select 1 from public.insuranceClaims c where c._id = p_claimId and c."tenantId" = v_tenant) then
     raise exception 'Claim not found.';
   end if;
   if p_patch is null or p_patch = '{}'::jsonb then raise exception 'Nothing to update.'; end if;
   execute 'update public.insuranceClaims set "updatedAt" = ' || public.epoch_ms() || ', ' ||
-    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v::text) end, ', ')
+    (select string_agg(quote_ident(k) || ' = ' || case when v is null then 'null' else quote_literal(v #>> '{}') end, ', ')
      from jsonb_each(p_patch) e(k, v)
      where k not in ('_id', '_creationTime', 'tenantId'))
-    || ' where _id = ' || quote_literal(p_claim_id::text);
-  perform public.log_audit('claim_updated', 'insuranceClaim', p_claim_id::text,
+    || ' where _id = ' || quote_literal(p_claimId::text);
+  perform public.log_audit('claim_updated', 'insuranceClaim', p_claimId::text,
     jsonb_build_object('fields', (select coalesce(jsonb_agg(k), '[]'::jsonb) from jsonb_object_keys(p_patch) k)));
-  return jsonb_build_object('claimId', p_claim_id);
+  return jsonb_build_object('claimId', p_claimId);
 end;
 $$;
 
-create or replace function public.insurance_attach_claim_evidence(p_claim_id uuid, p_document_id uuid)
+create or replace function public.insurance_attach_claim_evidence(p_claimId uuid, p_documentId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -362,14 +362,14 @@ begin
   if public.my_member_role() not in ('owner', 'admin', 'manager', 'analyst') then
     raise exception 'Only editors and above can attach evidence.';
   end if;
-  select * into v_claim from public.insuranceClaims c where c._id = p_claim_id and c."tenantId" = v_tenant;
+  select * into v_claim from public.insuranceClaims c where c._id = p_claimId and c."tenantId" = v_tenant;
   if v_claim._id is null then raise exception 'Claim not found.'; end if;
-  select * into v_doc from public.documents d where d._id = p_document_id and d."tenantId" = v_tenant;
+  select * into v_doc from public.documents d where d._id = p_documentId and d."tenantId" = v_tenant;
   if v_doc._id is null then raise exception 'Document not found.'; end if;
 
   v_ids := (select coalesce(jsonb_agg(x), '[]'::jsonb) from (
     select value from jsonb_array_elements(coalesce(v_claim."evidenceDocumentIds", '[]'::jsonb)) value
-    union select to_jsonb(p_document_id::text)
+    union select to_jsonb(p_documentId::text)
   ) x);
 
   v_classification := lower(v_doc.classification);
@@ -387,17 +387,17 @@ begin
       ) u
     ),
     "updatedAt" = public.epoch_ms()
-  where _id = p_claim_id;
+  where _id = p_claimId;
 
-  perform public.log_audit('claim_evidence_attached', 'insuranceClaim', p_claim_id::text,
-    jsonb_build_object('documentId', p_document_id::text, 'categories', to_jsonb(v_categories)));
-  return jsonb_build_object('claimId', p_claim_id, 'evidenceSummary', (
-    select "evidenceSummary" from public.insuranceClaims where _id = p_claim_id));
+  perform public.log_audit('claim_evidence_attached', 'insuranceClaim', p_claimId::text,
+    jsonb_build_object('documentId', p_documentId::text, 'categories', to_jsonb(v_categories)));
+  return jsonb_build_object('claimId', p_claimId, 'evidenceSummary', (
+    select "evidenceSummary" from public.insuranceClaims where _id = p_claimId));
 end;
 $$;
 
 -- Upsert the deterministic findings produced by the client-side analyzer.
-create or replace function public.insurance_upsert_findings(p_claim_id uuid, p_findings jsonb)
+create or replace function public.insurance_upsert_findings(p_claimId uuid, p_findings jsonb)
 returns jsonb
 language plpgsql
 as $$
@@ -412,7 +412,7 @@ begin
   if public.my_member_role() not in ('owner', 'admin', 'manager', 'analyst') then
     raise exception 'Only editors and above can run claim analysis.';
   end if;
-  if not exists (select 1 from public.insuranceClaims c where c._id = p_claim_id and c."tenantId" = v_tenant) then
+  if not exists (select 1 from public.insuranceClaims c where c._id = p_claimId and c."tenantId" = v_tenant) then
     raise exception 'Claim not found.';
   end if;
 
@@ -424,7 +424,7 @@ begin
       limitation, "recommendedNextStep", status, "createdAt", "updatedAt"
     )
     values (
-      v_tenant, p_claim_id, v_finding ->> 'findingKey', v_finding ->> 'category',
+      v_tenant, p_claimId, v_finding ->> 'findingKey', v_finding ->> 'category',
       v_finding ->> 'title', v_finding ->> 'description', v_finding ->> 'affectedEstimateItem',
       coalesce(v_finding -> 'evidence', '[]'::jsonb), v_finding ->> 'source',
       coalesce((v_finding ->> 'confidence')::double precision, 0.5),
@@ -439,14 +439,14 @@ begin
     v_count := v_count + 1;
   end loop;
 
-  update public.insuranceClaims set "updatedAt" = v_now where _id = p_claim_id;
-  perform public.log_audit('claim_analysis_run', 'insuranceClaim', p_claim_id::text,
+  update public.insuranceClaims set "updatedAt" = v_now where _id = p_claimId;
+  perform public.log_audit('claim_analysis_run', 'insuranceClaim', p_claimId::text,
     jsonb_build_object('findings', v_count));
-  return jsonb_build_object('claimId', p_claim_id, 'findings', v_count);
+  return jsonb_build_object('claimId', p_claimId, 'findings', v_count);
 end;
 $$;
 
-create or replace function public.insurance_update_finding_status(p_finding_id uuid, p_status text)
+create or replace function public.insurance_update_finding_status(p_findingId uuid, p_status text)
 returns jsonb
 language plpgsql
 as $$
@@ -459,16 +459,16 @@ begin
     raise exception 'Only editors and above can update findings.';
   end if;
   update public.claimFindings set status = p_status, "updatedAt" = public.epoch_ms()
-  where _id = p_finding_id and "tenantId" = v_tenant;
+  where _id = p_findingId and "tenantId" = v_tenant;
   if not found then raise exception 'Finding not found.'; end if;
-  perform public.log_audit('claim_finding_status', 'claimFinding', p_finding_id::text,
+  perform public.log_audit('claim_finding_status', 'claimFinding', p_findingId::text,
     jsonb_build_object('status', p_status));
-  return jsonb_build_object('findingId', p_finding_id, 'status', p_status);
+  return jsonb_build_object('findingId', p_findingId, 'status', p_status);
 end;
 $$;
 
 create or replace function public.insurance_create_supplement(
-  p_claim_id uuid,
+  p_claimId uuid,
   p_reason text,
   p_amount double precision default null,
   p_affectedLineItems jsonb default null,
@@ -489,7 +489,7 @@ begin
   if public.my_member_role() not in ('owner', 'admin', 'manager', 'analyst') then
     raise exception 'Only editors and above can create supplements.';
   end if;
-  if not exists (select 1 from public.insuranceClaims c where c._id = p_claim_id and c."tenantId" = v_tenant) then
+  if not exists (select 1 from public.insuranceClaims c where c._id = p_claimId and c."tenantId" = v_tenant) then
     raise exception 'Claim not found.';
   end if;
 
@@ -499,7 +499,7 @@ begin
     "createdBy", "createdAt", "updatedAt"
   )
   values (
-    v_tenant, p_claim_id, p_reason, p_affectedLineItems, p_requestedItems, p_evidence,
+    v_tenant, p_claimId, p_reason, p_affectedLineItems, p_requestedItems, p_evidence,
     p_amount, p_amount, p_justification, 'draft',
     'Draft prepared by Atlas from verified evidence — requires human review before submission.',
     0.6, v_user, v_now, v_now
@@ -507,13 +507,13 @@ begin
   returning _id into v_id;
 
   perform public.log_audit('supplement_drafted', 'claimSupplement', v_id::text,
-    jsonb_build_object('claimId', p_claim_id::text, 'amount', p_amount));
+    jsonb_build_object('claimId', p_claimId::text, 'amount', p_amount));
   return jsonb_build_object('supplementId', v_id);
 end;
 $$;
 
 create or replace function public.insurance_update_supplement_status(
-  p_supplement_id uuid,
+  p_supplementId uuid,
   p_status text,
   p_carrierResponse text default null,
   p_approvedAmount double precision default null,
@@ -534,7 +534,7 @@ begin
     raise exception 'Only editors and above can update supplements.';
   end if;
   select * into v_sup from public.claimSupplements s
-  where s._id = p_supplement_id and s."tenantId" = v_tenant;
+  where s._id = p_supplementId and s."tenantId" = v_tenant;
   if v_sup._id is null then raise exception 'Supplement not found.'; end if;
 
   update public.claimSupplements set
@@ -545,15 +545,15 @@ begin
     "outstandingAmount" = coalesce(p_outstandingAmount, "outstandingAmount"),
     "submissionDate" = case when p_status in ('submitted', 'ready_for_submission') then coalesce("submissionDate", v_now) else "submissionDate" end,
     "updatedAt" = v_now
-  where _id = p_supplement_id;
+  where _id = p_supplementId;
 
-  perform public.log_audit('supplement_status', 'claimSupplement', p_supplement_id::text,
+  perform public.log_audit('supplement_status', 'claimSupplement', p_supplementId::text,
     jsonb_build_object('status', p_status, 'approvedAmount', p_approvedAmount, 'deniedAmount', p_deniedAmount));
-  return jsonb_build_object('supplementId', p_supplement_id, 'status', p_status);
+  return jsonb_build_object('supplementId', p_supplementId, 'status', p_status);
 end;
 $$;
 
-create or replace function public.insurance_record_claim_payment(p_claim_id uuid, p_amount double precision)
+create or replace function public.insurance_record_claim_payment(p_claimId uuid, p_amount double precision)
 returns jsonb
 language plpgsql
 as $$
@@ -566,19 +566,19 @@ begin
   if public.my_member_role() not in ('owner', 'admin', 'manager', 'analyst') then
     raise exception 'Only editors and above can record payments.';
   end if;
-  if not exists (select 1 from public.insuranceClaims c where c._id = p_claim_id and c."tenantId" = v_tenant) then
+  if not exists (select 1 from public.insuranceClaims c where c._id = p_claimId and c."tenantId" = v_tenant) then
     raise exception 'Claim not found.';
   end if;
 
   update public.insuranceClaims set
     "paymentAmount" = coalesce("paymentAmount", 0) + p_amount,
     "updatedAt" = public.epoch_ms()
-  where _id = p_claim_id
+  where _id = p_claimId
   returning "paymentAmount" into v_total;
 
-  perform public.log_audit('claim_payment_recorded', 'insuranceClaim', p_claim_id::text,
+  perform public.log_audit('claim_payment_recorded', 'insuranceClaim', p_claimId::text,
     jsonb_build_object('amount', p_amount, 'total', v_total));
-  return jsonb_build_object('claimId', p_claim_id, 'paymentAmount', v_total);
+  return jsonb_build_object('claimId', p_claimId, 'paymentAmount', v_total);
 end;
 $$;
 
@@ -638,7 +638,7 @@ begin
 end;
 $$;
 
-create or replace function public.insurance_approve_claim_candidate(p_candidate_id uuid)
+create or replace function public.insurance_approve_claim_candidate(p_candidateId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -654,7 +654,7 @@ begin
     raise exception 'Only editors and above can approve candidates.';
   end if;
   select * into v_candidate from public.claimCandidates c
-  where c._id = p_candidate_id and c."tenantId" = v_tenant;
+  where c._id = p_candidateId and c."tenantId" = v_tenant;
   if v_candidate._id is null then raise exception 'Candidate not found.'; end if;
   if v_candidate.status <> 'pending' then
     raise exception 'This candidate was already processed.';
@@ -672,15 +672,15 @@ begin
   returning _id into v_claim_id;
 
   update public.claimCandidates set status = 'approved', "updatedAt" = v_now
-  where _id = p_candidate_id;
+  where _id = p_candidateId;
 
-  perform public.log_audit('claim_candidate_approved', 'claimCandidate', p_candidate_id::text,
+  perform public.log_audit('claim_candidate_approved', 'claimCandidate', p_candidateId::text,
     jsonb_build_object('claimId', v_claim_id::text, 'claimNumber', v_candidate."claimNumber"));
   return jsonb_build_object('claimId', v_claim_id);
 end;
 $$;
 
-create or replace function public.insurance_reject_claim_candidate(p_candidate_id uuid)
+create or replace function public.insurance_reject_claim_candidate(p_candidateId uuid)
 returns jsonb
 language plpgsql
 as $$
@@ -693,9 +693,9 @@ begin
     raise exception 'Only editors and above can reject candidates.';
   end if;
   update public.claimCandidates set status = 'rejected', "updatedAt" = public.epoch_ms()
-  where _id = p_candidate_id and "tenantId" = v_tenant;
+  where _id = p_candidateId and "tenantId" = v_tenant;
   if not found then raise exception 'Candidate not found.'; end if;
-  perform public.log_audit('claim_candidate_rejected', 'claimCandidate', p_candidate_id::text);
+  perform public.log_audit('claim_candidate_rejected', 'claimCandidate', p_candidateId::text);
   return jsonb_build_object('ok', true);
 end;
 $$;

@@ -25,12 +25,43 @@ import {
 // ship in every browser bundle; row-level security gates all data). They keep
 // the app functional even in builds where the platform did not inject the
 // VITE_ env vars.
-const SUPABASE_URL =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
-  "https://ibxvzxblyhzwokljkslt.supabase.co";
-const SUPABASE_ANON_KEY =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
+//
+// The hosted build pipeline can inline VITE_ vars as opaque encrypted blobs
+// (no runtime decryptor exists in the browser bundle). Those values are not
+// a valid HTTPS URL / JWT, so they are rejected below and the public
+// fallbacks are used instead — the app stays fully functional on every
+// build target while still honoring real VITE_ vars when present.
+const FALLBACK_URL = "https://ibxvzxblyhzwokljkslt.supabase.co";
+const FALLBACK_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlieHZ6eGJseWh6d29rbGprc2x0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0ODM3NzYsImV4cCI6MjEwMjA1OTc3Nn0.12Fubl-jzjDaVaHQFCGrUQODTtZaeiGPNBGNjQoPhyc";
+
+/**
+ * True when a value is a usable http(s) URL. The hosted build pipeline can
+ * inline VITE_ vars as opaque encrypted blobs (no runtime decryptor exists in
+ * the browser bundle); those fail this check so the public fallbacks win.
+ */
+export function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** A Supabase anon key is a JWT: three dot-separated base64url segments. */
+export function isJwt(value: unknown): value is string {
+  if (typeof value !== "string" || value.length === 0) return false;
+  const parts = value.split(".");
+  return parts.length === 3 && parts.every((p) => p.length > 0);
+}
+
+const RAW_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const RAW_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+const SUPABASE_URL = isHttpUrl(RAW_URL) ? RAW_URL : FALLBACK_URL;
+const SUPABASE_ANON_KEY = isJwt(RAW_ANON_KEY) ? RAW_ANON_KEY : FALLBACK_ANON_KEY;
 
 /**
  * True when the browser-side Supabase config keys are present. The Auth page

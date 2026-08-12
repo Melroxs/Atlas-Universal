@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { useAuth } from "@/hooks/use-auth";
+import { api } from "@/lib/api";
 import { classifyAuthError } from "@/lib/auth-errors";
 import {
   isSupabaseConfigured,
@@ -19,11 +20,13 @@ import {
   supabaseSignIn,
   supabaseSignUp,
 } from "@/lib/supabase";
+import { useMutation } from "@/hooks/use-supabase";
 import logo from "@/assets/logo.svg";
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Building2,
   Eye,
   EyeOff,
   KeyRound,
@@ -65,6 +68,8 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const createTenant = useMutation(api.tenants.createTenant);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +105,21 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
           );
           setIsLoading(false);
           return;
+        }
+        // Account created and session active. Provision the Atlas workspace
+        // (tenant + owner membership + company profile) right away so the
+        // user lands inside Atlas instead of a dead end. The RPC is
+        // idempotent for existing members; if it ever fails the /setup flow
+        // provisions the workspace instead, so login is never blocked.
+        if (companyName.trim()) {
+          try {
+            await createTenant({ name: companyName.trim() });
+          } catch (provisionError) {
+            console.warn(
+              "[auth] workspace auto-provision failed, /setup will handle it:",
+              provisionError,
+            );
+          }
         }
       } else {
         await supabaseSignIn(email, password);
@@ -144,6 +164,31 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       setIsLoading(false);
     }
   };
+
+  const companyInput = (
+    <div className="space-y-1.5">
+      <Label
+        htmlFor="company"
+        className="text-xs font-medium text-muted-foreground"
+      >
+        Company / workspace name
+      </Label>
+      <div className="relative">
+        <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          id="company"
+          name="company"
+          type="text"
+          autoComplete="organization"
+          placeholder="e.g. Northshore Restoration Inc."
+          value={companyName}
+          onChange={(e) => setCompanyName(e.target.value)}
+          className="pl-9"
+          disabled={isLoading || !supabaseClientConfigured}
+        />
+      </div>
+    </div>
+  );
 
   const emailInput = (
     <div className="space-y-1.5">
@@ -350,6 +395,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     )}
                     {emailInput}
                     {passwordInput}
+                    {mode === "signUp" && companyInput}
                     {error && (
                       <p className="mt-2 text-sm text-red-500">{error}</p>
                     )}

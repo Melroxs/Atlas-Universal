@@ -16,10 +16,21 @@ import {
   type User,
 } from "@supabase/supabase-js";
 
-const env = import.meta.env;
-
-const SUPABASE_URL = env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_ANON_KEY = env.VITE_SUPABASE_ANON_KEY as string | undefined;
+// Access import.meta.env.* directly (no aliasing): Vite statically replaces
+// direct `import.meta.env.VITE_*` reads at build time, so the values get baked
+// into the production bundle. Reading through an alias keeps a runtime
+// reference to import.meta.env, which has no VITE_ vars in production builds.
+//
+// Public fallbacks: the anon key and project URL are public by design (they
+// ship in every browser bundle; row-level security gates all data). They keep
+// the app functional even in builds where the platform did not inject the
+// VITE_ env vars.
+const SUPABASE_URL =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
+  "https://ibxvzxblyhzwokljkslt.supabase.co";
+const SUPABASE_ANON_KEY =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlieHZ6eGJseWh6d29rbGprc2x0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0ODM3NzYsImV4cCI6MjEwMjA1OTc3Nn0.12Fubl-jzjDaVaHQFCGrUQODTtZaeiGPNBGNjQoPhyc";
 
 /**
  * True when the browser-side Supabase config keys are present. The Auth page

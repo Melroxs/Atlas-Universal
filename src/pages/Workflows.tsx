@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   ApprovalStatusBadge,
   EmptyPanel,
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   AlertTriangle,
@@ -141,18 +141,18 @@ const STEP_TYPE_LABELS: Record<string, string> = {
 
 export default function Workflows() {
   const navigate = useNavigate();
-  const defs = useQuery(api.workflows.api.listWorkflowDefinitions);
-  const stats = useQuery(api.workflows.api.workflowStats);
-  const instances = useQuery(api.workflows.api.listWorkflowInstances, {});
-  const approvals = useQuery(api.workflows.api.listWorkflowApprovals, {
+  const defs = useQuery(api.workflows.listWorkflowDefinitions);
+  const stats = useQuery(api.workflows.workflowStats);
+  const instances = useQuery(api.workflows.listWorkflowInstances, {});
+  const approvals = useQuery(api.workflows.listWorkflowApprovals, {
     pendingOnly: true,
   });
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
-  const setSetting = useMutation(api.workflows.api.setWorkflowSetting);
-  const decide = useMutation(api.workflows.api.decideWorkflowApproval);
-  const cancelInstance = useMutation(api.workflows.api.cancelWorkflowInstance);
-  const retryInstance = useMutation(api.workflows.api.retryWorkflowInstance);
+  const setSetting = useMutation(api.workflows.setWorkflowSetting);
+  const decide = useMutation(api.workflows.decideWorkflowApproval);
+  const cancelInstance = useMutation(api.workflows.cancelWorkflowInstance);
+  const retryInstance = useMutation(api.workflows.retryWorkflowInstance);
 
   const [busyWorkflow, setBusyWorkflow] = useState<string | null>(null);
   const [busyApproval, setBusyApproval] = useState<Id<"workflowApprovals"> | null>(null);

@@ -1,5 +1,5 @@
 import { AtlasAssistant } from "@/components/atlas-assistant";
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
@@ -29,7 +29,7 @@ import {
   SidebarRail,
   SidebarSeparator,
 } from "@/components/ui/sidebar";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,

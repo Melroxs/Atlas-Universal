@@ -10,7 +10,7 @@
  * Wake-word-style safety applies here too: before this component's "Start
  * ingestion" step, no archive content is sent anywhere.
  */
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import { analyzeArchive, buildUploadPlan } from "@/lib/archive/engine";
 import {
   ArchiveCorruptError,
@@ -25,7 +25,8 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, CheckCircle2, FileArchive, FileUp, Loader2, Lock, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation } from "@/hooks/use-supabase";
+import { uploadToStorage } from "@/lib/actions/upload";
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -56,26 +57,22 @@ const WARNING_ICONS: Record<ArchiveWarning["code"], typeof AlertTriangle> = {
 const BATCH_SIZE = 400;
 const UPLOAD_CONCURRENCY = 4;
 
-/** Upload bytes to Convex storage via a fresh per-file upload URL. */
+/** Upload bytes to tenant storage (documents bucket unless overridden). */
 async function uploadBytes(
-  generateUrl: () => Promise<string>,
+  bucket: "documents" | "archives",
   bytes: Uint8Array,
   mimeType: string,
 ): Promise<string> {
-  const url = await generateUrl();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": mimeType || "application/octet-stream" },
-    body: new Blob([new Uint8Array(bytes)]),
+  const { storageId } = await uploadToStorage({
+    bucket,
+    bytes,
+    mimeType: mimeType || "application/octet-stream",
   });
-  if (!res.ok) throw new Error(`Upload rejected (HTTP ${res.status}).`);
-  const { storageId } = (await res.json()) as { storageId: string };
   return storageId;
 }
 
 export default function ArchiveUpload() {
   const navigate = useNavigate();
-  const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const beginArchive = useMutation(api.archive.beginArchive);
   const submitInventoryBatch = useMutation(api.archive.submitInventoryBatch);
   const beginProcessing = useAction(api.archive.beginProcessing);
@@ -152,11 +149,7 @@ export default function ArchiveUpload() {
       let rawStorageId: string | undefined;
       if (file && analysis.compressedSize <= analysis.limits.rawRetainLimit) {
         const rawBytes = new Uint8Array(await file.arrayBuffer());
-        rawStorageId = await uploadBytes(
-          () => generateUploadUrl(),
-          rawBytes,
-          "application/zip",
-        );
+        rawStorageId = await uploadBytes("archives", rawBytes, "application/zip");
       } else if (file) {
         clientWarnings.push(
           `The original archive (${formatBytes(analysis.compressedSize)}) is larger than the ${formatBytes(analysis.limits.rawRetainLimit)} retention cap — Atlas keeps the extracted knowledge and inventory instead of the raw file.`,
@@ -172,11 +165,7 @@ export default function ArchiveUpload() {
         while (queue.length > 0) {
           const entry = queue.shift();
           if (!entry || !entry.bytes) continue;
-          const id = await uploadBytes(
-            () => generateUploadUrl(),
-            entry.bytes,
-            entry.mimeType,
-          );
+          const id = await uploadBytes("documents", entry.bytes, entry.mimeType);
           storageIds.set(entry.path, id);
           uploaded++;
           setProgress({ label: "Uploading", done: uploaded, total: Math.max(ingest.length, 1) });

@@ -1,4 +1,4 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import ArchiveUpload from "@/components/archive-upload";
 import {
   ArchiveStatusBadge,
@@ -11,7 +11,8 @@ import {
 } from "@/components/atlas-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import { uploadToStorage } from "@/lib/actions/upload";
 import {
   Archive,
   Database,
@@ -31,7 +32,6 @@ export default function Knowledge() {
   const workspace = useQuery(api.tenants.getMyWorkspace);
   const docs = useQuery(api.documents.listDocuments);
   const stats = useQuery(api.documents.documentStats);
-  const generateUploadUrl = useMutation(api.documents.generateUploadUrl);
   const processDocument = useAction(api.ingestion.processDocument);
   const seedDemo = useMutation(api.seed.seedDemoData);
   const runDetectors = useAction(api.recommendations.runDetectors);
@@ -50,14 +50,10 @@ export default function Knowledge() {
     let failed = 0;
     for (const file of Array.from(files)) {
       try {
-        const uploadUrl = await generateUploadUrl();
-        const res = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
+        const { storageId } = await uploadToStorage({
+          bytes: file,
+          mimeType: file.type,
         });
-        if (!res.ok) throw new Error("Upload rejected");
-        const { storageId } = (await res.json()) as { storageId: string };
         await processDocument({
           storageId: storageId as never,
           title: file.name,
@@ -339,7 +335,7 @@ export default function Knowledge() {
                 </div>
                 <div className="hidden shrink-0 items-center gap-2 sm:flex">
                   <ClassificationBadge classification={d.classification} />
-                  <DocStatusBadge status={d.status} />
+                  <DocStatusBadge status={d.status ?? "unknown"} />
                   {d.externalDeletedAt ? (
                     <span className="rounded-md border border-rose-400/30 bg-rose-400/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-rose-600 dark:text-rose-300">
                       removed from source

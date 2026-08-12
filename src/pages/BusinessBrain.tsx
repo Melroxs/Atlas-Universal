@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import { PageHeader, Panel, StatCard, titleCase } from "@/components/atlas-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   AlertTriangle,
@@ -351,22 +351,22 @@ export default function BusinessBrain() {
     () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? undefined,
     [],
   );
-  const orgData = useQuery(api.everest.api.getOrganizationContext, { userTimezone });
-  const brain = useQuery(api.everest.api.getBusinessBrain, {});
-  const authority = useQuery(api.everest.api.listAuthoritativeKnowledge);
-  const coverageData = useQuery(api.everest.api.getIndustryCoverage);
-  const insurance = useQuery(api.everest.api.getInsuranceIntelligence);
-  const monitor = useQuery(api.everest.api.getAuthorityMonitor);
-  const changes = useQuery(api.everest.api.listKnowledgeChanges, { limit: 60 });
-  const assessments = useQuery(api.everest.api.listImpactAssessments);
-  const excellenceData = useQuery(api.everest.api.getIndustryExcellence, {});
+  const orgData = useQuery(api.everest.getOrganizationContext, { userTimezone });
+  const brain = useQuery(api.everest.getBusinessBrain, {});
+  const authority = useQuery(api.everest.listAuthoritativeKnowledge);
+  const coverageData = useQuery(api.everest.getIndustryCoverage);
+  const insurance = useQuery(api.everest.getInsuranceIntelligence);
+  const monitor = useQuery(api.everest.getAuthorityMonitor);
+  const changes = useQuery(api.everest.listKnowledgeChanges, { limit: 60 });
+  const assessments = useQuery(api.everest.listImpactAssessments);
+  const excellenceData = useQuery(api.everest.getIndustryExcellence, {});
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
-  const saveContext = useMutation(api.everest.api.updateOrganizationContext);
-  const upsertLocation = useMutation(api.everest.api.upsertOperatingLocation);
-  const removeLocation = useMutation(api.everest.api.removeOperatingLocation);
-  const checkNow = useAction(api.everest.api.runAuthorityCheckNow);
-  const decide = useMutation(api.everest.api.decideImpactReview);
+  const saveContext = useMutation(api.everest.updateOrganizationContext);
+  const upsertLocation = useMutation(api.everest.upsertOperatingLocation);
+  const removeLocation = useMutation(api.everest.removeOperatingLocation);
+  const checkNow = useAction(api.everest.runAuthorityCheckNow);
+  const decide = useMutation(api.everest.decideImpactReview);
 
   const isManager = MANAGER_ROLES.includes(workspace?.membership?.role ?? "");
 
@@ -376,10 +376,10 @@ export default function BusinessBrain() {
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const [excellencePack, setExcellencePack] = useState<string>("insurance-restoration");
 
-  const excellencePacks: ExcellencePack[] = excellenceData?.excellence ?? [];
+  const excellencePacks: ExcellencePack[] = (excellenceData?.excellence ?? []) as ExcellencePack[];
   const activePack =
     excellencePacks.find((p) => p.packKey === excellencePack) ?? excellencePacks[0] ?? null;
-  const valueIntel = useQuery(api.everest.api.getValueIntelligence, {
+  const valueIntel = useQuery(api.everest.getValueIntelligence, {
     packKey: activePack?.packKey ?? "insurance-restoration",
   });
 
@@ -480,7 +480,7 @@ export default function BusinessBrain() {
   const contextNote = orgData?.context?.timezoneNote ?? orgData?.timezoneNote ?? null;
 
   const allRecentChecks: CheckRow[] = (monitor?.sources ?? [])
-    .flatMap((s) => s.recentChecks)
+    .flatMap((s) => (s.recentChecks as CheckRow[]))
     .sort((a, b) => b.checkedAt - a.checkedAt)
     .slice(0, 14);
 
@@ -1646,7 +1646,7 @@ function RecoveryAnalyzer() {
   });
   const [run, setRun] = useState(false);
   const result = useQuery(
-    api.everest.api.analyzeClaimRecovery,
+    api.everest.analyzeClaimRecovery,
     run
       ? {
           expectedScope: facts.expectedScope.split(",").map((s) => s.trim()).filter(Boolean),

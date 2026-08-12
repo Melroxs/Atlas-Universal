@@ -1,9 +1,9 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import { PageHeader, formatDate } from "@/components/atlas-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Cable,
   Cloud,

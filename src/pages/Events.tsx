@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   EmptyPanel,
   EventStatusBadge,
@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   AlertTriangle,
@@ -113,15 +113,15 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
 
 export default function Events() {
   const navigate = useNavigate();
-  const events = useQuery(api.events.api.listEvents, {});
-  const stats = useQuery(api.events.api.eventStats);
-  const policies = useQuery(api.events.api.listEventPolicies);
-  const notifications = useQuery(api.events.api.listNotifications, {});
+  const events = useQuery(api.events.listEvents, {});
+  const stats = useQuery(api.events.eventStats);
+  const policies = useQuery(api.events.listEventPolicies);
+  const notifications = useQuery(api.events.listNotifications, {});
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
-  const retryEvent = useMutation(api.events.api.retryEvent);
-  const setEventPolicy = useMutation(api.events.api.setEventPolicy);
-  const markRead = useMutation(api.events.api.markNotificationRead);
+  const retryEvent = useMutation(api.events.retryEvent);
+  const setEventPolicy = useMutation(api.events.setEventPolicy);
+  const markRead = useMutation(api.events.markNotificationRead);
 
   const [statusFilter, setStatusFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -134,7 +134,7 @@ export default function Events() {
   );
 
   const detail = useQuery(
-    api.events.api.getEventDetail,
+    api.events.getEventDetail,
     selectedId ? { eventId: selectedId } : "skip",
   ) as unknown as DetailResult | undefined;
 

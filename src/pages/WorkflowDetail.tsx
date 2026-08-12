@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   ApprovalStatusBadge,
   EmptyPanel,
@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   AlertTriangle,
@@ -173,16 +173,16 @@ export default function WorkflowDetail() {
   const navigate = useNavigate();
   const instanceParam = searchParams.get("instance");
 
-  const detail = useQuery(api.workflows.api.getWorkflowDetail, { workflowId: id ?? "" });
+  const detail = useQuery(api.workflows.getWorkflowDetail, { workflowId: id ?? "" });
   const instanceDetail = useQuery(
-    api.workflows.api.getWorkflowInstanceDetail,
+    api.workflows.getWorkflowInstanceDetail,
     instanceParam ? { instanceId: instanceParam as Id<"workflowInstances"> } : "skip",
   ) as unknown as InstanceDetail | undefined;
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
-  const decide = useMutation(api.workflows.api.decideWorkflowApproval);
-  const cancelInstance = useMutation(api.workflows.api.cancelWorkflowInstance);
-  const retryInstance = useMutation(api.workflows.api.retryWorkflowInstance);
+  const decide = useMutation(api.workflows.decideWorkflowApproval);
+  const cancelInstance = useMutation(api.workflows.cancelWorkflowInstance);
+  const retryInstance = useMutation(api.workflows.retryWorkflowInstance);
 
   const [busyApproval, setBusyApproval] = useState<Id<"workflowApprovals"> | null>(null);
   const [busyInstance, setBusyInstance] = useState<Id<"workflowInstances"> | null>(null);

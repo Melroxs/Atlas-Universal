@@ -1,4 +1,4 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import { PageHeader, titleCase } from "@/components/atlas-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Building2,
   Check,
@@ -96,7 +96,7 @@ export default function Settings() {
         companySize: form.companySize || undefined,
         employeeCount: form.employeeCount ? Number(form.employeeCount) : undefined,
         businessModel: form.businessModel || undefined,
-        servicesProducts: form.servicesProducts.split(",").map((s) => s.trim()).filter(Boolean),
+        servicesProducts: String(form.servicesProducts ?? "").split(",").map((s) => s.trim()).filter(Boolean),
         website: form.website || undefined,
       });
       toast.success("Company profile saved");

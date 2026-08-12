@@ -7,7 +7,7 @@
  * delete (manager+). Provenance is preserved: every ingested file links to
  * its Atlas document.
  */
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import {
   ArchiveStatusBadge,
   FileIngestBadge,
@@ -32,7 +32,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";

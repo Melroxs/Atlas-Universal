@@ -8,8 +8,7 @@ This project uses the following tech stack:
 - Tailwind v4 (for styling)
 - Shadcn UI (for UI components library)
 - Lucide Icons (for icons)
-- Convex (for backend & database)
-- Convex Auth (for authentication)
+- Supabase (for database, backend RPCs, auth & storage)
 - Framer Motion (for animations)
 - Three js (for 3d models)
 
@@ -19,15 +18,29 @@ Use bun for the package manager.
 
 ## Setup
 
-This project is set up already and running on a cloud environment, as well as a convex development in the sandbox.
+The entire backend runs on Supabase: Postgres schema + row-level security + RPC functions (see `supabase/migrations/`) plus Supabase Auth and Storage. The frontend talks to it through `@/lib/api.ts` (the typed function registry) and `@/hooks/use-supabase.ts` (useQuery / useMutation / useAction drop-ins).
+
+### Apply the backend to your Supabase project
+
+1. Create a project at https://supabase.com (free tier is fine).
+2. Link the CLI to it (needs a Supabase access token from account settings):
+
+   ```bash
+   supabase login
+   supabase link --project-ref <your-project-ref>
+   supabase db push
+   ```
+
+   `supabase db push` applies everything in `supabase/migrations/` — schema, RLS policies, storage buckets, RPC functions, and the profile auto-create trigger. (Alternatively, run each `supabase/migrations/*.sql` file in the Supabase SQL editor.)
 
 ## Environment Variables
 
-The project is set up with project specific CONVEX_DEPLOYMENT and VITE_CONVEX_URL environment variables on the client side.
+Copy `.env.example` to `.env.local` and fill in your Supabase project keys (Settings → API):
 
-The convex server has a separate set of environment variables that are accessible by the convex backend.
+- `VITE_SUPABASE_URL` — project URL (e.g. `https://<ref>.supabase.co`)
+- `VITE_SUPABASE_ANON_KEY` — the anon/public key
 
-Currently, these variables include auth-specific keys: JWKS, JWT_PRIVATE_KEY, and SITE_URL.
+Restart `npm run dev` after adding them. Server-side secrets (`SUPABASE_SERVICE_ROLE_KEY`) are only used by Edge Functions, never by the browser bundle. Without the client keys the app still renders; the `/auth` page shows an honest "not configured" banner.
 
 
 # Using Authentication (Important!)

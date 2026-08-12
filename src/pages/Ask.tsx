@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   ConfidenceBar,
   EmptyPanel,
@@ -9,7 +9,7 @@ import {
 } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
 import { useVoice } from "@/hooks/use-voice";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery } from "@/hooks/use-supabase";
 import {
   ArrowRight,
   BookOpen,

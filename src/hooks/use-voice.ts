@@ -1,4 +1,4 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import {
   browserSpeechRecognitionSupported,
   browserSpeechSynthesisSupported,
@@ -10,7 +10,7 @@ import {
   stopBrowserSpeaking,
   type WakeWordEngine,
 } from "@/lib/voice";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery } from "@/hooks/use-supabase";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type VoiceStatus =

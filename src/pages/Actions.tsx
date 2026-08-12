@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   ActionStatusBadge,
   EmptyPanel,
@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery } from "@/hooks/use-supabase";
 import {
   AlertTriangle,
   Cable,

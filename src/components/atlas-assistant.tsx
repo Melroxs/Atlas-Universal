@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import { KnowledgeBadge, formatDate } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { useVoice } from "@/hooks/use-voice";
 import { getMicPermissionState } from "@/lib/voice";
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation } from "@/hooks/use-supabase";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,

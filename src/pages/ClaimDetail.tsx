@@ -1,5 +1,5 @@
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { api } from "@/lib/api";
+import type { Id } from "@/lib/data-model";
 import {
   ConfidenceBar,
   EmptyPanel,
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   ArrowLeft,
   BadgeDollarSign,
@@ -802,7 +802,7 @@ function SupplementDocumentDialog({
             {doc?.disclaimer ?? "Loading the structured supplement document…"}
           </DialogDescription>
         </DialogHeader>
-        {doc === undefined ? (
+        {!doc ? (
           <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
             Loading document…

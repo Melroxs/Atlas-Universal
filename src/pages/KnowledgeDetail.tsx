@@ -1,4 +1,4 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import {
   ClassificationBadge,
   ConfidenceBar,
@@ -9,7 +9,7 @@ import {
   formatDate,
 } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
-import { useQuery } from "convex/react";
+import { useQuery } from "@/hooks/use-supabase";
 import {
   ArrowLeft,
   BookOpen,
@@ -90,12 +90,12 @@ export default function KnowledgeDetail() {
         </Button>
         <PageHeader
           eyebrow="Document"
-          title={doc.title}
+          title={doc.title ?? "Untitled document"}
           description={doc.summary ?? "No summary extracted for this document."}
           actions={
             <div className="flex items-center gap-2">
               <ClassificationBadge classification={doc.classification} />
-              <DocStatusBadge status={doc.status} />
+              <DocStatusBadge status={doc.status ?? "unknown"} />
             </div>
           }
         />

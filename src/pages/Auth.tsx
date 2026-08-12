@@ -11,18 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { api } from "@/convex/_generated/api";
 import { useAuth } from "@/hooks/use-auth";
 import { classifyAuthError } from "@/lib/auth-errors";
 import {
-  getSupabaseAccessToken,
   isSupabaseConfigured,
   supabaseSendPasswordReset,
   supabaseSignIn,
   supabaseSignUp,
 } from "@/lib/supabase";
 import logo from "@/assets/logo.svg";
-import { useQuery } from "convex/react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -75,25 +72,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [resetting, setResetting] = useState(false);
 
   const supabaseClientConfigured = isSupabaseConfigured();
-  const authStatus = useQuery(api.authStatus.authStatus);
-  const serverUnconfigured =
-    supabaseClientConfigured &&
-    authStatus !== undefined &&
-    authStatus.supabaseConfigured === false;
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       navigate(redirect);
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
-
-  const exchangeTokenAndGo = async () => {
-    const accessToken = await getSupabaseAccessToken();
-    if (accessToken) {
-      await signIn("supabase", { accessToken });
-    }
-    navigate(redirect);
-  };
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -120,7 +104,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       } else {
         await supabaseSignIn(email, password);
       }
-      await exchangeTokenAndGo();
+      navigate(redirect);
     } catch (err) {
       console.error("Auth error:", err);
       setError(classifyAuthError(err));
@@ -244,14 +228,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       <code className="font-mono">VITE_SUPABASE_URL</code> and{" "}
       <code className="font-mono">VITE_SUPABASE_ANON_KEY</code> project keys —
       or continue as Guest below.
-    </div>
-  ) : serverUnconfigured ? (
-    <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-left text-xs leading-5 text-amber-800 dark:text-amber-200">
-      <AlertTriangle className="mr-1.5 inline size-3.5 -translate-y-px" />
-      Email sign-in is partially configured. Ask the administrator to add the{" "}
-      <code className="font-mono">SUPABASE_URL</code> and{" "}
-      <code className="font-mono">SUPABASE_SERVICE_ROLE_KEY</code> project keys
-      so access tokens can be verified.
     </div>
   ) : null;
 

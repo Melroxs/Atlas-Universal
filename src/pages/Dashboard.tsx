@@ -1,4 +1,4 @@
-import { api } from "@/convex/_generated/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import {
   ConfidenceBar,
@@ -13,7 +13,7 @@ import {
   titleCase,
 } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   ArrowRight,

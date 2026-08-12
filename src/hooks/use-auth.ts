@@ -1,80 +1,62 @@
-import { api } from "@/convex/_generated/api";
-import { useAuthActions } from "@convex-dev/auth/react";
-import { useConvexAuth, useQuery } from "convex/react";
-import { useEffect, useRef, useState } from "react";
+import { api } from "@/lib/api";
+import { useQuery } from "@/hooks/use-supabase";
 import {
-  getSupabaseAccessToken,
-  getSupabaseClient,
-  isSupabaseConfigured,
+  onSupabaseAuthChange,
+  supabaseAnonymousSignIn,
   supabaseSignOut,
 } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 
+/**
+ * Authentication state backed entirely by Supabase Auth.
+ *
+ * Usage:
+ *   const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
+ *
+ * `user` is the caller's row from the `profiles` table (mirrors the old
+ * Convex users table), or null when signed out / no profile row exists yet.
+ */
 export function useAuth() {
-  const { isLoading: isAuthLoading, isAuthenticated } = useConvexAuth();
-  const user = useQuery(api.users.currentUser);
-  const { signIn, signOut: convexSignOut } = useAuthActions();
-  const [hasSupabaseSession, setHasSupabaseSession] = useState(false);
-  const exchanging = useRef(false);
+  const [session, setSession] = useState<Session | null>(null);
+  const [ready, setReady] = useState(false);
+  const user = useQuery(
+    api.users.currentUser,
+    {},
+    { enabled: Boolean(session?.user) },
+  );
 
-  // Track the Supabase session (persists across reloads via localStorage).
-  // Guest (anonymous) users never touch Supabase, so hasSupabaseSession stays
-  // false for them.
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-    const supabase = getSupabaseClient();
-    if (!supabase) return;
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setHasSupabaseSession(Boolean(session));
+    const unsubscribe = onSupabaseAuthChange((next) => {
+      setSession(next);
+      setReady(true);
     });
-    // Seed state from the persisted session (onAuthStateChange fires async).
-    void supabase.auth.getSession().then(({ data: sessionData }) => {
-      setHasSupabaseSession(Boolean(sessionData.session));
-    });
-    return () => data.subscription.unsubscribe();
+    return unsubscribe;
   }, []);
 
-  // Session bridge: when a live Supabase session exists but the Convex
-  // session is gone (expired/cleared), exchange a fresh access token for a
-  // new Convex session. Skipped on /auth — the auth page performs its own
-  // explicit exchange and this would only race it.
-  useEffect(() => {
-    if (!hasSupabaseSession || !isSupabaseConfigured()) return;
-    if (isAuthLoading || isAuthenticated || exchanging.current) return;
-    if (typeof window !== "undefined" && window.location.pathname === "/auth") {
+  const isAuthenticated = Boolean(session?.user);
+  const isLoading = !ready || (isAuthenticated && user === undefined);
+
+  /** Sign in as a guest (anonymous Supabase identity). */
+  const signIn = async (provider?: string) => {
+    if (provider === "anonymous") {
+      await supabaseAnonymousSignIn();
       return;
     }
-    exchanging.current = true;
-    void (async () => {
-      try {
-        const accessToken = await getSupabaseAccessToken();
-        if (accessToken) {
-          await signIn("supabase", { accessToken });
-        }
-      } catch (error) {
-        // A failed exchange (e.g. server key missing) must not leave the user
-        // stuck in an unauthenticated loop — sign out of Supabase so the
-        // bridge stops retrying and the user can sign in again explicitly.
-        console.error("Supabase session exchange failed:", error);
-        await supabaseSignOut();
-      } finally {
-        exchanging.current = false;
-      }
-    })();
-  }, [hasSupabaseSession, isAuthLoading, isAuthenticated, signIn]);
-
-  /** Sign out of both Supabase and the Convex session. */
-  const signOut = async () => {
-    await supabaseSignOut();
-    await convexSignOut();
+    throw new Error(
+      "Direct sign-in must go through the Auth page (email/password or Guest).",
+    );
   };
 
-  // Derive isLoading directly from the dependencies instead of managing separate state
-  const isLoading = isAuthLoading || user === undefined;
+  const signOut = async () => {
+    await supabaseSignOut();
+  };
 
   return {
     isLoading,
     isAuthenticated,
     user,
+    session,
     signIn,
     signOut,
   };

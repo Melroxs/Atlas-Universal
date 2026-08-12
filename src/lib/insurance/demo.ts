@@ -21,6 +21,7 @@
  */
 
 import { getSupabaseClient } from "@/lib/supabase";
+import { rpcCall } from "@/lib/actions/rpc";
 import { buildClaimFindings, analyzeClaimCompleteness, reconcileClaim, type ClaimSnapshot } from "./logic";
 import { extractClaimNumber } from "./reconstruct";
 
@@ -291,7 +292,7 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
   if (!supabase) throw new Error("Supabase is not configured.");
 
   // Replace previous demo records.
-  await supabase.rpc("insurance_demo_remove");
+  await rpcCall(supabase, "insurance_demo_remove");
 
   const specs = buildDemoRestorationDataset();
   const now = Date.now();
@@ -299,8 +300,8 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
   let claims = 0;
 
   for (const spec of specs) {
-    const { data, error } = await supabase.rpc("insurance_create_claim", {
-      p_claimNumber: spec.claimNumber,
+    const data = await rpcCall(supabase, "insurance_create_claim", {
+      claimNumber: spec.claimNumber,
       p_customer: spec.customer,
       p_property: spec.property,
       p_carrier: spec.carrier,
@@ -317,18 +318,17 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
       p_approvedAmount: spec.approvedAmount ?? null,
       p_scopeItems: spec.scopeItems ?? null,
       p_expectedScope: spec.expectedScope ?? null,
-      p_actualScope: spec.actualScope ?? null,
-      p_provenance: DEMO_PROVENANCE,
+      actualScope: spec.actualScope ?? null,
+      provenance: DEMO_PROVENANCE,
     });
-    if (error) throw error;
     const claimId = (data as { claimId?: string })?.claimId;
     if (!claimId) throw new Error("Demo loader could not create a claim.");
 
     // Demo claims carry their created/updated timestamps so freshness
     // analysis is realistic.
-    await supabase.rpc("insurance_update_claim", {
-      p_claim_id: claimId,
-      p_patch: {
+    await rpcCall(supabase, "insurance_update_claim", {
+      claimId,
+      patch: {
         createdAt: now - spec.createdDaysAgo * day,
         updatedAt: now - spec.updatedDaysAgo * day,
         isDemo: true,
@@ -348,16 +348,16 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
     if (spec.demonstrates.includes("supplement_opportunity")) {
       const omitted = spec.scopeItems.filter((s) => !s.inEstimate && s.documented);
       const amount = omitted.reduce((s, o) => s + (o.amount ?? 0), 0) || undefined;
-      await supabase.rpc("insurance_create_supplement", {
-        p_claim_id: claimId,
-        p_reason: "Recovering documented scope not represented in the original estimate.",
-        p_affectedLineItems: omitted.map((o) => o.name),
-        p_requestedItems: omitted.map((o) => o.name),
-        p_evidence: spec.actualScope
+      await rpcCall(supabase, "insurance_create_supplement", {
+        claimId,
+        reason: "Recovering documented scope not represented in the original estimate.",
+        affectedLineItems: omitted.map((o) => o.name),
+        requestedItems: omitted.map((o) => o.name),
+        evidence: spec.actualScope
           .filter((s) => omitted.some((o) => o.name.toLowerCase().includes(s.toLowerCase())))
           .concat("Demo scope notes"),
-        p_amount: amount ?? null,
-        p_justification:
+        amount: amount ?? null,
+        justification:
           "Draft assembled from the deterministic demo dataset — requires human review.",
       });
     }
@@ -368,9 +368,9 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
       ...f,
       findingKey: `claim:${claimId}:${f.source ?? f.category}`,
     }));
-    await supabase.rpc("insurance_upsert_findings", {
-      p_claim_id: claimId,
-      p_findings: findings,
+    await rpcCall(supabase, "insurance_upsert_findings", {
+      claimId,
+      findings,
     });
     claims++;
   }
@@ -382,7 +382,6 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
 export async function removeDemoDataClient(): Promise<{ removed: number }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const { data, error } = await supabase.rpc("insurance_demo_remove");
-  if (error) throw error;
+  const data = await rpcCall(supabase, "insurance_demo_remove");
   return (data ?? { removed: 0 }) as { removed: number };
 }

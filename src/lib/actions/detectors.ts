@@ -6,25 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { getSupabaseClient } from "@/lib/supabase";
-
-interface RpcResult {
-  data: unknown;
-  error: { message: string } | null;
-}
-
-async function rpc(
-  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
-  fn: string,
-  args: Record<string, unknown> = {},
-): Promise<unknown> {
-  // PostgREST matches lowercased parameter names (Postgres folds identifiers).
-  const clean = Object.fromEntries(
-    Object.entries(args).map(([k, v]) => [k.toLowerCase(), v]),
-  );
-  const { data, error } = await supabase.rpc(fn, clean);
-  if (error) throw new Error(error.message);
-  return data;
-}
+import { rpcCall } from "@/lib/actions/rpc";
 
 interface DocRow {
   _id: string;
@@ -50,27 +32,27 @@ export async function runDetectorsClient(): Promise<{
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const docs = ((await rpc(supabase, "documents_list_documents")) as DocRow[]) ?? [];
+  const docs = ((await rpcCall(supabase, "documents_list_documents")) as DocRow[]) ?? [];
   const now = Date.now();
 
   // Close anything from a previous run so re-runs are idempotent.
-  await rpc(supabase, "recommendations_close_stale", {
-    p_detectorKeys: DETECTOR_KEYS,
+  await rpcCall(supabase, "recommendations_close_stale", {
+    detectorKeys: DETECTOR_KEYS,
   });
 
   let created = 0;
 
   // 1. Documents whose ingestion failed.
   for (const doc of docs.filter((d) => d.status === "failed")) {
-    const res = (await rpc(supabase, "recommendations_create", {
-      p_title: "A document failed to process",
-      p_summary: `“${doc.title ?? "Untitled document"}” could not be ingested.`,
-      p_reason: doc.error ?? "The ingestion pipeline reported an error.",
-      p_detectorKey: "document_processing_failed",
-      p_priority: "medium",
-      p_confidence: 0.9,
-      p_risk: "low",
-      p_evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: doc.error, relevance: 0.9 }],
+    const res = (await rpcCall(supabase, "recommendations_create", {
+      title: "A document failed to process",
+      summary: `“${doc.title ?? "Untitled document"}” could not be ingested.`,
+      reason: doc.error ?? "The ingestion pipeline reported an error.",
+      detectorKey: "document_processing_failed",
+      priority: "medium",
+      confidence: 0.9,
+      risk: "low",
+      evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: doc.error, relevance: 0.9 }],
     })) as { created: boolean };
     if (res.created) created++;
   }
@@ -79,15 +61,15 @@ export async function runDetectorsClient(): Promise<{
   for (const doc of docs.filter(
     (d) => d.status === "ready" && (!d.entityCount || d.entityCount === 0),
   ).slice(0, 20)) {
-    const res = (await rpc(supabase, "recommendations_create", {
-      p_title: "Knowledge gap: no entities extracted",
-      p_summary: `“${doc.title ?? "Untitled document"}” was ingested but produced no entities.`,
-      p_reason: "The document may contain mostly unstructured text, or the extraction was too thin to be useful.",
-      p_detectorKey: "knowledge_gaps",
-      p_priority: "low",
-      p_confidence: 0.6,
-      p_risk: "low",
-      p_evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: "No entities extracted.", relevance: 0.6 }],
+    const res = (await rpcCall(supabase, "recommendations_create", {
+      title: "Knowledge gap: no entities extracted",
+      summary: `“${doc.title ?? "Untitled document"}” was ingested but produced no entities.`,
+      reason: "The document may contain mostly unstructured text, or the extraction was too thin to be useful.",
+      detectorKey: "knowledge_gaps",
+      priority: "low",
+      confidence: 0.6,
+      risk: "low",
+      evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: "No entities extracted.", relevance: 0.6 }],
     })) as { created: boolean };
     if (res.created) created++;
   }
@@ -96,15 +78,15 @@ export async function runDetectorsClient(): Promise<{
   for (const doc of docs.filter(
     (d) => d.updatedAt && now - d.updatedAt > 90 * 24 * 3600_000,
   ).slice(0, 20)) {
-    const res = (await rpc(supabase, "recommendations_create", {
-      p_title: "Document may be stale",
-      p_summary: `“${doc.title ?? "Untitled document"}” has not been updated in over 90 days.`,
-      p_reason: "Re-verify this document still reflects current operations.",
-      p_detectorKey: "stale_documents",
-      p_priority: "low",
-      p_confidence: 0.5,
-      p_risk: "low",
-      p_evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: doc.updatedAt ? `Last updated ${new Date(doc.updatedAt).toLocaleDateString()}.` : undefined, relevance: 0.5 }],
+    const res = (await rpcCall(supabase, "recommendations_create", {
+      title: "Document may be stale",
+      summary: `“${doc.title ?? "Untitled document"}” has not been updated in over 90 days.`,
+      reason: "Re-verify this document still reflects current operations.",
+      detectorKey: "stale_documents",
+      priority: "low",
+      confidence: 0.5,
+      risk: "low",
+      evidence: [{ kind: "document", documentId: doc._id, title: doc.title, snippet: doc.updatedAt ? `Last updated ${new Date(doc.updatedAt).toLocaleDateString()}.` : undefined, relevance: 0.5 }],
     })) as { created: boolean };
     if (res.created) created++;
   }

@@ -21,25 +21,7 @@ import {
 import { localEmbed } from "@/lib/ingest/localEmbed";
 import { chunkText, summarize, truncate } from "@/lib/ingest/text";
 import { parseFile } from "@/lib/ingest/parsers";
-
-interface RpcResult {
-  data: unknown;
-  error: { message: string } | null;
-}
-
-async function rpc(
-  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
-  fn: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  // PostgREST matches lowercased parameter names (Postgres folds identifiers).
-  const clean = Object.fromEntries(
-    Object.entries(args).map(([k, v]) => [k.toLowerCase(), v]),
-  );
-  const { data, error } = await supabase.rpc(fn, clean);
-  if (error) throw new Error(error.message);
-  return data;
-}
+import { rpcCall } from "@/lib/actions/rpc";
 
 export interface ProcessDocumentArgs {
   /** Supabase storage path of the uploaded file (inside the documents bucket). */
@@ -66,14 +48,14 @@ export async function processDocumentClient(
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const created = (await rpc(supabase, "ingestion_create_document", {
-    p_title: args.title,
-    p_mimeType: args.mimeType,
-    p_size: args.size,
-    p_sourceType: args.sourceType ?? "upload",
-    p_classification: "Unknown",
-    p_status: "processing",
-    p_storageId: args.storagePath,
+  const created = (await rpcCall(supabase, "ingestion_create_document", {
+    title: args.title,
+    mimeType: args.mimeType,
+    size: args.size,
+    sourceType: args.sourceType ?? "upload",
+    classification: "Unknown",
+    status: "processing",
+    storageId: args.storagePath,
   })) as { docId: string };
   const docId = created.docId;
 
@@ -99,9 +81,9 @@ export async function processDocumentClient(
       existingDocId: docId,
     });
 
-    await rpc(supabase, "ingestion_patch_document", {
-      p_document_id: docId,
-      p_patch: {
+    await rpcCall(supabase, "ingestion_patch_document", {
+      documentId: docId,
+      patch: {
         status: "ready",
         classification: result.classification,
         summary: summarize(text),
@@ -115,9 +97,9 @@ export async function processDocumentClient(
     return { docId, ...result, mode: "local" };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await rpc(supabase, "ingestion_patch_document", {
-      p_document_id: docId,
-      p_patch: { status: "failed", error: message },
+    await rpcCall(supabase, "ingestion_patch_document", {
+      documentId: docId,
+      patch: { status: "failed", error: message },
     }).catch(() => undefined);
     throw new Error(message);
   }
@@ -150,12 +132,12 @@ export async function ingestTextClient(
   const entities = await upsertEntitiesClient(supabase, candidates, existingDocId);
 
   for (let i = 0; i < chunks.length; i++) {
-    await rpc(supabase, "ingestion_insert_chunk", {
-      p_document_id: existingDocId,
-      p_chunkIndex: i,
-      p_content: chunks[i],
-      p_embedding: embeddings[i],
-      p_tokenCount: null,
+    await rpcCall(supabase, "ingestion_insert_chunk", {
+      documentId: existingDocId,
+      chunkIndex: i,
+      content: chunks[i],
+      embedding: embeddings[i],
+      tokenCount: null,
     });
   }
 
@@ -196,12 +178,12 @@ export async function ingestTextClient(
       });
     }
     for (const a of assertions) {
-      await rpc(supabase, "ingestion_insert_assertion", {
-        p_classification: a.classification,
-        p_statement: a.statement,
-        p_confidence: a.confidence,
-        p_sourceDocumentId: existingDocId,
-        p_evidence: a.evidence,
+      await rpcCall(supabase, "ingestion_insert_assertion", {
+        classification: a.classification,
+        statement: a.statement,
+        confidence: a.confidence,
+        sourceDocumentId: existingDocId,
+        evidence: a.evidence,
       });
     }
 
@@ -213,13 +195,13 @@ export async function ingestTextClient(
           const a = entities[i];
           const b = entities[j];
           if (a.entityId === b.entityId) continue;
-          await rpc(supabase, "ingestion_insert_relationship", {
-            p_subjectEntityId: a.entityId,
-            p_relationshipTypeKey: "relates_to",
-            p_objectEntityId: b.entityId,
-            p_confidence: Math.min(a.confidence, b.confidence),
-            p_sourceDocumentId: existingDocId,
-            p_evidence: truncate(text, 200),
+          await rpcCall(supabase, "ingestion_insert_relationship", {
+            subjectEntityId: a.entityId,
+            relationshipTypeKey: "relates_to",
+            objectEntityId: b.entityId,
+            confidence: Math.min(a.confidence, b.confidence),
+            sourceDocumentId: existingDocId,
+            evidence: truncate(text, 200),
           });
           edges++;
         }
@@ -275,9 +257,9 @@ async function upsertEntitiesClient(
     }
 
     if (matchId) {
-      await rpc(supabase, "ingestion_patch_entity", {
-        p_entity_id: matchId,
-        p_patch: {
+      await rpcCall(supabase, "ingestion_patch_entity", {
+        entityId: matchId,
+        patch: {
           lastObservedAt: now,
           sourceDocumentId: documentId,
           confidence: Math.max(c.confidence, 0.5),
@@ -285,12 +267,12 @@ async function upsertEntitiesClient(
       });
       out.push({ entityId: matchId, name, type: c.type, confidence: Math.max(c.confidence, 0.5) });
     } else {
-      const inserted = (await rpc(supabase, "ingestion_insert_entity", {
-        p_entityTypeKey: c.type,
-        p_name: name,
-        p_confidence: c.confidence,
-        p_sourceDocumentId: documentId,
-        p_attributes: { source: "document_extraction", aliases: [] },
+      const inserted = (await rpcCall(supabase, "ingestion_insert_entity", {
+        entityTypeKey: c.type,
+        name: name,
+        confidence: c.confidence,
+        sourceDocumentId: documentId,
+        attributes: { source: "document_extraction", aliases: [] },
       })) as { entityId: string };
       idByKey.set(key, inserted.entityId);
       pool.push({ id: inserted.entityId, type: c.type, name });

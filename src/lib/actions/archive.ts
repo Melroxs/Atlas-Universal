@@ -3,33 +3,26 @@
 // server-side now runs in the browser against Supabase Storage + Postgres RPCs.
 //
 //   beginProcessing(archiveId) — ingest every queued file (parse → chunks →
-//     entities → assertions), marking each file as it goes, then flip the
-//     archive to its final state. Safe to re-run: files already ingested are
-//     skipped and per-file failures are recorded instead of aborting.
+//     entities → assertions), reconstruct POTENTIAL claim candidates, then flip
+//     the archive to its final state. Safe to re-run: files already ingested
+//     are skipped and per-file failures are recorded instead of aborting.
+//
+// All Postgres calls go through rpcCall() (src/lib/actions/rpc.ts), which
+// sends RPC arguments as `p_` + lowercased key — PostgREST resolves parameter
+// names exactly against the folded schema cache (p_archiveId → p_archiveid).
+// Sending `p_archive_id` or `p_archiveId` fails with PGRST202.
 // ---------------------------------------------------------------------------
 
 import { getSupabaseClient } from "@/lib/supabase";
 import { ingestTextClient } from "@/lib/actions/ingestion";
 import { parseFile } from "@/lib/ingest/parsers";
-
-interface RpcResult {
-  data: unknown;
-  error: { message: string } | null;
-}
-
-async function rpc(
-  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
-  fn: string,
-  args: Record<string, unknown>,
-): Promise<unknown> {
-  // PostgREST matches lowercased parameter names (Postgres folds identifiers).
-  const clean = Object.fromEntries(
-    Object.entries(args).map(([k, v]) => [k.toLowerCase(), v]),
-  );
-  const { data, error } = await supabase.rpc(fn, clean);
-  if (error) throw new Error(error.message);
-  return data;
-}
+import { rpcCall } from "@/lib/actions/rpc";
+import type { ClaimHint } from "@/lib/archive/types";
+import {
+  buildCandidateFromArchive,
+  clusterDocumentsByClaimNumber,
+  type CandidateEvidence,
+} from "@/lib/insurance/reconstruct";
 
 interface ArchiveFileRow {
   _id: string;
@@ -40,30 +33,112 @@ interface ArchiveFileRow {
   storageId?: string | null;
   ingestStatus?: string;
   documentId?: string | null;
+  claimHints?: ClaimHint[] | null;
 }
 
 interface ArchiveDetail {
   archive: Record<string, any>;
   files: ArchiveFileRow[];
-  docs: Record<string, any>;
+  docs: Record<string, { _id: string; title: string; classification?: string; status?: string }>;
   candidates: Record<string, any>[];
+}
+
+/**
+ * Group per-file claim hints into POTENTIAL claim candidates and persist them
+ * (idempotent — the backend dedupes on tenantId + claimKey). Candidates are
+ * evidence-backed, never automatically promoted to real claims.
+ */
+export async function reconstructArchiveCandidates(
+  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  archiveId: string,
+  files: ArchiveFileRow[],
+  docs: ArchiveDetail["docs"],
+): Promise<{ candidates: number; scannedFiles: number }> {
+  // 1. Archive claim hints (deterministic identifiers from filenames/paths).
+  const hints = new Map<string, { claimNumber: string; fileCount: number; confidence: number; samplePaths: string[] }>();
+  let scannedFiles = 0;
+  for (const f of files) {
+    const fileHints = f.claimHints ?? [];
+    if (fileHints.length === 0) continue;
+    scannedFiles++;
+    for (const h of fileHints) {
+      const key = h.claimNumber.toUpperCase();
+      const agg = hints.get(key) ?? {
+        claimNumber: h.claimNumber,
+        fileCount: 0,
+        confidence: 0,
+        samplePaths: [],
+      };
+      agg.fileCount++;
+      agg.confidence = Math.max(agg.confidence, h.confidence);
+      if (agg.samplePaths.length < 12) agg.samplePaths.push(f.path);
+      hints.set(key, agg);
+    }
+  }
+
+  const fromHints: CandidateEvidence[] = [...hints.values()].map((h) =>
+    buildCandidateFromArchive(h),
+  );
+
+  // 2. Document-title clustering for docs this archive ingested.
+  const docList = Object.values(docs).filter(
+    (d) => d && typeof d.title === "string",
+  );
+  const fromDocs = clusterDocumentsByClaimNumber(
+    docList.map((d) => ({ _id: d._id, title: d.title })),
+  );
+
+  // Merge by claimKey (hint-derived clusters win; doc clusters add evidence).
+  const merged = new Map<string, CandidateEvidence>();
+  for (const c of [...fromHints, ...fromDocs]) {
+    const existing = merged.get(c.claimKey);
+    if (!existing) {
+      merged.set(c.claimKey, c);
+      continue;
+    }
+    merged.set(c.claimKey, {
+      ...existing,
+      confidence: Math.max(existing.confidence, c.confidence),
+      documentIds: [...new Set([...existing.documentIds, ...c.documentIds])],
+      archivePaths: [...new Set([...existing.archivePaths, ...c.archivePaths])],
+      evidence: [...new Set([...existing.evidence, ...c.evidence])],
+    });
+  }
+
+  const payload = [...merged.values()].map((c) => ({
+    archiveId,
+    claimKey: c.claimKey,
+    claimNumber: c.claimNumber,
+    customer: c.customer ?? null,
+    property: c.property ?? null,
+    fileCount: Math.max(1, c.documentIds.length + c.archivePaths.length),
+    totalSize: null,
+    confidence: c.confidence,
+    filePaths: c.archivePaths,
+    evidence: c.evidence,
+  }));
+
+  if (payload.length === 0) return { candidates: 0, scannedFiles };
+
+  await rpcCall(supabase, "insurance_upsert_candidates", { candidates: payload });
+  return { candidates: payload.length, scannedFiles };
 }
 
 /** Ingest every queued file of an archive and advance its lifecycle. */
 export async function beginProcessingClient(args: {
   archiveId: string;
-}): Promise<{ ok: boolean; ingested: number; failed: number }> {
+}): Promise<{ ok: boolean; ingested: number; failed: number; candidates: number }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const detail = (await rpc(supabase, "archive_get_detail", {
-    p_archive_id: args.archiveId,
+  const detail = (await rpcCall(supabase, "archive_get_detail", {
+    archiveId: args.archiveId,
   })) as ArchiveDetail | null;
   if (!detail) throw new Error("Archive not found.");
 
-  await rpc(supabase, "archive_patch", {
-    p_archive_id: args.archiveId,
-    p_patch: { status: "processing", startedAt: Date.now(), progress: 0 },
+  await rpcCall(supabase, "archive_patch", {
+    archiveId: args.archiveId,
+    patch: { status: "processing", startedAt: Date.now(), progress: 0 },
   });
 
   const queue = detail.files.filter(
@@ -81,36 +156,58 @@ export async function beginProcessingClient(args: {
       ingested++;
     } catch (e) {
       failed++;
-      await rpc(supabase, "archive_patch_file", {
-        p_file_id: file._id,
-        p_patch: {
+      await rpcCall(supabase, "archive_patch_file", {
+        fileId: file._id,
+        patch: {
           ingestStatus: "failed",
           error: e instanceof Error ? e.message.slice(0, 2000) : String(e),
         },
       }).catch(() => undefined);
     }
-    await rpc(supabase, "archive_patch", {
-      p_archive_id: args.archiveId,
-      p_patch: {
-        progress: Math.round((ingested + failed) / Math.max(queue.length, 1) * 100),
+    await rpcCall(supabase, "archive_patch", {
+      archiveId: args.archiveId,
+      patch: {
+        progress: Math.round(((ingested + failed) / Math.max(queue.length, 1)) * 100),
       },
     }).catch(() => undefined);
   }
 
-  const remaining = detail.files.filter(
-    (f) => !f.documentId && f.storageId && f.ingestStatus === "queued",
-  ).length;
-  const status = failed > 0 && ingested === 0
-    ? "failed"
-    : failed > 0
-      ? "completed_with_warnings"
-      : remaining > 0
-        ? "completed_with_warnings"
-        : "completed";
+  // Reconstruct POTENTIAL claim candidates from the archive's deterministic
+  // claim hints + ingested document titles (Phase 14 — human approval required).
+  let candidates = 0;
+  try {
+    const res = await reconstructArchiveCandidates(
+      supabase,
+      args.archiveId,
+      detail.files,
+      detail.docs ?? {},
+    );
+    candidates = res.candidates;
+  } catch (e) {
+    // Candidate reconstruction is best-effort — never fail the whole archive
+    // because claim grouping hit a transient error.
+    console.error("[atlas] claim reconstruction failed:", e);
+  }
 
-  await rpc(supabase, "archive_patch", {
-    p_archive_id: args.archiveId,
-    p_patch: {
+  // Files that were queued but NOT in the processed queue (they lacked a
+  // storageId) remain queued — everything in `queue` is now ingested or
+  // failed, so the pre-loop snapshot must not be used to count them.
+  const queueIds = new Set(queue.map((f) => f._id));
+  const stillQueued = detail.files.filter(
+    (f) => f.ingestStatus === "queued" && !queueIds.has(f._id),
+  ).length;
+  const status =
+    failed > 0 && ingested === 0
+      ? "failed"
+      : failed > 0
+        ? "completed_with_warnings"
+        : stillQueued > 0
+          ? "completed_with_warnings"
+          : "completed";
+
+  await rpcCall(supabase, "archive_patch", {
+    archiveId: args.archiveId,
+    patch: {
       status,
       progress: 100,
       failureReason: status === "failed" ? `${failed} files failed to ingest.` : null,
@@ -118,12 +215,13 @@ export async function beginProcessingClient(args: {
         ingested,
         failed,
         total: detail.files.length,
+        potentialClaims: candidates,
         completedAt: Date.now(),
       },
     },
   });
 
-  return { ok: true, ingested, failed };
+  return { ok: true, ingested, failed, candidates };
 }
 
 /** Ingest a single archive file into the knowledge base. */
@@ -145,15 +243,15 @@ async function ingestArchiveFile(
   const { text } = await parseFile(mimeType, file.filename, bytes);
   if (!text.trim()) throw new Error("No readable text found in this file.");
 
-  const created = (await rpc(supabase, "ingestion_create_document", {
-    p_title: file.filename,
-    p_mimeType: mimeType,
-    p_size: file.size ?? 0,
-    p_sourceType: "archive",
-    p_sourceId: `${archiveId}/${file.path}`,
-    p_classification: "Unknown",
-    p_status: "processing",
-    p_storageId: storagePath,
+  const created = (await rpcCall(supabase, "ingestion_create_document", {
+    title: file.filename,
+    mimeType,
+    size: file.size ?? 0,
+    sourceType: "archive",
+    sourceId: `${archiveId}/${file.path}`,
+    classification: "Unknown",
+    status: "processing",
+    storageId: storagePath,
   })) as { docId: string };
 
   const result = await ingestTextClient(supabase, {
@@ -166,9 +264,9 @@ async function ingestArchiveFile(
     existingDocId: created.docId,
   });
 
-  await rpc(supabase, "ingestion_patch_document", {
-    p_document_id: created.docId,
-    p_patch: {
+  await rpcCall(supabase, "ingestion_patch_document", {
+    documentId: created.docId,
+    patch: {
       status: "ready",
       classification: result.classification,
       chunkCount: result.chunks,
@@ -178,9 +276,9 @@ async function ingestArchiveFile(
     },
   });
 
-  await rpc(supabase, "archive_patch_file", {
-    p_file_id: file._id,
-    p_patch: { ingestStatus: "ingested", documentId: created.docId },
+  await rpcCall(supabase, "archive_patch_file", {
+    fileId: file._id,
+    patch: { ingestStatus: "ingested", documentId: created.docId },
   });
 }
 
@@ -193,9 +291,9 @@ export async function retryFilesClient(args: {
   if (!supabase) throw new Error("Supabase is not configured.");
 
   for (const fileId of args.fileIds) {
-    await rpc(supabase, "archive_patch_file", {
-      p_file_id: fileId,
-      p_patch: { ingestStatus: "queued", error: null, documentId: null },
+    await rpcCall(supabase, "archive_patch_file", {
+      fileId,
+      patch: { ingestStatus: "queued", error: null, documentId: null },
     }).catch(() => undefined);
   }
 

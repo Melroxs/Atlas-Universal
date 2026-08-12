@@ -31,3 +31,5 @@ bun-debug.log*
 .idea
 .vscode
 *.swp
+.vercel
+.env*

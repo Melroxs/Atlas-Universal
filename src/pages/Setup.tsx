@@ -197,6 +197,10 @@ export default function Setup() {
         }
         setBusy("creating");
         await createTenant({ name: workspaceName.trim() });
+        // The workspace query is one-shot and won't refetch until this page
+        // remounts, so seed the form directly — otherwise step 2 opens with an
+        // empty company name and the flow dead-ends.
+        setForm((f) => ({ ...f, companyName: workspaceName.trim() }));
         setStep(2);
       } else if (step === 2) {
         if (!form.companyName.trim()) {

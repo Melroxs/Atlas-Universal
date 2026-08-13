@@ -52,39 +52,35 @@ is preserved verbatim), duplicate checksum provenance, image handling with hones
 `content_extraction_unavailable` warnings, tenant isolation, CORS contract tests for
 the edge function, auth error mapping, voice/wake-word, retrieval, and parsers.
 
-### Live E2E against the real deployed Supabase project — BLOCKED
+### Live E2E against the real deployed Supabase project — GREEN (2026-08-13)
 
-`RUN_LIVE_E2E=1` was executed against the production project. It fails at the very
-first production assertion, reproducing the exact defect the Phase 15 closure was
-supposed to fix:
+All live suites pass against the real project with `RUN_LIVE_E2E=1`:
 
-```
-tenant-live.e2e.test.ts > tenants_create_tenant (repeated call)
-Unknown Error: You already belong to a workspace.
-```
+| Suite | Result |
+|---|---|
+| `tenant-live.e2e.test.ts` | PASS — signup → idempotent tenant bootstrap (repeated calls return the same workspace, exactly one owner membership) |
+| `archive-live.e2e.test.ts` | PASS — real ZIP through the real engine → uploads → archive_begin → inventory → processing → `archive_get_detail` completed, claim candidate `8842001` visible |
+| `phase15-live.e2e.test.ts` | PASS — individual uploads of every format (PDF/DOCX/XLSX/CSV/TXT/MD/image/EML), full 113-file NPP archive (105 docs ingested, 0 failed), claim `GAP-26-51847` reconstructed/approved/analyzed (4 findings, 36 evidence links, 8 duplicate refs), Ask Atlas answers from real evidence |
+| `scripts/journey-live.mjs` | PASS — 13/13 checks: signup, profile trigger, edge function 200-skipped before workspace, tenant create with "NPP Roofing & Restoration", idempotent retry, owner membership FK satisfied, edge function 200 with workspace, 401 unauthenticated, OPTIONS 204 + single origin, re-login persistence |
 
-A direct live probe of the production database confirmed the root cause: the deployed
-project still runs the **pre-0011** `tenants_create_tenant`, which raises
-`P0001` ("You already belong to a workspace.") instead of returning the caller's
-existing workspace, and which can still race concurrent onboarding requests into the
-409 the browser console reported.
-
-**The Phase 15 live E2E suite (archive pipeline + full NPP ingestion) cannot pass
-until migrations 0009–0012 are applied to the production Supabase project.** Running
-it now would fail on the first tenant-bootstrap step; no results are claimed.
+Migration 0013 (added this session) makes `tenants_create_tenant` repair a missing
+`public.profiles` row via `ensure_profile()` BEFORE any membership insert — the
+root cause of the production `23503` (memberships FK to profiles) — and re-raises
+database errors with structured SQLSTATEs. Migrations 0009–0012 were confirmed
+applied live and the history table was backfilled so `supabase db push` stays in sync.
 
 ---
 
-## 3. Production status (verified live)
+## 3. Production status (verified live, 2026-08-13)
 
 | Component | Status | Evidence |
 |---|---|---|
 | Frontend at https://atlasuniversalos.freebuff.app | **Live** | HTTP 200 on `/` and `/auth` |
-| Frontend bundle freshness | **Up to date** | Redeployed `5c55053` on 2026-08-13; deployed entry `index-DPicHwxK.js` + CSS `index-CUU3wShB.css` byte-match the fresh local build, and the live `Auth-ByL0hXC2.js` chunk contains the new existing-account fix |
-| Supabase migrations 0009–0012 | **NOT applied** | Live probe: repeated `tenants_create_tenant` raises the old `P0001` |
-| Edge function `connections-run-due-syncs` | **NOT deployed** | OPTIONS preflight returns HTTP 404 (the exact browser console error) |
-| Auth (signup + session) | **Working** | Live probe: fresh user signup returns an active session |
-| Tenant bootstrap idempotency | **BROKEN in prod** | Old RPC behavior confirmed (see above); fix is committed but not deployed to the DB |
+| Supabase migrations 0001–0013 | **Applied** | `supabase migration list` shows all remote; history table backfilled; live RPC signatures match the frontend contract (`tenants_*`, `insurance_*`, `archive_*`, `ingestion_*`, `documents_*`) |
+| Edge function `connections-run-due-syncs` | **Deployed + self-contained** | ACTIVE (4 versions); entry `source/index.ts` imports the LOCAL `source/cors.ts` copy (no package-escape imports); OPTIONS → 204 with single allowed origin; unauthenticated → 401; no-workspace → 200 `{skipped}`; verified by `cors.test.ts` drift/escape guards |
+| Auth (signup + session) | **Working** | Fresh signup returns active session; `profiles` row auto-created by trigger |
+| Tenant bootstrap | **FIXED in prod** | 0011 idempotency + 0013 profile repair live; no 409/23503 in the journey test; repeated create returns the same workspace |
+| Demo/test data | **Reset (final)** | `scripts/reset-demo-data.mjs --apply` run last, after all live E2E verification: 0 app rows (38 tables), 0 auth users, 0 storage objects; schema/RLS/buckets intact |
 
 ### Env / setup requirements
 
@@ -105,70 +101,70 @@ when absent (honest, no fabricated answers).
 
 ---
 
-## 4. Remaining production steps (the only things between this repo and a green MVP)
+## 4. Production operations — COMPLETED (2026-08-13)
 
-The code is complete and committed. Three production-side operations remain, and each
-requires credentials this sandbox does not have (no `SUPABASE_ACCESS_TOKEN`,
-`SUPABASE_SERVICE_ROLE_KEY` env, or DB password was provided in this environment —
-nothing was faked or skipped).
+Migrations 0001–0013 are applied and the edge function is deployed (see §3). The
+credentials (Supabase access token in API Keys) are available; nothing is pending.
 
-### 4a. Apply migrations 0009–0012 to the production Supabase project
-
-Easiest path — paste a **Supabase personal access token** (`sbp_...`) into the
-project's **Keys/API keys** tab as `SUPABASE_ACCESS_TOKEN`, then the exact commands are:
+### 4a. Migrations — DONE (0001–0013)
 
 ```bash
-supabase login --token "$SUPABASE_ACCESS_TOKEN"
-supabase link --project-ref ibxvzxblyhzwokljkslt
-supabase db push          # applies 0009–0012 (idempotent tenant bootstrap,
-                          # claim-package scalar fix, duplicate provenance,
-                          # documents cap)
+supabase migration repair --status applied ...   # backfilled history for 0001–0012
+supabase db push                                  # applied 0013
 ```
 
-Equivalent manual path (no token needed): open the Supabase dashboard → SQL Editor
-and run, in order, the contents of:
+PostgREST schema cache was refreshed (`NOTIFY pgrst, 'reload schema'`).
 
-```
-supabase/migrations/0009_fix_claim_package_scalar.sql
-supabase/migrations/0010_fix_archive_duplicate_provenance.sql
-supabase/migrations/0011_fix_tenant_bootstrap_idempotent.sql
-supabase/migrations/0012_fix_documents_list_cap.sql
-```
+### 4b. Edge function — DONE
 
-Then refresh the PostgREST schema cache (dashboard → Settings → API, or
-`NOTIFY pgrst, 'reload schema'`).
-
-### 4b. Deploy the edge function
-
-```bash
-supabase functions deploy connections-run-due-syncs --project-ref ibxvzxblyhzwokljkslt
-```
-
-This deploys the shared-CORS handler (`_shared/cors.ts`) that answers OPTIONS with
-204 + allowed origins (`https://atlasuniversalos.freebuff.app`) and enforces JWT auth
-and tenant scoping on the actual request. Verify with:
-
-```bash
-curl -i -X OPTIONS \
-  -H "Origin: https://atlasuniversalos.freebuff.app" \
-  -H "Access-Control-Request-Method: POST" \
-  https://ibxvzxblyhzwokljkslt.supabase.co/functions/v1/connections-run-due-syncs
-# expect HTTP 204 + access-control-allow-origin
-```
+Deployed from the self-contained structure (`source/index.ts` entry importing the
+local `source/cors.ts`; root `index.ts` shim keeps the standard CLI deploy path).
+Verified: OPTIONS → 204 with `Access-Control-Allow-Origin: https://atlasuniversalos.freebuff.app`
+only; unauthenticated → 401; no-workspace → 200 `{skipped}`; with workspace → 200
+`{ok:true}`. The stray `cors` function from an earlier mis-deploy was deleted.
 
 ### 4c. Redeploy the frontend — DONE
 
-The current HEAD (`5c55053`, auth/tenant/edge fix) was redeployed to
+The current HEAD (auth/tenant/edge fix) was redeployed to
 https://atlasuniversalos.freebuff.app on 2026-08-13 and verified: the live bundle
 matches the fresh build exactly and includes the "Sign in instead" existing-account
 flow and non-blocking connector-sync handling.
+
+### 4d. Document-extraction pipeline — DONE (PDF/DOCX/XLSX production-safe)
+
+Production defect fixed: `src/lib/ingest/parsers.ts` ran in the browser but
+relied on Node-only extractors — `pdf-parse` (whose dynamic `require()` of its
+internal pdf.js cannot survive the Vite bundle: "Could not dynamically require
+./pdf.js/v1.10.100/build/...") and a Node `Buffer` for DOCX ("Word parsing
+isn't available in this environment"). XLSX had the same Buffer dependency.
+
+Fix (verified in the built bundle, 2026-08-13):
+
+- **PDF → pdfjs-dist** (`src/lib/ingest/pdf.ts`). Legacy ESM build so the same
+  module runs in browser + Node tests; the worker is emitted as a static asset
+  (`assets/pdf.worker.min-*.mjs`) and wired through `GlobalWorkerOptions.workerSrc`
+  via the Vite `new URL(..., import.meta.url)` pattern. In Node pdf.js runs
+  main-thread; if the browser worker ever fails it falls back to main-thread.
+- **DOCX → mammoth's official browser build** (`src/lib/ingest/docx.ts`) reading
+  a plain `ArrayBuffer` — no Buffer, no fs.
+- **XLSX → raw `Uint8Array`** (`XLSX.read(..., { type: "array" })`).
+- `.eml` unchanged; `.doc`/`.msg` remain explicitly unsupported; images keep the
+  honest `content_extraction_unavailable` state (no fabricated OCR).
+
+Validation: `bun tsc -b --noEmit` ✓ · `bunx vitest run` 174 passed (incl. new
+PDF/DOCX/corrupt-file/bundle-safety regression tests) ✓ · `bun run build` ✓ with
+`pdf.worker.min-*.mjs` emitted and referenced, no `pdf-parse` strings left in the
+bundle. Both individual uploads and archive-extracted files go through the same
+`parseFile` pipeline (`processDocumentClient` / `beginProcessingClient`).
 
 ---
 
 ## 5. Genuine remaining limitations (not hidden)
 
-- **Production DB migrations + edge function deploy are pending** — the single
-  blocker for Phase 15 "complete". Everything else in this report is verified.
+- **Clean slate** — the project is at zero app data (no demo/test users). The
+  live journey was re-verified (13/13 checks, 2026-08-13) and the data reset
+  immediately after; any future live E2E run should be followed by
+  `node scripts/reset-demo-data.mjs --apply` to stay clean.
 - **OCR:** scanned PDFs honestly report no text layer; OCR credentials are not
   configured (the pipeline hook exists).
 - **Legacy formats:** `.doc` is unsupported (save as `.docx`); unsupported formats
@@ -185,10 +181,11 @@ flow and non-blocking connector-sync handling.
 
 ## 6. Bottom line
 
-Code: complete, committed, locally green (tsc ✓, 154 tests ✓, build ✓).
-Frontend: live at the canonical URL, now serving the latest commit (verified).
-Backend: the deployed Supabase project is missing migrations 0009–0012 and the
-`connections-run-due-syncs` edge function — the exact root causes of the reported
-production 422/409/CORS errors. The fixes are committed; applying them to Supabase
-requires either a `SUPABASE_ACCESS_TOKEN` in API Keys (I can apply and re-verify
-immediately) or running the four SQL files + one `functions deploy` command above.
+Code: complete, locally green (tsc ✓, 174 unit tests ✓, build ✓).
+Frontend: live at https://atlasuniversalos.freebuff.app (HTTP 200).
+Backend: migrations 0001–0013 applied live (including 0013's profile-repair/
+structured-error hardening), the `connections-run-due-syncs` edge function deployed
+self-contained with single-origin CORS, demo/test data reset and verified at zero,
+and the full new-customer journey + Phase 15 pipeline verified green against the
+real project (signup → profile → tenant → owner membership → uploads → archive →
+claim reconstruction → analysis → Ask Atlas → re-login).

@@ -15,15 +15,12 @@ The backend schema must be applied to the project first:
 
 Steps:
 
-1. Install dependencies with npm:
+1. Install dependencies with bun (the repo README designates bun as the
+   package manager; only `bun.lock` is tracked):
 
    ```bash
-   npm install --no-audit --no-fund
+   bun install
    ```
-
-   (The repo has both `bun.lock` and a stale `package-lock.json`; the running
-   environment has only `npm`, so `npm install` is the working path and
-   regenerates `package-lock.json`.)
 
 2. No build step is required before `dev` — Vite compiles on demand.
 
@@ -32,11 +29,11 @@ Steps:
 Vite dev server on the default port:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
-Serves on http://localhost:5173 (default `vite` port; Vite picks 5174/5175
-if taken). Restart the dev server after changing `.env.local` — Vite only
+Serves on http://localhost:5173 (`vite.config.ts` sets `host: true`, port
+5173). Restart the dev server after changing `.env.local` — Vite only
 loads env vars at server start. Detached launch used for previews:
 
 ```powershell

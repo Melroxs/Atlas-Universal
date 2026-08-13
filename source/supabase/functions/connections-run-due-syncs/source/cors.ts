@@ -1,26 +1,34 @@
 // ---------------------------------------------------------------------------
-// Shared CORS contract for every Atlas Supabase Edge Function.
+// Shared CORS contract for every Atlas Supabase Edge Function — LOCAL
+// DEPLOYABLE COPY.
+//
+// DEPLOYMENT CONTRACT: the Freebuff bundler treats source/index.ts as the
+// entry point and only packages files inside the function package directory,
+// so this copy lives next to the entry (source/cors.ts) and is what the
+// deployed function actually runs. The canonical implementation is kept at
+// _shared/cors.ts; the drift test in _shared/cors.test.ts fails if the two
+// files ever diverge. Edit BOTH copies (or regenerate the local copy from the
+// canonical one).
 //
 // Every edge function must handle browser preflight (OPTIONS) with a 2xx
 // response carrying the required CORS headers, and must include the same
-// headers on the actual response. Keeping this in one module means a fix here
-// applies to every function that imports it — never write per-function CORS.
+// headers on the actual response.
 //
 // Notes:
 // - Auth is enforced independently by each handler (JWT verification). CORS
 //   never bypasses authentication: unknown origins get NO Access-Control-
 //   Allow-Origin header, so the browser blocks them even though the server
 //   still authorizes the request on its own merits.
+// - Access-Control-Allow-Origin is restricted to the canonical production
+//   origin ONLY (no wildcard, no legacy aliases).
 // - This module is intentionally free of `Deno` imports so it can be unit
 //   tested by the project's vitest suite.
 // ---------------------------------------------------------------------------
 
 /** Origins the Atlas web app runs from. The canonical production deployment
- *  is atlasuniversalos.freebuff.app; the legacy slot is kept so a browser
- *  session on that host is also permitted once it is updated. */
+ *  is atlasuniversalos.freebuff.app — and that is the only allowed origin. */
 export const ATLAS_ALLOWED_ORIGINS: string[] = [
   "https://atlasuniversalos.freebuff.app",
-  "https://atlasuniversal.freebuff.app",
 ];
 
 export const ATLAS_CORS_METHODS = "GET, POST, OPTIONS";

@@ -1,18 +1,29 @@
-"use node";
-
-// File → text extraction. Runs in the Node runtime via the ingestion action.
+// ---------------------------------------------------------------------------
+// File → text extraction. Runs in the BROWSER runtime (client-side ingestion
+// via src/lib/actions/ingestion.ts + archive.ts), so every extractor here
+// must be bundleable by Vite — no Node-only require() calls, no Node Buffer
+// APIs, no fs access.
+//
 // All supported formats converge here; every source (manual upload, archive,
 // future connectors) feeds the same parser and therefore the same
 // normalization pipeline. Detection goes through the canonical format
 // contract in ./formats — extension, normalized MIME and magic bytes.
+//
+// Production defects this file fixed:
+//   - PDF used pdf-parse (a Node library) whose dynamic require() of its
+//     internal pdf.js could not survive the Vite bundle ("Could not
+//     dynamically require ./pdf.js/..."). PDFs now go through pdfjs-dist
+//     (src/lib/ingest/pdf.ts).
+//   - DOCX required a Node Buffer ("Word parsing isn't available in this
+//     environment"). DOCX now goes through mammoth's browser build with a
+//     plain ArrayBuffer (src/lib/ingest/docx.ts).
+//   - XLSX required a Buffer as well; XLSX.read now consumes the raw
+//     Uint8Array directly.
+// ---------------------------------------------------------------------------
 
-import mammoth from "mammoth";
 import * as XLSX from "xlsx";
-// pdf-parse's root index.js runs a debug self-test at import time; the lib
-// entry is the pure implementation.
-// eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-expect-error — pdf-parse 1.x ships CommonJS without ESM type declarations
-import pdfParse from "pdf-parse/lib/pdf-parse.js";
+import { extractPdfText } from "./pdf";
+import { extractDocxText } from "./docx";
 import { ocrPdf } from "./ocr";
 import { classifyFile, type FileKind } from "./formats";
 
@@ -49,8 +60,6 @@ export async function parseFile(
   title: string,
   bytes: ArrayBuffer,
 ): Promise<ParseResult> {
-  const hasBuffer = typeof Buffer !== "undefined";
-  const buf = hasBuffer ? Buffer.from(bytes) : null;
   const info = classifyFile(title, mimeType, bytes);
 
   // Images: never pretend binary pixels are text. The ingestion core stores
@@ -72,11 +81,8 @@ export async function parseFile(
 
   try {
     if (info.kind === "pdf") {
-      // Pass the raw ArrayBuffer — pdf.js accepts it, and this avoids any
-      // dependency on a Node Buffer polyfill in browser builds.
-      const parsed = await pdfParse(bytes);
-      const text = parsed?.text ?? "";
-      if (text.trim().length < 40) {
+      const text = (await extractPdfText(bytes)).trim();
+      if (text.length < 40) {
         // Likely a scanned PDF with no text layer. Try OCR; if unavailable,
         // fail honestly instead of pretending text was extracted.
         const ocr = await ocrPdf(bytes);
@@ -95,9 +101,7 @@ export async function parseFile(
           "Legacy .doc files aren't supported yet — save as .docx and upload that.",
         );
       }
-      if (!buf) throw new Error("Word parsing isn't available in this environment.");
-      const result = await mammoth.extractRawText({ buffer: buf });
-      const text = (result.value ?? "").trim();
+      const text = await extractDocxText(bytes);
       if (!text) {
         throw new Error("No readable text found in this Word document.");
       }
@@ -108,8 +112,7 @@ export async function parseFile(
       };
     }
     if (info.kind === "excel") {
-      if (!buf) throw new Error("Spreadsheet parsing isn't available in this environment.");
-      const text = parseExcelToText(buf, title);
+      const text = parseExcelToText(bytes, title);
       if (!text.trim()) {
         throw new Error("No readable cells found in this workbook.");
       }
@@ -172,8 +175,10 @@ export async function parseFile(
  * name (preserved for provenance), a header row, then up to 400 data rows.
  * This keeps tables queryable for search, entity extraction and reasoning.
  */
-function parseExcelToText(buf: Buffer, title: string): string {
-  const wb = XLSX.read(buf, { type: "buffer" });
+function parseExcelToText(bytes: ArrayBuffer, title: string): string {
+  // { type: "array" } accepts the raw Uint8Array in both the browser and
+  // Node — no Buffer required.
+  const wb = XLSX.read(new Uint8Array(bytes), { type: "array" });
   if (!wb.SheetNames.length) return "";
   const parts: string[] = [];
   let rowsSeen = 0;

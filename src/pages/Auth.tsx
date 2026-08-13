@@ -112,16 +112,32 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
         // Account created and session active. Provision the Atlas workspace
         // (tenant + owner membership + company profile) right away so the
         // user lands inside Atlas instead of a dead end. The RPC is
-        // idempotent for existing members; if it ever fails the /setup flow
-        // provisions the workspace instead, so login is never blocked.
+        // idempotent for existing members; if it ever fails we surface the
+        // reason AND hand off to /setup (which retries the same idempotent
+        // RPC), so the company name the user typed is never lost.
         if (companyName.trim()) {
           try {
             await createTenant({ name: companyName.trim() });
           } catch (provisionError) {
             console.warn(
-              "[auth] workspace auto-provision failed, /setup will handle it:",
+              "[auth] workspace auto-provision failed, /setup will retry it:",
               provisionError,
             );
+            const provisionMsg =
+              provisionError instanceof Error
+                ? provisionError.message
+                : String(provisionError ?? "unknown error");
+            setNotice(
+              `Your account is ready, but Atlas couldn't create the workspace yet: ` +
+                `${provisionMsg} You'll finish creating it on the next screen.`,
+            );
+            // /setup's workspace step retries tenants_create_tenant (which is
+            // idempotent), so a failure here is recoverable — carry the name.
+            navigate("/setup", {
+              state: { workspaceName: companyName.trim() },
+            });
+            setIsLoading(false);
+            return;
           }
         }
       } else {

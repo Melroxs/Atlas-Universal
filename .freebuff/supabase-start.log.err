@@ -1,0 +1,22 @@
+ mailpit Skipped - Image is already present locally 
+ imgProxy Skipped - Image is already present locally 
+ db Skipped - Image is already present locally 
+ edgeRuntime Skipped - Image is already present locally 
+ studio Skipped - Image is already present locally 
+ pgmeta Skipped - Image is already present locally 
+ gateway Skipped - Image is already present locally 
+ storage Skipped - Image is already present locally 
+ api Skipped - Image is already present locally 
+ auth Skipped - Image is already present locally 
+Starting database from backup...
+Starting containers...
+Waiting for health checks...
+Started supabase local development setup.
+
+Local dev security notice
+All services bind to 0.0.0.0 (network-accessible, not just localhost)
+API keys and JWT secrets are shared defaults. Do not use in production
+Studio, pgMeta (/pg/*), and analytics have no authentication
+
+A new version of Supabase CLI is available: v2.113.0 (currently installed v2.109.1)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

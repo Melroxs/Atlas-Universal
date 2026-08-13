@@ -1,0 +1,214 @@
+/* DO NOT CHANGE */
+@import "tailwindcss";
+@import "tw-animate-css";
+@custom-variant dark (&:is(.dark *));
+
+/* DO NOT CHANGE */
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+/* ---------------------------------------------------------------------------
+   ATLAS DESIGN TOKENS
+   One token system, two themes. Light and dark speak the same language:
+   cool ink neutrals, teal signal accent, restrained contrast.
+--------------------------------------------------------------------------- */
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.984 0.004 258);
+  --foreground: oklch(0.22 0.018 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.018 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.018 258);
+  --primary: oklch(0.24 0.02 258);
+  --primary-foreground: oklch(0.985 0.004 258);
+  --secondary: oklch(0.955 0.005 258);
+  --secondary-foreground: oklch(0.24 0.02 258);
+  --muted: oklch(0.955 0.005 258);
+  --muted-foreground: oklch(0.5 0.015 258);
+  --accent: oklch(0.945 0.02 190);
+  --accent-foreground: oklch(0.24 0.02 258);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.905 0.006 258);
+  --input: oklch(0.905 0.006 258);
+  --ring: oklch(0.55 0.1 178);
+  --chart-1: oklch(0.55 0.12 178);
+  --chart-2: oklch(0.55 0.12 250);
+  --chart-3: oklch(0.6 0.13 70);
+  --chart-4: oklch(0.6 0.14 25);
+  --chart-5: oklch(0.58 0.12 300);
+  --sidebar: oklch(0.972 0.004 258);
+  --sidebar-foreground: oklch(0.22 0.018 258);
+  --sidebar-primary: oklch(0.24 0.02 258);
+  --sidebar-primary-foreground: oklch(0.985 0.004 258);
+  --sidebar-accent: oklch(0.945 0.02 190);
+  --sidebar-accent-foreground: oklch(0.24 0.02 258);
+  --sidebar-border: oklch(0.905 0.006 258);
+  --sidebar-ring: oklch(0.55 0.1 178);
+
+  --atlas-grid-line: oklch(0.3 0.01 258 / 9%);
+  --atlas-grid-fine-line: oklch(0.3 0.01 258 / 7%);
+  --atlas-scroll-thumb: oklch(0.3 0.01 258 / 24%);
+  --atlas-body-glow: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    oklch(0.55 0.09 178 / 0.09),
+    transparent 70%
+  );
+}
+
+/* ---------------------------------------------------------------------------
+   ATLAS "MISSION CONTROL" DARK THEME
+   Deep ink + signal teal. Premium, calm, command-center.
+--------------------------------------------------------------------------- */
+.dark {
+  --background: oklch(0.157 0.016 258);
+  --foreground: oklch(0.955 0.008 258);
+  --card: oklch(0.197 0.018 258);
+  --card-foreground: oklch(0.955 0.008 258);
+  --popover: oklch(0.207 0.018 258);
+  --popover-foreground: oklch(0.955 0.008 258);
+  --primary: oklch(0.752 0.132 178);
+  --primary-foreground: oklch(0.16 0.04 178);
+  --secondary: oklch(0.26 0.02 258);
+  --secondary-foreground: oklch(0.955 0.008 258);
+  --muted: oklch(0.235 0.018 258);
+  --muted-foreground: oklch(0.685 0.02 258);
+  --accent: oklch(0.262 0.028 190);
+  --accent-foreground: oklch(0.955 0.01 190);
+  --destructive: oklch(0.68 0.185 25);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.68 0.1 178);
+  --chart-1: oklch(0.752 0.132 178);
+  --chart-2: oklch(0.78 0.115 230);
+  --chart-3: oklch(0.802 0.14 80);
+  --chart-4: oklch(0.7 0.16 20);
+  --chart-5: oklch(0.72 0.13 300);
+  --sidebar: oklch(0.128 0.013 258);
+  --sidebar-foreground: oklch(0.93 0.008 258);
+  --sidebar-primary: oklch(0.752 0.132 178);
+  --sidebar-primary-foreground: oklch(0.16 0.04 178);
+  --sidebar-accent: oklch(0.235 0.02 258);
+  --sidebar-accent-foreground: oklch(0.95 0.008 258);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.68 0.1 178);
+
+  --atlas-grid-line: oklch(1 0 0 / 5%);
+  --atlas-grid-fine-line: oklch(1 0 0 / 4%);
+  --atlas-scroll-thumb: oklch(1 0 0 / 14%);
+  --atlas-body-glow: radial-gradient(
+    ellipse 80% 50% at 50% -10%,
+    oklch(0.752 0.132 178 / 0.07),
+    transparent 70%
+  );
+
+  color-scheme: dark;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-image: var(--atlas-body-glow);
+    background-attachment: fixed;
+  }
+  button:not([disabled]),
+  [role="button"]:not([disabled]) {
+    cursor: pointer;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Atlas utilities (theme-aware via CSS variables)
+--------------------------------------------------------------------------- */
+
+/* Faint radar grid used on the landing page and empty states. */
+.atlas-grid {
+  background-image:
+    linear-gradient(to right, var(--atlas-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--atlas-grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.atlas-grid-fine {
+  background-image:
+    linear-gradient(to right, var(--atlas-grid-fine-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--atlas-grid-fine-line) 1px, transparent 1px);
+  background-size: 26px 26px;
+}
+
+/* Teal signal glow for hero / cards. */
+.atlas-glow-teal {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.752 0.132 178 / 0.14), transparent 72%);
+}
+
+.atlas-glow-amber {
+  background:
+    radial-gradient(ellipse 55% 45% at 50% 0%, oklch(0.802 0.14 80 / 0.12), transparent 72%);
+}
+
+/* Thin scrollbars inside panels. */
+.atlas-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.atlas-scroll::-webkit-scrollbar-thumb {
+  background: var(--atlas-scroll-thumb);
+  border-radius: 9999px;
+}
+.atlas-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Monospace eyebrow label. */
+.atlas-eyebrow {
+  @apply font-mono text-[11px] font-medium uppercase tracking-[0.18em] text-teal-600 dark:text-teal-400/90;
+}

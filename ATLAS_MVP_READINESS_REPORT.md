@@ -157,6 +157,20 @@ PDF/DOCX/corrupt-file/bundle-safety regression tests) ✓ · `bun run build` ✓
 bundle. Both individual uploads and archive-extracted files go through the same
 `parseFile` pipeline (`processDocumentClient` / `beginProcessingClient`).
 
+Live smoke test (2026-08-13, real Supabase project): `RUN_LIVE_E2E=1` archive +
+phase15 suites PASS — full 113-file NPP archive ingested **105 docs / 0 failed**
+(PDF/DOCX/XLSX/EML/images), claim GAP-26-51847 reconstructed, 36 evidence links;
+data reset to zero afterward.
+
+Deployment note: this workspace's Freebuff deployment is **atlasmvp.freebuff.app**
+and is verified live with the new build (index-DhKAlcES.js, worker asset served,
+no pdf-parse strings). The alias **atlasuniversalos.freebuff.app is Vercel-hosted**
+(server: Vercel) and was still serving the stale bundle at last check — it needs a
+Vercel-side redeploy after the GitHub push. Security note: commit 453dba0 pushed
+`env.local` (repo root, not covered by `.env*` ignore) containing the real
+SUPABASE_ACCESS_TOKEN — the token should be rotated and the file removed from
+history via Vercel/GitHub tooling.
+
 ---
 
 ## 5. Genuine remaining limitations (not hidden)

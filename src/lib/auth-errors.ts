@@ -47,6 +47,26 @@ const SUPABASE_MESSAGES: Record<string, string> = {
 };
 
 /**
+ * True when the error means the email already has an account (signup 422
+ * "User already registered" / user_already_exists / email_exists). Used by
+ * the Auth page to offer an obvious "Sign in instead" path.
+ */
+export function isExistingAccountError(error: unknown): boolean {
+  const msg = messageOf(error).toLowerCase();
+  const code = codeOf(error).toLowerCase();
+  if (
+    code === "user_already_exists" ||
+    code === "email_exists" ||
+    code === "duplicate_email"
+  ) {
+    return true;
+  }
+  // Some SDK/gateway versions surface the 422 body only as a message without
+  // a stable code — recognize the wording, never a stack trace or secret.
+  return /(already registered|already exists|already in use)/.test(msg);
+}
+
+/**
  * Classify any auth error (Supabase SDK error or backend exchange error) into
  * a safe, actionable message. Generic by default — never leaks internals.
  */
@@ -56,6 +76,10 @@ export function classifyAuthError(error: unknown): string {
 
   const known = SUPABASE_MESSAGES[code];
   if (known) return known;
+
+  if (isExistingAccountError(error)) {
+    return SUPABASE_MESSAGES.email_exists;
+  }
 
   if (
     /not configured|supabase_service_role|vite_supabase|missing.*key|invalid.*service role/i.test(

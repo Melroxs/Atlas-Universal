@@ -157,11 +157,17 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // Idempotent: ensure the pack catalog exists, claim any invites, and let
   // background syncs pick up connected sources that are due for a refresh.
+  // Connections sync is optional infrastructure — a failure (edge function
+  // not deployed, CORS, timeout) is logged once for diagnostics and NEVER
+  // blocks the app.
   useEffect(() => {
     void seedIntelligence();
     void claimInvites();
-    void runDueSyncs().catch(() => {
-      // background sync is best-effort
+    void runDueSyncs().catch((e) => {
+      console.warn(
+        "[atlas] background connections sync unavailable (non-blocking):",
+        e instanceof Error ? e.message : String(e),
+      );
     });
   }, [seedIntelligence, claimInvites, runDueSyncs]);
 

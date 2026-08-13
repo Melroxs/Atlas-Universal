@@ -211,9 +211,16 @@ export default function Connections() {
     if (!oauth) return;
     if (oauth === "success") {
       toast.success("Google Drive connected", {
-        description: "Your first sync is starting — documents will appear in Knowledge.",
+        description: "The connection is saved. Knowledge updates when the background sync runs.",
       });
-      void runDueSyncs().catch(() => {});
+      // Best-effort background sweep. When the sync engine isn't deployed the
+      // failure is logged once and never blocks the page.
+      void runDueSyncs().catch((e) => {
+        console.warn(
+          "[atlas] connections sync unavailable after OAuth (non-blocking):",
+          e instanceof Error ? e.message : String(e),
+        );
+      });
     } else if (oauth === "denied") {
       toast.info("Google authorization cancelled");
     } else {

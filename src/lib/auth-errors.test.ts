@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { classifyAuthError } from "./auth-errors";
+import { classifyAuthError, isExistingAccountError } from "./auth-errors";
 
 function supabaseError(code: string): Error {
   const error = new Error(`Supabase: ${code}.`);
@@ -54,5 +54,29 @@ describe("classifyAuthError", () => {
     const r = classifyAuthError(new Error("something unexpected happened"));
     expect(r).toBe("Unable to sign in. Please try again.");
     expect(r).not.toContain("something unexpected");
+  });
+
+  it("classifies the live 422 'User already registered' signup error (no code)", () => {
+    // Reproduced against the deployed project: signup with an existing email
+    // returns AuthApiError "User already registered" with code
+    // user_already_exists and status 422. Some gateways surface only the
+    // message — both paths must map to the clean existing-account message.
+    const e = new Error("AuthApiError: User already registered");
+    expect(isExistingAccountError(e)).toBe(true);
+    expect(classifyAuthError(e)).toMatch(/already exists/i);
+    expect(classifyAuthError(e)).toMatch(/sign in/i);
+  });
+
+  it("recognizes the user_already_exists / email_exists codes", () => {
+    expect(isExistingAccountError(supabaseError("user_already_exists"))).toBe(true);
+    expect(isExistingAccountError(supabaseError("email_exists"))).toBe(true);
+    expect(classifyAuthError(supabaseError("user_already_exists"))).toMatch(/already exists/i);
+  });
+
+  it("does not flag generic or unrelated errors as existing-account", () => {
+    expect(isExistingAccountError(supabaseError("invalid_credentials"))).toBe(false);
+    expect(isExistingAccountError(supabaseError("weak_password"))).toBe(false);
+    expect(isExistingAccountError(new Error("Network Error"))).toBe(false);
+    expect(isExistingAccountError(new Error("something unexpected happened"))).toBe(false);
   });
 });

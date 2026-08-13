@@ -13,7 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { useAuth } from "@/hooks/use-auth";
 import { api } from "@/lib/api";
-import { classifyAuthError } from "@/lib/auth-errors";
+import { classifyAuthError, isExistingAccountError } from "@/lib/auth-errors";
 import {
   isSupabaseConfigured,
   supabaseSendPasswordReset,
@@ -75,6 +75,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  // When signup fails because the email already has an account, offer a direct
+  // path to the login flow instead of leaving the user at a dead end.
+  const [existingAccount, setExistingAccount] = useState(false);
 
   const supabaseClientConfigured = isSupabaseConfigured();
 
@@ -128,8 +131,16 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     } catch (err) {
       console.error("Auth error:", err);
       setError(classifyAuthError(err));
+      setExistingAccount(isExistingAccountError(err));
       setIsLoading(false);
     }
+  };
+
+  const switchToSignIn = () => {
+    setMode("signIn");
+    setError(null);
+    setNotice(null);
+    setExistingAccount(false);
   };
 
   const handleReset = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -146,6 +157,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     } catch (err) {
       console.error("Password reset error:", err);
       setError(classifyAuthError(err));
+      setExistingAccount(isExistingAccountError(err));
     } finally {
       setIsLoading(false);
     }
@@ -161,6 +173,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     } catch (err) {
       console.error("Guest login error:", err);
       setError(`Failed to sign in as guest: ${classifyAuthError(err)}`);
+      setExistingAccount(false);
       setIsLoading(false);
     }
   };
@@ -356,6 +369,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     setMode(v as Mode);
                     setError(null);
                     setNotice(null);
+                    setExistingAccount(false);
                   }}
                   className="px-6"
                 >
@@ -398,6 +412,15 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                     {mode === "signUp" && companyInput}
                     {error && (
                       <p className="mt-2 text-sm text-red-500">{error}</p>
+                    )}
+                    {existingAccount && mode === "signUp" && (
+                      <button
+                        type="button"
+                        onClick={switchToSignIn}
+                        className="mt-1 text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80"
+                      >
+                        Sign in to this account instead
+                      </button>
                     )}
                     {notice && (
                       <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">

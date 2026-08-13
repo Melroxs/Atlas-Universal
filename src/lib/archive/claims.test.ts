@@ -44,6 +44,16 @@ describe("extractClaimHints — folder context", () => {
     expect(hints.some((h) => h.claimNumber === "")).toBe(true);
   });
 
+  it("resolves old/prior claim folders to their own distinct id", () => {
+    // OldClaims/CL-2019-48211 is a claim folder — it must yield the old
+    // claim id, never the current claim, and never the literal folder text.
+    const { hints } = extractClaimHints(
+      "OldClaims/CL-2019-48211/prior_claim_summary.pdf",
+    );
+    expect(hints.some((h) => h.claimNumber === "CL-2019-48211")).toBe(true);
+    expect(hints.some((h) => h.claimNumber === "CL-2019-48211" && h.confidence >= 0.7)).toBe(true);
+  });
+
   it("does not invent hints for unrelated paths", () => {
     const { hints } = extractClaimHints("Marketing/Branding/logo.png");
     expect(hints).toHaveLength(0);

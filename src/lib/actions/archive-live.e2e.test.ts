@@ -248,10 +248,13 @@ describe.skipIf(!RUN)("live archive pipeline E2E (real project)", () => {
       })) as { archiveId: string };
       expect(created.archiveId).toBeTruthy();
 
-      // 7. Submit the inventory in batches (real RPC contract).
+      // 7. Submit the FULL inventory in batches (real RPC contract) — every
+      //    entry including client-detected duplicates carries its
+      //    duplicateOfPath/versionGroup provenance, exactly like the archive
+      //    upload UI does. Only plan.ingest files were uploaded to storage.
       const BATCH = 100;
-      for (let i = 0; i < plan.ingest.length; i += BATCH) {
-        const batch = plan.ingest.slice(i, i + BATCH);
+      for (let i = 0; i < analysis.entries.length; i += BATCH) {
+        const batch = analysis.entries.slice(i, i + BATCH);
         await rpcCall(supabase, "archive_submit_inventory_batch", {
           archiveId: created.archiveId,
           clientWarnings: analysis.warnings.map((w) => w.message),

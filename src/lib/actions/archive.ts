@@ -16,6 +16,7 @@
 import { getSupabaseClient } from "@/lib/supabase";
 import { ingestTextClient } from "@/lib/actions/ingestion";
 import { parseFile } from "@/lib/ingest/parsers";
+import { summarize } from "@/lib/ingest/text";
 import { rpcCall } from "@/lib/actions/rpc";
 import type { ClaimHint } from "@/lib/archive/types";
 import {
@@ -240,12 +241,11 @@ async function ingestArchiveFile(
 
   const bytes = await fileData.arrayBuffer();
   const mimeType = file.mimeType || "application/octet-stream";
-  const { text } = await parseFile(mimeType, file.filename, bytes);
-  if (!text.trim()) throw new Error("No readable text found in this file.");
+  const parsed = await parseFile(mimeType, file.filename, bytes);
 
   const created = (await rpcCall(supabase, "ingestion_create_document", {
     title: file.filename,
-    mimeType,
+    mimeType: parsed.mimeType,
     size: file.size ?? 0,
     sourceType: "archive",
     sourceId: `${archiveId}/${file.path}`,
@@ -254,13 +254,38 @@ async function ingestArchiveFile(
     storageId: storagePath,
   })) as { docId: string };
 
+  if (parsed.image) {
+    // Images are real evidence but have no extractable text — store them as
+    // evidence with an honest extraction state (never fabricate OCR text).
+    await rpcCall(supabase, "ingestion_patch_document", {
+      documentId: created.docId,
+      patch: {
+        status: "ready",
+        classification: "Image Evidence",
+        summary:
+          "Image evidence stored. No text/OCR content extracted — OCR is not configured in this environment.",
+        chunkCount: 0,
+        entityCount: 0,
+        processedAt: Date.now(),
+        error: null,
+      },
+    });
+    await rpcCall(supabase, "archive_patch_file", {
+      fileId: file._id,
+      patch: { ingestStatus: "ingested", documentId: created.docId },
+    });
+    return;
+  }
+
+  if (!parsed.text.trim()) throw new Error("No readable text found in this file.");
+
   const result = await ingestTextClient(supabase, {
     title: file.filename,
-    mimeType,
+    mimeType: parsed.mimeType,
     size: file.size ?? 0,
     sourceType: "archive",
     sourceId: `${archiveId}/${file.path}`,
-    text,
+    text: parsed.text,
     existingDocId: created.docId,
   });
 
@@ -269,6 +294,10 @@ async function ingestArchiveFile(
     patch: {
       status: "ready",
       classification: result.classification,
+      // Same content summary the individual-upload path writes, so claim
+      // reconstruction and evidence matching can read document content
+      // without a per-document detail fetch.
+      summary: summarize(parsed.text),
       chunkCount: result.chunks,
       entityCount: result.entities,
       processedAt: Date.now(),

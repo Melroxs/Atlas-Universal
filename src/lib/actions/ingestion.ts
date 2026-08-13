@@ -44,6 +44,8 @@ export async function processDocumentClient(
   chunks: number;
   entities: number;
   mode: "ai" | "local";
+  kind?: string;
+  warnings?: string[];
 }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
@@ -67,17 +69,46 @@ export async function processDocumentClient(
       throw new Error("Uploaded file is missing from storage.");
     }
     const bytes = await fileData.arrayBuffer();
-    const { text } = await parseFile(args.mimeType, args.title, bytes);
-    if (!text.trim()) {
+    const parsed = await parseFile(args.mimeType, args.title, bytes);
+
+    // Images: the file is real evidence but has no extractable text — never
+    // pretend binary pixels are text. Stored + represented as evidence with
+    // an honest extraction state.
+    if (parsed.image) {
+      await rpcCall(supabase, "ingestion_patch_document", {
+        documentId: docId,
+        patch: {
+          status: "ready",
+          classification: "Image Evidence",
+          summary:
+            "Image evidence stored. No text/OCR content extracted — OCR is not configured in this environment.",
+          chunkCount: 0,
+          entityCount: 0,
+          processedAt: Date.now(),
+          error: null,
+        },
+      });
+      return {
+        docId,
+        classification: "Image Evidence",
+        chunks: 0,
+        entities: 0,
+        mode: "local",
+        kind: "image",
+        warnings: ["content_extraction_unavailable"],
+      };
+    }
+
+    if (!parsed.text.trim()) {
       throw new Error("No readable text found in this file.");
     }
 
     const result = await ingestTextClient(supabase, {
       title: args.title,
-      mimeType: args.mimeType,
+      mimeType: parsed.mimeType,
       size: args.size,
       sourceType: args.sourceType ?? "upload",
-      text,
+      text: parsed.text,
       existingDocId: docId,
     });
 
@@ -86,7 +117,7 @@ export async function processDocumentClient(
       patch: {
         status: "ready",
         classification: result.classification,
-        summary: summarize(text),
+        summary: summarize(parsed.text),
         chunkCount: result.chunks,
         entityCount: result.entities,
         processedAt: Date.now(),
@@ -94,7 +125,7 @@ export async function processDocumentClient(
       },
     });
 
-    return { docId, ...result, mode: "local" };
+    return { docId, ...result, mode: "local", kind: parsed.kind };
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     await rpcCall(supabase, "ingestion_patch_document", {

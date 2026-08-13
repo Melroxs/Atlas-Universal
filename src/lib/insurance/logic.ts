@@ -375,6 +375,99 @@ const OPPORTUNITY_CATEGORY: Record<string, string> = {
 };
 
 /**
+ * A tenant document that may carry claim facts (used by the enrichment).
+ */
+export interface EvidenceDocLike {
+  _id: string;
+  title?: string | null;
+  classification?: string | null;
+  /** Extracted text (chunk content joined) for fact extraction. */
+  text?: string;
+}
+
+const MONEY = /\$?\s?([0-9][0-9,]*\.\d{2})/;
+
+/** First $ amount within `window` chars after the label, or undefined. */
+function amountAfter(text: string, label: RegExp): number | undefined {
+  const m = label.exec(text);
+  if (!m) return undefined;
+  const window = text.slice(m.index, m.index + 400);
+  const am = MONEY.exec(window);
+  if (!am) return undefined;
+  return parseFloat(am[1].replace(/,/g, ""));
+}
+
+/**
+ * Ground a sparse claim snapshot in its actual evidence documents (Phase 15).
+ *
+ * Claims created from archive candidates start with only the identifiers
+ * Atlas could prove (claim number, customer, property). The amounts and
+ * scope that drive revenue-recovery analysis live in the ingested documents,
+ * so this deterministically extracts them from the linked evidence text:
+ * estimate total, invoice total, payment amount, documented scope line items
+ * and evidence categories. Missing signals are left untouched — absence is
+ * never converted into a value, and no OCR text is fabricated.
+ */
+export function enrichClaimFromEvidence(
+  claim: ClaimSnapshot,
+  docs: EvidenceDocLike[],
+): ClaimSnapshot {
+  let estimateAmount = claim.estimateAmount;
+  let invoicedAmount = claim.invoicedAmount;
+  let paymentAmount = claim.paymentAmount;
+  const evidence = [...(claim.evidenceSummary ?? [])];
+  const scopeNames: string[] = [];
+
+  for (const d of docs) {
+    const t = d.text ?? "";
+    const c = (d.classification ?? "").toLowerCase();
+    // Amount extraction is CONTENT-first, not classification-gated: a payment
+    // notice or invoice that the classifier labelled "Unknown" still names
+    // its own amount, and classification alone is not reliable evidence of
+    // what a document contains. The classification still drives the evidence
+    // category set below.
+    if (typeof estimateAmount !== "number") {
+      const amt = amountAfter(t, /(?:total\s+)?estimate\s*(?:total)?[:$]|estimate\s+total|total\s+estimate/i);
+      if (typeof amt === "number") estimateAmount = amt;
+    }
+    if (typeof invoicedAmount !== "number") {
+      const amt = amountAfter(t, /invoice\s+total|total\s+invoiced|invoice\s*[:$]/i);
+      if (typeof amt === "number") invoicedAmount = amt;
+    }
+    if (typeof paymentAmount !== "number") {
+      const amt = amountAfter(t, /payment\s+amount|amount\s+paid|payment\s*[:$]/i);
+      if (typeof amt === "number") paymentAmount = amt;
+    }
+    if (c.includes("estimate") || c.includes("xactimate")) evidence.push("estimate");
+    if (c.includes("invoice") || c.includes("financial") || c.includes("ledger")) evidence.push("invoice");
+    if (c.includes("payment")) evidence.push("payment");
+    if (c.includes("photo") || c.includes("image")) evidence.push("photos");
+    if (c.includes("scope")) {
+      for (const m of t.matchAll(/^\s*\d+\.\s+([A-Za-z][^\n]{3,90})/gm)) {
+        const name = m[1].trim();
+        if (!scopeNames.includes(name)) scopeNames.push(name);
+      }
+      evidence.push("scope");
+    }
+    if (c.includes("policy")) evidence.push("policy");
+    if (c.includes("supplement")) evidence.push("supplement");
+    if (c.includes("report") || c.includes("communication") || c.includes("correspondence")) {
+      evidence.push("documentation");
+    }
+  }
+
+  return {
+    ...claim,
+    estimateAmount: estimateAmount ?? claim.estimateAmount ?? null,
+    invoicedAmount: invoicedAmount ?? claim.invoicedAmount ?? null,
+    paymentAmount: paymentAmount ?? claim.paymentAmount ?? null,
+    expectedScope:
+      scopeNames.length > 0 ? [...new Set([...(claim.expectedScope ?? []), ...scopeNames])] : claim.expectedScope,
+    evidenceSummary: [...new Set(evidence)],
+  };
+}
+
+/**
  * Deterministic supplement/revenue-recovery analyzer. Compares available
  * evidence against the estimate, documented scope, line items and carrier
  * response, then surfaces POTENTIAL opportunities — every finding carries

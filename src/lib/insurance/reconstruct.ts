@@ -16,6 +16,12 @@
 // ---------------------------------------------------------------------------
 
 const CLAIM_NUMBER_PATTERNS: Array<RegExp> = [
+  // Alphanumeric claim id (GAP-26-51847, CL-2019-48211) — checked FIRST so
+  // the bare long-number pattern can't grab the numeric tail ("51847"). The
+  // negative lookahead keeps the label words “claim”/“clm” from being read
+  // as the letter prefix, so “Claim-12345” yields 12345, not the literal
+  // string “Claim-12345”.
+  /\b(?!claim|clm)[A-Z]{2,6}[-_. ]?\d{1,4}[-_. ]?\d{4,12}(?=[._-]|\b)/i,
   /(?:claim|clm)[-_. ]?(\d{3,12})/i,
   /\b(?:CL|CLM|CN)\d{4,12}(?=[._-]|\b)/i,
   /\b\d{4,12}(?=[._-]|\b)/,

@@ -202,10 +202,19 @@ export function classifyFile(
 
 /** True when a parser exists for this extension (mirrors backend parsers). */
 export function isSupportedForIngestion(extension: string): boolean {
+  // This list must stay in lockstep with the canonical format contract in
+  // src/lib/ingest/formats.ts — the archive review and the ingestion core can
+  // never disagree about what Atlas can ingest. Legacy .doc and .rtf have no
+  // text extractor (formats.ts marks them unsupported with an honest reason);
+  // nested zip/rar are containers, not ingestible documents.
   const SUPPORTED = new Set([
-    "pdf", "doc", "docx", "txt", "rtf", "md", "markdown",
+    "pdf", "docx", "txt", "md", "markdown",
     "xls", "xlsx", "csv",
     "json", "xml", "html", "htm", "eml",
+    // Images are stored + represented as evidence even though no OCR is
+    // available (Phase 15): the ingestion core records an honest
+    // content_extraction_unavailable state instead of fabricating text.
+    "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "svg",
   ]);
   return SUPPORTED.has(extension.toLowerCase());
 }

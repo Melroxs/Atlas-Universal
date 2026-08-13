@@ -39,13 +39,14 @@ describe("analyzeArchive — full pipeline", () => {
       textFile("Clients/ABC/Invoices/Invoice_12345.xlsx", "invoice"),
       textFile("Scripts/evil.sh", "rm -rf /"), // blocked
       textFile("Misc/readme.txt", "hello"), // supported, plain
-      textFile("Misc/photo.png", "\u0089PNG\r\n\u001a\nbinary-ish"), // unsupported format
+      textFile("Misc/photo.png", "\u0089PNG\r\n\u001a\nbinary-ish"), // image — supported as evidence (Phase 15)
+      textFile("Misc/design.psd", "photoshop design file"), // genuinely unsupported format
     ]);
     const analysis = await analyzeArchive(asFile(bytes, "company-data.zip"));
 
     expect(analysis.fileType).toBe("zip");
-    expect(analysis.fileCount).toBe(7);
-    // (7 entries: claim, estimate, duplicate, invoice, script, readme, png)
+    expect(analysis.fileCount).toBe(8);
+    // (8 entries: claim, estimate, duplicate, invoice, script, readme, png, psd)
     expect(analysis.checksum).toMatch(/^[0-9a-f]{64}$/);
 
     // Classification is evidence-based.
@@ -64,8 +65,14 @@ describe("analyzeArchive — full pipeline", () => {
     const evil = analysis.entries.find((e) => e.path.endsWith("evil.sh"))!;
     expect(evil.status).toBe("blocked");
     expect(evil.blocked ?? true).toBe(true);
+    // Images are supported as evidence (Phase 15) — stored with an honest
+    // content_extraction_unavailable state, never fabricated OCR text.
     const png = analysis.entries.find((e) => e.path.endsWith("photo.png"))!;
-    expect(png.status).toBe("unsupported");
+    expect(png.status).toBe("ok");
+    expect(png.supported).toBe(true);
+    // A genuinely unsupported format is inventoried but not ingested.
+    const psd = analysis.entries.find((e) => e.path.endsWith("design.psd"))!;
+    expect(psd.status).toBe("unsupported");
 
     // Honest warnings, not fake success.
     expect(analysis.warnings.some((w) => w.code === "duplicates")).toBe(true);

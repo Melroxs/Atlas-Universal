@@ -66,13 +66,16 @@ describe("classifyFile — honest unknowns", () => {
 
 describe("isSupportedForIngestion — parser availability", () => {
   it("supports the formats Atlas can parse", () => {
-    for (const ext of ["pdf", "doc", "docx", "txt", "rtf", "md", "xls", "xlsx", "csv", "json", "xml", "eml"]) {
+    // Must stay in lockstep with the canonical contract in src/lib/ingest/formats.ts.
+    for (const ext of ["pdf", "docx", "txt", "md", "markdown", "xls", "xlsx", "csv", "json", "xml", "html", "eml", "jpg", "png", "webp", "svg"]) {
       expect(isSupportedForIngestion(ext), ext).toBe(true);
     }
   });
 
   it("reports unsupported formats honestly", () => {
-    for (const ext of ["exe", "dwg", "psd", "zip", "rar", "msg"]) {
+    // Legacy .doc/.rtf have no extractor; zip/rar are containers (archive
+    // importer only); heic has no browser-safe path.
+    for (const ext of ["doc", "rtf", "exe", "dwg", "psd", "zip", "rar", "msg", "heic"]) {
       expect(isSupportedForIngestion(ext), ext).toBe(false);
     }
   });

@@ -15,6 +15,14 @@
 // shapes below are the typed contract (the old Convex codegen equivalent).
 // ---------------------------------------------------------------------------
 
+import {
+  enrichClaimFromEvidence,
+  type ClaimSnapshot,
+  type EvidenceDocLike,
+} from "@/lib/insurance/logic";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { rpcCall } from "@/lib/actions/rpc";
+
 export type FnKind = "query" | "mutation" | "edge" | "client";
 
 /** Loose jsonb object. */
@@ -28,6 +36,56 @@ export interface ApiFn<TResult = any> {
   clientImpl?: (args?: Record<string, unknown>) => Promise<unknown> | unknown;
   /** Post-processes the RPC result into the shape the page consumes. */
   transform?: (data: unknown) => unknown;
+}
+
+/**
+ * Priority used when sorting claim evidence for enrichment: financial and
+ * estimating documents (estimate/xactimate/invoice/payment) are the ones the
+ * amount analyzers can actually read, so they are fetched first and never
+ * dropped by the detail-fetch cap. Scope/policy/supporting docs follow.
+ */
+function evidencePriority(classification?: string | null): number {
+  const c = (classification ?? "").toLowerCase();
+  if (/(estimate|xactimate|invoice|financial|ledger|payment)/.test(c)) return 5;
+  if (/scope/.test(c)) return 4;
+  if (/policy/.test(c)) return 3;
+  if (/(photo|image)/.test(c)) return 2;
+  if (/(report|communication|correspondence|supplement|regulatory|claim)/.test(c)) return 1;
+  return 0;
+}
+
+export interface TenantDocRow {
+  _id: string;
+  title?: string | null;
+  sourceId?: string | null;
+  summary?: string | null;
+  classification?: string | null;
+}
+
+/**
+ * List the tenant's documents for claim grounding.
+ *
+ * The documents_list_documents RPC caps its result at the 80 most recent
+ * rows, which hides claim evidence that was ingested earlier (a real archive
+ * can easily exceed that). Reading the tenant's own documents through the
+ * authenticated REST client (RLS-scoped) removes the cap; the RPC remains as
+ * a fallback if the direct read is ever unavailable.
+ */
+async function listTenantDocsForClaim(
+  supabase: SupabaseClient,
+): Promise<TenantDocRow[]> {
+  try {
+    const { data, error } = await supabase
+      .from("documents")
+      .select("_id, title, sourceId, summary, classification")
+      .limit(1000);
+    if (!error && Array.isArray(data) && data.length > 0) {
+      return data as TenantDocRow[];
+    }
+  } catch {
+    // fall through to the RPC below
+  }
+  return ((await rpcCall(supabase, "documents_list_documents")) ?? []) as TenantDocRow[];
 }
 
 function def<TResult = any>(
@@ -543,7 +601,170 @@ export const api = {
       createClaim: def<Obj>("insurance_create_claim", "mutation"),
       updateClaim: def<{ ok: boolean }>("insurance_update_claim", "mutation"),
       attachClaimEvidence: def<{ ok: boolean }>("insurance_attach_claim_evidence", "mutation"),
-      runClaimAnalysis: def<{ ok: boolean }>("insurance_run_claim_analysis", "mutation"),
+      runClaimAnalysis: def<{ ok: boolean; findings: number; evidence: number }>(
+        "insurance_run_claim_analysis",
+        "client",
+        async (args) => {
+          // The insurance_run_claim_analysis RPC does not exist in the
+          // deployed schema — analysis runs the SAME deterministic analyzers
+          // the demo loader uses, against the real claim record, and persists
+          // findings via insurance_upsert_findings (idempotent on findingKey).
+          const claimId = String((args ?? {}).claimId ?? "");
+          const [{ rpcCall }, { buildClaimFindings, enrichClaimFromEvidence }, { getSupabaseClient }] =
+            await Promise.all([
+              import("@/lib/actions/rpc"),
+              import("@/lib/insurance/logic"),
+              import("@/lib/supabase"),
+            ]);
+          const supabase = getSupabaseClient();
+          if (!supabase) throw new Error("Supabase is not configured.");
+          let pkg: { claim?: Record<string, unknown> | null } | null = null;
+          try {
+            pkg = (await rpcCall(supabase, "insurance_get_claim_package", {
+              claimId,
+            })) as { claim?: Record<string, unknown> | null };
+          } catch (e) {
+            const err = e as { code?: string; message?: string };
+            // Pre-migration 0009 insurance_get_claim_package raises 22023
+            // (JSON-null scalar evidence) or 22P02 (legacy nested evidence
+            // ids wrapped as {"value": …}). Both are valid claim states, so
+            // fall back to the timeline RPC (same claim row, no evidence
+            // join) and keep analysis working until the migration lands.
+            const msg = String(err?.message ?? "");
+            const isBrokenPackage =
+              err?.code === "22023" ||
+              err?.code === "22P02" ||
+              msg.includes("cannot extract elements from a scalar") ||
+              msg.includes("invalid input syntax for type uuid");
+            if (!isBrokenPackage) {
+              throw e;
+            }
+            const timeline = (await rpcCall(supabase, "insurance_get_claim_timeline", {
+              claimId,
+            })) as { claim?: Record<string, unknown> | null };
+            pkg = { claim: timeline?.claim ?? null };
+          }
+          if (!pkg?.claim) throw new Error("Claim not found.");
+          const claim = pkg.claim;
+          const snapshot = {
+            _id: claimId,
+            claimNumber: (claim.claimNumber as string) ?? null,
+            dateOfLoss: (claim.dateOfLoss as number | null) ?? null,
+            property: (claim.property as string) ?? null,
+            causeOfLoss: (claim.causeOfLoss as string) ?? null,
+            lossDescription: (claim.lossDescription as string) ?? null,
+            customer: (claim.customer as string) ?? null,
+            carrier: (claim.carrier as string) ?? null,
+            policy: (claim.policy as string) ?? null,
+            adjuster: (claim.adjuster as string) ?? null,
+            status: (claim.status as string) ?? null,
+            estimateAmount: (claim.estimateAmount as number | null) ?? null,
+            estimateLineItemCount: (claim.estimateLineItemCount as number | null) ?? null,
+            invoicedAmount: (claim.invoicedAmount as number | null) ?? null,
+            paymentAmount: (claim.paymentAmount as number | null) ?? null,
+            approvedAmount: (claim.approvedAmount as number | null) ?? null,
+            collectedAmount: (claim.collectedAmount as number | null) ?? null,
+            openBalance: (claim.openBalance as number | null) ?? null,
+            deductible: (claim.deductible as number | null) ?? null,
+            policyLimits: (claim.policyLimits as number | null) ?? null,
+            scopeItems: (claim.scopeItems as ClaimSnapshot["scopeItems"]) ?? null,
+            expectedScope: (claim.expectedScope as string[]) ?? null,
+            actualScope: (claim.actualScope as string[]) ?? null,
+            evidenceSummary: (claim.evidenceSummary as string[]) ?? null,
+            evidenceDocumentIds: (claim.evidenceDocumentIds as unknown[]) ?? null,
+            provenance: (claim.provenance as string) ?? null,
+            createdAt: (claim.createdAt as number | null) ?? null,
+            updatedAt: (claim.updatedAt as number | null) ?? null,
+          } as ClaimSnapshot;
+
+          // Ground the (possibly sparse) claim in its actual evidence
+          // documents: match tenant docs by claim number, pull their
+          // extracted text, and derive the amounts / scope / evidence
+          // categories the analyzers run on. Best-effort — if enrichment
+          // fails, analysis still runs on the claim record itself.
+          const claimNumForMatch = String(
+            claim.claimNumber ?? snapshot.claimNumber ?? "",
+          ).replace(/[-\s]/g, "").toUpperCase();
+          let enrichedSnapshot = snapshot;
+          if (claimNumForMatch) {
+            try {
+              const docs = await listTenantDocsForClaim(supabase);
+              // Match the claim number in the title, the source path OR the
+              // extracted content summary. Real archives (including the NPP
+              // demo) deliberately scatter claim documents outside the claim
+              // folder, so folder-derived matches alone miss the invoice,
+              // payment and estimate docs — their content still names the
+              // claim, and summaries are derived from that content.
+              const matched = docs
+                .filter((d) =>
+                  `${d.title ?? ""} ${d.sourceId ?? ""} ${d.summary ?? ""}`
+                    .toUpperCase()
+                    .replace(/[-\s]/g, "")
+                    .includes(claimNumForMatch),
+                )
+                .sort(
+                  (a, b) =>
+                    evidencePriority(b.classification) -
+                    evidencePriority(a.classification),
+                );
+              // Fetch every matched claim document's extracted text (capped
+              // only as a safety bound — a single claim rarely exceeds a few
+              // dozen documents) so the analyzers see the invoice, payment and
+              // estimate docs the way the individual-upload path does.
+              const withText: EvidenceDocLike[] = [];
+              for (const d of matched.slice(0, 40)) {
+                const detail = (await rpcCall(
+                  supabase,
+                  "documents_get_document_detail",
+                  { documentId: d._id },
+                ).catch(() => null)) as { chunks?: Array<{ content?: string }> } | null;
+                withText.push({
+                  _id: d._id,
+                  title: d.title,
+                  classification: d.classification,
+                  text: (detail?.chunks ?? []).map((c) => c.content ?? "").join("\n"),
+                });
+              }
+              enrichedSnapshot = enrichClaimFromEvidence(snapshot, withText);
+            } catch (e) {
+              // Enrichment is best-effort — never block analysis on it.
+              // eslint-disable-next-line no-console
+              console.error("[atlas] claim evidence enrichment failed:", e);
+            }
+          }
+
+          const findings = buildClaimFindings(enrichedSnapshot).map((f, i) => ({
+            ...f,
+            findingKey: `claim:${claimId}:${f.source ?? f.category}:${i}`,
+          }));
+          await rpcCall(supabase, "insurance_upsert_findings", {
+            claimId,
+            findings,
+          });
+
+          // Link every document that references this claim number as evidence
+          // (tenant-scoped by the RPC).
+          let evidenceLinked = 0;
+          const claimNumber = claim.claimNumber as string | undefined;
+          if (claimNumber) {
+            const docs = await listTenantDocsForClaim(supabase);
+            const num = claimNumber.replace(/[-\s]/g, "").toUpperCase();
+            for (const d of docs) {
+              const hay = `${d.title ?? ""} ${d.sourceId ?? ""} ${d.summary ?? ""}`
+                .toUpperCase()
+                .replace(/[-\s]/g, "");
+              if (hay.includes(num)) {
+                await rpcCall(supabase, "insurance_attach_claim_evidence", {
+                  claimId,
+                  documentId: d._id,
+                }).catch(() => undefined);
+                evidenceLinked++;
+              }
+            }
+          }
+          return { ok: true, findings: findings.length, evidence: evidenceLinked };
+        },
+      ),
       updateFindingStatus: def<{ ok: boolean }>("insurance_update_finding_status", "mutation"),
       createSupplement: def<{ ok: boolean }>("insurance_create_supplement", "mutation"),
       updateSupplementStatus: def<{ ok: boolean }>(
@@ -625,7 +846,46 @@ export const api = {
     listConversationSessions: def<ObjArray>("conversation_list_sessions", "query"),
     getConversationSession: def<Obj | null>("conversation_get_session", "query"),
     deleteConversationSession: def<{ ok: boolean }>("conversation_delete_session", "mutation"),
-    converse: def<Obj>("conversation-converse", "edge"),
+    converse: def<Obj>("conversation-converse", "client", async (args) => {
+      // Prefer the deployed Edge Function (AI-powered conversational brain).
+      // When it isn't deployed / not configured in this project, fall back to
+      // deterministic local retrieval over REAL ingested evidence so Ask Atlas
+      // and voice never dead-end (Phase 15).
+      const { getSupabaseClient } = await import("@/lib/supabase");
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase is not configured.");
+      const body = (args ?? {}) as Record<string, unknown>;
+      try {
+        const { data, error } = await supabase.functions.invoke(
+          "conversation-converse",
+          { body },
+        );
+        if (error) throw error;
+        const payload = data as { data?: unknown; error?: string; ok?: boolean } | null;
+        if (payload && typeof payload === "object" && payload.error) {
+          throw new Error(payload.error);
+        }
+        if (payload && typeof payload === "object" && "data" in payload) {
+          return payload.data as Obj;
+        }
+        return (payload ?? {}) as Obj;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const isMissing =
+          msg.includes("404") ||
+          msg.toLowerCase().includes("not found") ||
+          msg.toLowerCase().includes("failed to fetch") ||
+          msg.toLowerCase().includes("function was not found");
+        if (!isMissing) throw e;
+        const { answerLocally } = await import("@/lib/ask/retrieval");
+        const local = await answerLocally(
+          supabase,
+          String(body.transcript ?? body.query ?? ""),
+          (body.sessionId as string | null) ?? null,
+        );
+        return local as unknown as Obj;
+      }
+    }),
   },
   voice: {
     voiceProviderStatus: def<{

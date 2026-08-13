@@ -13,8 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import { uploadToStorage } from "@/lib/actions/upload";
+import { ACCEPTED_EXTENSIONS, classifyFile } from "@/lib/ingest/formats";
+import { describeIngestionError } from "@/lib/ingest/errors";
 import {
   Archive,
+  CheckCircle2,
   Database,
   FileText,
   FileUp,
@@ -22,8 +25,10 @@ import {
   Loader2,
   Radar,
   ShieldCheck,
+  UploadCloud,
+  XCircle,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -41,15 +46,41 @@ export default function Knowledge() {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploads, setUploads] = useState<
+    Array<{
+      id: string;
+      name: string;
+      state: "uploading" | "processing" | "ready" | "failed";
+      detail?: string;
+    }>
+  >([]);
   const isViewer = workspace?.membership?.role === "viewer";
+
+  const patchUpload = (id: string, patch: Partial<(typeof uploads)[number]>) =>
+    setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    const incoming = Array.from(files);
     setUploading(true);
     let ok = 0;
     let failed = 0;
-    for (const file of Array.from(files)) {
+    for (const file of incoming) {
+      const id = `${file.name}-${file.size}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      setUploads((prev) => [...prev, { id, name: file.name, state: "uploading" }]);
       try {
+        // Canonical format contract decides BEFORE anything is stored.
+        const info = classifyFile(file.name, file.type, null);
+        if (!info.supported) {
+          throw new Error(info.reason ?? "Unsupported file type.");
+        }
+        if (info.kind === "archive") {
+          throw new Error(
+            "ZIP/RAR archives must be uploaded through the Company data archive importer, not as individual documents.",
+          );
+        }
+        patchUpload(id, { state: "processing" });
         const { storageId } = await uploadToStorage({
           bytes: file,
           mimeType: file.type,
@@ -61,20 +92,23 @@ export default function Knowledge() {
           size: file.size,
           sourceType: "upload",
         });
+        patchUpload(id, { state: "ready" });
         ok++;
       } catch (e) {
         console.error("Upload failed:", e);
+        const info = describeIngestionError(e);
+        patchUpload(id, { state: "failed", detail: `${info.message} ${info.next}`.trim() });
         failed++;
       }
     }
     setUploading(false);
     if (failed > 0) {
-      toast.error(`${failed} file${failed === 1 ? "" : "s"} failed`, {
-        description: "Check the file format and try again.",
+      toast.error(`${failed} file${failed === 1 ? "" : "s"} could not be processed`, {
+        description: "See the per-file results below for what failed and why.",
       });
     } else if (ok > 0) {
-      toast.success(`${ok} document${ok === 1 ? "" : "s"} uploaded`, {
-        description: "Parsing, classifying and extracting knowledge…",
+      toast.success(`${ok} document${ok === 1 ? "" : "s"} became Atlas knowledge`, {
+        description: "Extracted text, chunks, entities and evidence are now searchable.",
       });
       try {
         await runDetectors();
@@ -84,6 +118,19 @@ export default function Knowledge() {
     }
     if (fileRef.current) fileRef.current.value = "";
   };
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(false);
+    void handleFiles(e.dataTransfer.files);
+  }, []);
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragging(true);
+  }, []);
+
+  const onDragLeave = useCallback(() => setDragging(false), []);
 
   const handleSeed = async () => {
     setSeeding(true);
@@ -107,7 +154,12 @@ export default function Knowledge() {
   const total = stats?.total ?? 0;
 
   return (
-    <div className="flex flex-col gap-6">
+    <div
+      className="flex flex-col gap-6"
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <PageHeader
         eyebrow="Knowledge base"
         title="Everything Atlas knows"
@@ -144,7 +196,7 @@ export default function Knowledge() {
                 ref={fileRef}
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx,.md,.html"
+                accept={ACCEPTED_EXTENSIONS}
                 className="hidden"
                 onChange={(e) => void handleFiles(e.target.files)}
               />
@@ -157,6 +209,62 @@ export default function Knowledge() {
           )
         }
       />
+
+      {/* Individual file uploads — drag/drop + per-file results */}
+      {!isViewer && (
+        <div
+          className={`rounded-xl border border-dashed transition-colors ${
+            dragging
+              ? "border-teal-400/60 bg-teal-400/5"
+              : "border-border/70 bg-card/40"
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="flex w-full flex-col items-center justify-center gap-2 px-6 py-8 text-center"
+          >
+            <UploadCloud className="size-8 text-teal-600 dark:text-teal-300" />
+            <p className="text-sm font-medium">
+              {dragging ? "Drop files to upload" : "Upload company documents"}
+            </p>
+            <p className="max-w-md text-xs text-muted-foreground">
+              PDF · Word (.docx) · Excel/CSV · Images · Text/Markdown · email
+              (.eml). Drag files here or click to browse — every file becomes
+              searchable Atlas knowledge.
+            </p>
+          </button>
+          {uploads.length > 0 && (
+            <div className="border-t border-border/50 px-5 py-3">
+              <div className="flex flex-col gap-2">
+                {uploads.map((u) => (
+                  <div key={u.id} className="flex items-start gap-2.5 text-xs">
+                    {u.state === "ready" && (
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-500" />
+                    )}
+                    {u.state === "failed" && (
+                      <XCircle className="mt-0.5 size-4 shrink-0 text-rose-500" />
+                    )}
+                    {(u.state === "uploading" || u.state === "processing") && (
+                      <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-teal-500" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium">{u.name}</p>
+                      <p className="text-muted-foreground">
+                        {u.state === "ready" && "Ready — now part of Atlas knowledge"}
+                        {u.state === "uploading" && "Uploading to secure tenant storage…"}
+                        {u.state === "processing" && "Extracting, understanding and indexing…"}
+                        {u.state === "failed" && (u.detail ?? "Failed to process.")}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Company data archives — Phase 13 */}
       {!isViewer && (

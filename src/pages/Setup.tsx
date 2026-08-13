@@ -30,7 +30,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 
 const SYSTEM_PRESETS = [
   { name: "CRM", category: "crm", vendor: "e.g. HubSpot, JobNimbus" },
@@ -73,6 +73,7 @@ const INDUSTRIES = [
 export default function Setup() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
   const createTenant = useMutation(api.tenants.createTenant);
@@ -87,8 +88,12 @@ export default function Setup() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Workspace name
-  const [workspaceName, setWorkspaceName] = useState("");
+  // Workspace name — prefilled when the Auth page handed off here after a
+  // signup whose workspace auto-provision failed (the RPC is idempotent, so
+  // retrying on this step is safe).
+  const [workspaceName, setWorkspaceName] = useState(
+    (location.state as { workspaceName?: string } | null)?.workspaceName ?? "",
+  );
 
   // Company profile
   const [form, setForm] = useState({

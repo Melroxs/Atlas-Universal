@@ -2,9 +2,9 @@
 // Minimal PDF writer for SYNTHETIC demo data (Phase 15).
 //
 // Produces a valid single-page text PDF (Helvetica, wrapped lines, correct
-// xref) that pdf.js / pdf-parse can read. Intentionally tiny and dependency
-// free — this is for building the NPP demonstration dataset, not a general
-// PDF library.
+// xref) that pdfjs-dist can read. Intentionally tiny and dependency free —
+// this is for building the NPP demonstration dataset, not a general PDF
+// library.
 // ---------------------------------------------------------------------------
 
 function escapePdfText(s: string): string {

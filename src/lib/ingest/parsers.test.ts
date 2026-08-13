@@ -1,7 +1,53 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import JSZip from "jszip";
+import { makePdf } from "@/lib/npp/pdf";
 import { parseFile, UnsupportedFormatError } from "./parsers";
 
 const txt = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
+
+/** Build a minimal real .docx (zip with word/document.xml) mammoth can read. */
+async function makeDocx(title: string, paragraphs: string[]): Promise<Uint8Array> {
+  const zip = new JSZip();
+  zip.file(
+    "[Content_Types].xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`,
+  );
+  zip.file(
+    "_rels/.rels",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`,
+  );
+  const body = [title, ...paragraphs]
+    .map(
+      (p) =>
+        `<w:p><w:r><w:t xml:space="preserve">${p
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")}</w:t></w:r></w:p>`,
+    )
+    .join("");
+  zip.file(
+    "word/document.xml",
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`,
+  );
+  return zip.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+}
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const parserSource = readFileSync(resolve(HERE, "./parsers.ts"), "utf8");
+const pdfSource = readFileSync(resolve(HERE, "./pdf.ts"), "utf8");
+const docxSource = readFileSync(resolve(HERE, "./docx.ts"), "utf8");
 const PNG = Uint8Array.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49,
   0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06,
@@ -46,6 +92,71 @@ describe("parseFile — canonical parsing", () => {
     expect(res.text).toContain("Roof,24500");
   });
 
+  it("extracts real text from a PDF via pdfjs-dist (no dynamic-require failure)", async () => {
+    const bytes = makePdf(
+      "Claim GAP-26-51847 — Estimate",
+      "NPP Roofing & Restoration\nEstimate for claim GAP-26-51847\nRoof replacement total: $24,500.00\nDeductible: $2,500.00",
+    );
+    const res = await parseFile(
+      "application/pdf",
+      "estimate.pdf",
+      bytes.buffer as ArrayBuffer,
+    );
+    expect(res.kind).toBe("pdf");
+    expect(res.text).toContain("GAP-26-51847");
+    expect(res.text).toContain("24,500");
+  }, 30_000);
+
+  it("extracts real text from a .docx via mammoth's browser build (no Buffer needed)", async () => {
+    const bytes = await makeDocx("Homeowner authorization letter", [
+      "I authorize NPP Roofing & Restoration to perform the work described in the estimate for claim GAP-26-51847.",
+      "Signed: [signature pending]",
+    ]);
+    const res = await parseFile(
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Authorization_Letter.docx",
+      bytes.buffer as ArrayBuffer,
+    );
+    expect(res.kind).toBe("word");
+    expect(res.text).toContain("Homeowner authorization letter");
+    expect(res.text).toContain("GAP-26-51847");
+  }, 30_000);
+
+  it("fails honestly for a corrupt PDF (never fabricates text)", async () => {
+    await expect(
+      parseFile("application/pdf", "broken.pdf", txt("this is not a pdf at all")),
+    ).rejects.toThrow(/Couldn't read text from this PDF/);
+  });
+
+  it("fails honestly for a corrupt DOCX (never fabricates text)", async () => {
+    await expect(
+      parseFile(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "broken.docx",
+        txt("this is not a docx zip"),
+      ),
+    ).rejects.toThrow(/Parsing failed/);
+  });
+
+  it("extracts a spreadsheet from raw bytes without a Node Buffer", async () => {
+    const XLSX = await import("xlsx");
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([
+      ["Claim", "Amount"],
+      ["GAP-26-51847", 17920],
+    ]);
+    XLSX.utils.book_append_sheet(wb, ws, "Payments");
+    const out = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+    const res = await parseFile(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "ledger.xlsx",
+      out,
+    );
+    expect(res.kind).toBe("excel");
+    expect(res.text).toContain("GAP-26-51847");
+    expect(res.text).toContain("17920");
+  }, 30_000);
+
   it("throws UnsupportedFormatError for legacy .doc", async () => {
     await expect(
       parseFile("application/msword", "old.doc", txt("nothing")),
@@ -62,5 +173,35 @@ describe("parseFile — canonical parsing", () => {
     await expect(
       parseFile("application/octet-stream", "weird.xyz", txt("data")),
     ).rejects.toThrow(UnsupportedFormatError);
+  });
+});
+
+describe("parser source — production-bundle safety guards", () => {
+  it("never imports the Node-only pdf-parse (the dynamic-require defect)", () => {
+    // No import/require of the Node pdf-parse package, and no runtime
+    // require() at all — the exact shape of the old failure was a dynamic
+    // require of a path the bundler never saw. Comments are stripped so the
+    // guard checks CODE only.
+    const codeOnly = parserSource
+      .split(/\r?\n/)
+      .filter((l) => !l.trim().startsWith("//"))
+      .join("\n");
+    expect(codeOnly).not.toMatch(/from ["']pdf-parse/);
+    expect(codeOnly).not.toMatch(/[^.\w]require\(/);
+    expect(pdfSource).toContain("pdfjs-dist");
+  });
+
+  it("never depends on a Node Buffer for DOCX parsing (the 'Word parsing isn't available' defect)", () => {
+    expect(docxSource).toContain("arrayBuffer");
+    expect(parserSource).not.toMatch(/Buffer\.(from|alloc|isBuffer)/);
+    expect(parserSource).not.toMatch(/typeof Buffer/);
+    // The old code threw this exact error when Buffer was undefined in the
+    // browser — the new code must never throw it.
+    expect(parserSource).not.toMatch(/throw new Error\(["']Word parsing isn't available/);
+  });
+
+  it("declares PDF and DOCX extractors that accept a plain ArrayBuffer", () => {
+    expect(pdfSource).toMatch(/export async function extractPdfText\(bytes: ArrayBuffer\)/);
+    expect(docxSource).toMatch(/export async function extractDocxText\(bytes: ArrayBuffer\)/);
   });
 });

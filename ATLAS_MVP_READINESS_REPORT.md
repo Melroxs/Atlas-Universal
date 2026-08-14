@@ -256,6 +256,87 @@ history via Vercel/GitHub tooling.
   still requires a real browser session — no browser automation tooling exists
   in this environment, so it is not claimed.
 
+## 4f. Final voice / Supabase Edge Function repair (2026-08-14)
+
+### Root cause
+
+The `conversation-converse` Edge Function was **never deployed** — the
+browser's OPTIONS preflight hit a 404, which is not a valid CORS preflight
+response, so every voice/Ask Atlas request was blocked with "Response to
+preflight request does not have HTTP ok status". supabase-js wrapped the
+blocked fetch in `FunctionsFetchError` ("Failed to send a request to the Edge
+Function"), which the converse client's fallback detection did NOT match — so
+instead of degrading to the same deterministic retrieval brain, it rethrew
+and the assistant reported "I hit a problem responding to that".
+
+### What was fixed
+
+1. **Deployed `conversation-converse`** (self-contained package: root shim +
+   `source/index.ts` entry + local `source/cors.ts` copy, matching the
+   established Freebuff packaging contract). The handler answers OPTIONS with
+   204 + CORS **before** auth, then verifies the caller's JWT (`getUser`),
+   resolves the tenant from their active membership, and runs the SAME
+   deterministic conversational brain the frontend uses for typed Ask Atlas
+   over the caller's real tenant-scoped RPCs (documents, chunks, candidates,
+   claims, contradictions). No canned responses; every answer cites evidence.
+2. **CORS copies + drift tests.** Canonical `_shared/cors.ts` and deployable
+   `source/cors.ts` for conversation-converse (identical to the
+   connections-run-due-syncs copies — a cross-function drift test pins all
+   four copies to one contract). Allowlist: atlasmvp + atlasuniversalos only;
+   unknown origins get no ACAO; no wildcard.
+3. **Converse client fallback detection fixed.** `isConverseEngineUnreachable`
+   now recognizes `FunctionsFetchError`, preflight/404 failures and missing
+   ACAO as "engine unreachable" → degrade to local retrieval over real
+   evidence. Genuine business errors (Unauthorized, "Conversation failed:")
+   still propagate — nothing is swallowed.
+4. **Verification script extended** (`scripts/verify-production.mjs`): probes
+   both browser-invoked functions' OPTIONS per origin, unauthenticated POST,
+   and a live authenticated converse round trip (signup → workspace →
+   `{ transcript }` → real answer).
+
+### Live verification (all real, against ibxvzxblyhzwokljkslt)
+
+- `OPTIONS conversation-converse` from atlasmvp → **204** +
+  `Access-Control-Allow-Origin: https://atlasmvp.freebuff.app`;
+  evil origin → 204 with **no** ACAO (browser blocks it)
+- `OPTIONS connections-run-due-syncs` → same result (already live from 4e)
+- Unauthenticated `POST conversation-converse` → **401** (JWT enforced)
+- Authenticated `POST { transcript: "What did you find…?" }` → **200**,
+  ACAO on the response, real deterministic answer from tenant evidence
+- Both functions deployed (status ACTIVE, self-contained bundles, no import
+  escapes the function package)
+- Full live E2E (113-file NPP archive → 105 docs / 0 failed, claim
+  GAP-26-51847, 36 evidence links, 4 Ask Atlas answers) re-ran and passed;
+  demo data reset to zero afterward
+
+### Tests
+
+- `bun tsc -b --noEmit` — clean
+- `bunx vitest run` — **203 passed / 3 skipped (live E2E) / 0 failed** (new:
+  conversation-converse CORS contract incl. cross-function drift + import-graph
+  guards, converse routing/fallback-propagation contract)
+- `bun run build` — green (`index-H7YmOXL9.js`)
+
+### Remaining boundary (honest)
+
+- **Frontend redeploy blocked:** the `freebuff-deploy` CLI is not injected in
+  this session, so the new frontend build is NOT yet deployed —
+  `atlasmvp.freebuff.app` still serves `index-MX4DvRQF.js`. Trigger a deploy
+  from the Freebuff UI (or run `freebuff-deploy start` when the CLI is
+  available); the build is ready in `dist/`.
+- **Browser voice smoke test:** no browser automation tooling exists here, so
+  the manual microphone pass (below) is still the final human check.
+
+Manual voice smoke test once the frontend redeploys:
+1. Open https://atlasmvp.freebuff.app, sign in, grant microphone access.
+2. Enable ambient "Say Atlas"; say **"Atlas, what claims need my attention?"**
+   → transcript appears, request reaches `conversation-converse` (Voice panel
+   diagnostics show `wake-detected → converse-start → converse-completed`),
+   Atlas speaks an evidence-backed answer.
+3. Say **"Atlas, what discrepancies did you find?"** → contradiction answer.
+4. Say **"Atlas stop"** → speech stops. Test push-to-talk and typed Ask Atlas
+   to confirm all three paths share the same brain.
+
 ---
 
 ## 5. Genuine remaining limitations (not hidden)

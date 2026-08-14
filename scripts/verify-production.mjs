@@ -90,23 +90,28 @@ for (const name of expected) {
   console.log(`  ${deployed.has(name) ? "OK " : "MISSING"}  ${name}`);
 }
 
-// 3. CORS preflight from the production origins.
+// 3. CORS preflight from the production origins for every browser-invoked
+//    edge function.
+const BROWSER_FUNCTIONS = ["connections-run-due-syncs", "conversation-converse"];
 console.log("\n=== CORS preflight (OPTIONS) per origin ===");
-for (const origin of [
-  "https://atlasmvp.freebuff.app",
-  "https://atlasuniversalos.freebuff.app",
-  "https://evil.example.com",
-]) {
-  const res = await fetch(`${URL}/functions/v1/connections-run-due-syncs`, {
-    method: "OPTIONS",
-    headers: {
-      Origin: origin,
-      "Access-Control-Request-Method": "POST",
-      "Access-Control-Request-Headers": "authorization,content-type",
-    },
-  });
-  const acao = res.headers.get("access-control-allow-origin");
-  console.log(`  ${origin}  -> HTTP ${res.status}  ACAO=${acao ?? "(none)"}`);
+for (const fn of BROWSER_FUNCTIONS) {
+  for (const origin of [
+    "https://atlasmvp.freebuff.app",
+    "https://atlasuniversalos.freebuff.app",
+    "https://evil.example.com",
+  ]) {
+    const res = await fetch(`${URL}/functions/v1/${fn}`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,apikey,content-type,x-client-info",
+      },
+    });
+    const acao = res.headers.get("access-control-allow-origin");
+    const ok = res.status >= 200 && res.status < 300 && acao === origin;
+    console.log(`  ${ok ? "OK " : "FAIL"}  ${fn}  ${origin}  -> HTTP ${res.status}  ACAO=${acao ?? "(none)"}`);
+  }
 }
 
 // 4. conversation-converse behavior (unauthenticated, anon key only).
@@ -121,7 +126,47 @@ if (ANON) {
   console.log(`  HTTP ${res.status}  body=${body.slice(0, 160)}`);
 }
 
-// 5. Live Events contract check with a throwaway user (signup → workspace →
+// 5. Live authenticated conversation-converse round trip: signup → workspace
+//    → POST { transcript } with the user's real JWT → the deployed function
+//    must answer from the tenant's (empty) evidence without failing at CORS.
+if (ANON) {
+  const email = `verify.converse.${Date.now()}@example.com`;
+  const H = { apikey: ANON, "Content-Type": "application/json" };
+  const signup = await fetch(`${URL}/auth/v1/signup`, {
+    method: "POST",
+    headers: H,
+    body: JSON.stringify({ email, password: "VerifyConverse!42", data: { full_name: "Verify" } }),
+  });
+  const sb = await signup.json().catch(() => ({}));
+  const token = sb.access_token;
+  if (token) {
+    const auth = { ...H, Authorization: `Bearer ${token}` };
+    await fetch(`${URL}/rest/v1/rpc/tenants_create_tenant`, {
+      method: "POST",
+      headers: auth,
+      body: JSON.stringify({ p_name: "Verify Converse" }),
+    });
+    console.log("\n=== conversation-converse (live, authenticated) ===");
+    const res = await fetch(`${URL}/functions/v1/conversation-converse`, {
+      method: "POST",
+      headers: { ...auth, Origin: "https://atlasmvp.freebuff.app" },
+      body: JSON.stringify({ transcript: "What did you find in this company data?" }),
+    });
+    const acao = res.headers.get("access-control-allow-origin");
+    const b = await res.json().catch(() => ({}));
+    const ok =
+      res.status === 200 &&
+      acao === "https://atlasmvp.freebuff.app" &&
+      b?.ok === true &&
+      typeof b?.data?.answer === "string" &&
+      b?.data?.answer.length > 0;
+    console.log(`  ${ok ? "OK " : "FAIL"}  HTTP ${res.status}  ACAO=${acao ?? "(none)"}  answer=${(b?.data?.answer ?? b?.error ?? "").slice(0, 110)}`);
+  } else {
+    console.log("\n=== conversation-converse (live, authenticated) — signup skipped ===");
+  }
+}
+
+// 6. Live Events contract check with a throwaway user (signup → workspace →
 //    the RPCs the Events page actually calls).
 if (ANON) {
   const email = `verify.events.${Date.now()}@example.com`;

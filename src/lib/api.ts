@@ -28,6 +28,36 @@ import { rpcCall } from "@/lib/actions/rpc";
 
 export type FnKind = "query" | "mutation" | "edge" | "client";
 
+/**
+ * True when a conversation-converse failure means the conversational engine
+ * is unreachable, so the converse client should degrade to local retrieval
+ * over real evidence instead of surfacing a hard error.
+ *
+ * Guards the exact defects seen in production:
+ *   - supabase-js FunctionsFetchError on a CORS-blocked fetch:
+ *     "Failed to send a request to the Edge Function"
+ *   - a 404 preflight / "Response to preflight request does not have HTTP ok
+ *     status" when the function was never deployed
+ *   - generic fetch/load failures (offline, DNS, gateway)
+ *
+ * GENUINE business errors from a reachable function ("Unauthorized",
+ * "Conversation failed: …", tenant-setup messages) are NOT "unreachable" and
+ * are propagated so the user sees the real reason.
+ */
+export function isConverseEngineUnreachable(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return (
+    msg.includes("404") ||
+    lower.includes("not found") ||
+    lower.includes("failed to fetch") ||
+    lower.includes("failed to send a request to the edge function") ||
+    lower.includes("function was not found") ||
+    lower.includes("load failed") ||
+    lower.includes("preflight") ||
+    lower.includes("no access-control-allow-origin")
+  );
+}
+
 /** Loose jsonb object. */
 export type Obj = Record<string, any>;
 /** Loose jsonb array of objects. */
@@ -975,13 +1005,7 @@ export const api = {
           msg.slice(0, 160),
           ") — falling back to local retrieval",
         );
-        const isMissing =
-          msg.includes("404") ||
-          msg.toLowerCase().includes("not found") ||
-          msg.toLowerCase().includes("failed to fetch") ||
-          msg.toLowerCase().includes("function was not found") ||
-          msg.toLowerCase().includes("load failed");
-        if (!isMissing) throw e;
+        if (!isConverseEngineUnreachable(msg)) throw e;
         const { answerLocally } = await import("@/lib/ask/retrieval");
         try {
           const local = await answerLocally(

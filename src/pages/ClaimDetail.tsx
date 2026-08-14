@@ -165,9 +165,32 @@ export default function ClaimDetail() {
     );
   }
 
-  const { supplements, findings, evidenceDocs, completeness, reconciliation, timeline, packageModel } = pkg;
+  // The boundary transform (api.ts) enriches the raw RPC result into the full
+  // package. These defaults are a second line of defense so the page can
+  // never crash if a section is missing/nested/null (production defect:
+  // undefined .score / .filter / .map on absent derived sections).
+  const supplements = Array.isArray(pkg.supplements) ? pkg.supplements : [];
+  const findings = Array.isArray(pkg.findings) ? pkg.findings : [];
+  const evidenceDocs = Array.isArray(pkg.evidenceDocs) ? pkg.evidenceDocs : [];
+  const completeness = pkg.completeness ?? {
+    score: 0,
+    complete: 0,
+    total: 0,
+    summary: "Completeness data is unavailable for this claim right now.",
+    categories: [],
+  };
+  const packageModel = pkg.packageModel ?? {
+    fields: [],
+    states: { verified: 0, derived: 0, inferred: 0, missing: 0, conflicting: 0 },
+  };
+  const timeline = Array.isArray(pkg.timeline) ? pkg.timeline : [];
+  const reconciliation = pkg.reconciliation ?? {
+    paid: 0,
+    outstanding: 0,
+    notes: [],
+  };
   const openFindings = findings.filter((f) => f.status === "open");
-  const scorePct = Math.round(completeness.score * 100);
+  const scorePct = Math.round((completeness?.score ?? 0) * 100);
   // pkg is narrowed non-null above, so the claim always exists here.
   const claim = pkg.claim;
 

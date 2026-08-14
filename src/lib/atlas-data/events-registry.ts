@@ -451,3 +451,66 @@ export function getEventDefinition(type: string): EventDefinition | undefined {
 export function isEventImplemented(def: EventDefinition | undefined): boolean {
   return !!def && def.implementationStatus === "implemented";
 }
+
+// ---------------------------------------------------------------------------
+// Event automation policies — frontend contract (Events page).
+//
+// The page renders one card per REGISTERED event type, merged with the
+// tenant-scoped policy state the backend returns. The backend RPC is
+// events_raw_policies (raw eventPolicies rows); the merge below is the
+// canonical way the UI builds its PolicyRow contract from the registry +
+// raw state. This is a pure function so the page can never crash when the
+// backend is missing, slow or empty.
+// ---------------------------------------------------------------------------
+
+export interface EventPolicyState {
+  _id: string;
+  eventType: string;
+  enabled: boolean;
+  autoLowRiskWrite: boolean;
+}
+
+export interface EventPolicyRow {
+  eventType: string;
+  name: string;
+  description: string;
+  sourceMechanism: string;
+  handlerId: string | null;
+  policy: EventPolicyState | null;
+}
+
+/**
+ * Merge the static event registry with tenant policy state. Every registered
+ * event type gets a row; `policy` is null when the tenant has not customized
+ * it (the UI treats that as the default: enabled with no auto-writes).
+ * Handles null/malformed backend data defensively — it never throws.
+ */
+export function mergeEventPolicies(
+  registry: EventDefinition[],
+  rawPolicies: Array<Record<string, unknown>> | null | undefined,
+): EventPolicyRow[] {
+  const byType = new Map<string, Record<string, unknown>>();
+  for (const raw of Array.isArray(rawPolicies) ? rawPolicies : []) {
+    if (!raw || typeof raw.eventType !== "string") continue;
+    byType.set(raw.eventType, raw);
+  }
+  return registry.map((def) => {
+    const raw = byType.get(def.type);
+    const policy: EventPolicyState | null = raw
+      ? {
+          _id: String(raw._id ?? ""),
+          eventType: String(raw.eventType),
+          enabled: raw.enabled !== false,
+          autoLowRiskWrite: raw.autoLowRiskWrite === true,
+        }
+      : null;
+    return {
+      eventType: def.type,
+      name: def.connector,
+      description: def.description,
+      sourceMechanism: def.sourceMechanism,
+      handlerId: def.handlerId ?? null,
+      policy,
+    };
+  });
+}

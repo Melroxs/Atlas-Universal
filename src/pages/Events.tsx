@@ -139,13 +139,17 @@ export default function Events() {
   ) as unknown as DetailResult | undefined;
 
   const statValues = useMemo(() => {
+    // The stats RPC can return null on failure and byStatus can itself be
+    // null — never let that crash the page (production defect: null .map on
+    // policies + null byStatus reads).
     const s = stats as StatsResult | undefined;
+    const byStatus = s?.byStatus ?? {};
     return {
       total: s?.total ?? 0,
-      processed: s?.byStatus.processed ?? 0,
-      failed: s?.byStatus.failed ?? 0,
-      retrying: s?.byStatus.retrying ?? 0,
-      ignored: s?.byStatus.ignored ?? 0,
+      processed: byStatus.processed ?? 0,
+      failed: byStatus.failed ?? 0,
+      retrying: byStatus.retrying ?? 0,
+      ignored: byStatus.ignored ?? 0,
       duplicates: s?.duplicates ?? 0,
       actionsTriggered: s?.actionsTriggered ?? 0,
       avgMs: s?.avgProcessingMs ?? null,
@@ -405,7 +409,7 @@ export default function Events() {
           </div>
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
-            {(policies as PolicyRow[]).map((row) => {
+            {((policies as PolicyRow[] | null) ?? []).map((row) => {
               const enabled = row.policy?.enabled ?? true;
               const autoWrite = row.policy?.autoLowRiskWrite ?? false;
               return (

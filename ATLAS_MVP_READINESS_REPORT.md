@@ -1,7 +1,7 @@
 # Atlas Universal — MVP Completion Report
 
-**Date:** 2026-08-13
-**Canonical production URL:** https://atlasuniversalos.freebuff.app
+**Date:** 2026-08-14
+**Canonical production URL:** https://atlasmvp.freebuff.app (Freebuff-hosted); https://atlasuniversalos.freebuff.app is the Vercel-hosted alias
 **Repo:** Melroxs/Atlas-Universal (branch `main`, HEAD `5c55053`)
 **Stack:** Vite + React 19 + TypeScript + Tailwind v4 + shadcn/ui, Supabase (Postgres RPCs + Auth + Storage + Edge Functions), Bun.
 
@@ -170,6 +170,91 @@ Vercel-side redeploy after the GitHub push. Security note: commit 453dba0 pushed
 `env.local` (repo root, not covered by `.env*` ignore) containing the real
 SUPABASE_ACCESS_TOKEN — the token should be rotated and the file removed from
 history via Vercel/GitHub tooling.
+
+---
+
+---
+
+## 4e. Production stability + voice + edge-function + UI crash repair (2026-08-14)
+
+### Root causes found and fixed
+
+1. **Edge-function CORS blocker (real production blocker).** The deployed
+   `connections-run-due-syncs` allowlist contained only
+   `https://atlasuniversalos.freebuff.app`, but the app runs from
+   `https://atlasmvp.freebuff.app` — so the browser preflight from atlasmvp
+   got `HTTP 204` with NO `Access-Control-Allow-Origin`, producing exactly
+   "Response to preflight request doesn't pass access control check" and the
+   `[atlas] background connections sync unavailable` log. Fix: both CORS
+   copies (canonical `_shared/cors.ts` + deployable `source/cors.ts`) now
+   authorize **atlasmvp.freebuff.app** (current) and
+   **atlasuniversalos.freebuff.app** (Vercel alias) — still no wildcard, JWT
+   auth + tenant scoping untouched. Drift test updated. Deployed and verified
+   live: OPTIONS from atlasmvp → 204 + `Access-Control-Allow-Origin:
+   https://atlasmvp.freebuff.app`; evil origin → no header.
+
+2. **Events page crash (`Cannot read properties of null (reading 'map')`).**
+   The frontend called `events_list_policies`, which does NOT exist in the
+   deployed schema (the backend exposes `events_raw_policies`) → RPC 404 →
+   `useQuery` returned null → `(policies).map()` crashed. Fix: the contract is
+   now built at the boundary — a client impl reads the existing
+   `events_raw_policies` RPC and merges it with the static event registry
+   (pure `mergeEventPolicies`, tested); if the RPC is ever unavailable the
+   page still renders registry defaults. `events_stats.byStatus` and the
+   page's null-array paths are guarded too. Verified live: `events_raw_policies`
+   / `events_stats` / `events_list` / `events_list_notifications` all return
+   200 with a real authenticated session.
+
+3. **Claim Package crash (undefined .score/.filter/.map).** The deployed
+   `insurance_get_claim_package` returns only `{ claim, supplements, findings,
+   evidenceDocs }`, but ClaimDetail rendered `completeness`, `packageModel`,
+   `timeline` and `reconciliation` — all undefined → crash. Fix: the RPC
+   result is now enriched at the boundary by `normalizeClaimPackageResponse`
+   using the existing deterministic builders (`analyzeClaimCompleteness`,
+   `buildClaimPackage`, `buildClaimTimeline`, `reconcileClaim`), with null
+   arrays coerced to `[]` and page-level defaults as a second line of defense.
+
+4. **Revenue Recovery crash (undefined .flatMap).** `insurance_recovery_analytics`
+   returns raw `{ claims, findings, supplements }`, but the page consumed the
+   DERIVED `{ trend, carriers, statusDistribution, recoveryPipeline }` —
+   `analytics.trend.flatMap` crashed. Fix: `buildRecoveryAnalytics` now
+   computes the derived shape at the boundary from the same builders the rest
+   of the app uses; null/missing data yields an honest zero-state (the chart
+   renders an explicit "no activity" state). Claim candidates, counts, claims
+   and audit lists are boundary-normalized (`null → []`) and the page guards
+   `null`/missing financials.
+
+5. **Voice / Ask Atlas "I hit a problem".** The `conversation-converse` edge
+   function is intentionally not deployed (no AI provider key), so converse
+   routes through the deterministic local-retrieval brain over REAL tenant
+   evidence. The failure path is now traced end-to-end: the converse client
+   impl logs `[atlas] converse: edge request started / edge response ok /
+   edge failure (reason)`, the Voice panel gains `converse-start` /
+   `converse-completed` / `converse-failed` diagnostics (wake, transcript,
+   TTS events already existed), and if BOTH the edge function AND local
+   retrieval fail the real reason is shown in the toast, the event log AND
+   the visible error turn — never swallowed behind a generic line.
+
+6. **Manifest / icon contract.** `manifest.webmanifest` referenced `/logo.png`,
+   which does not exist (the SPA fallback served `text/html` → "cannot be
+   loaded/processed"). The manifest now points at the real `/logo.svg`
+   (`image/svg+xml`), names the product "Atlas Universal", and uses the brand
+   teal theme color.
+
+### Verification (2026-08-14)
+
+- `bun tsc -b --noEmit` — clean
+- `bunx vitest run` — **190 passed / 3 skipped (live E2E) / 0 failed** (new:
+  Events policy merge contract, claim-package + recovery-analytics boundary
+  transforms, updated CORS origin drift tests)
+- `bun run build` — green (`index-NiTSAnxb.js`); manifest emits the SVG icon
+- Live: full 113-file NPP archive E2E re-ran and passed (105 docs / 0 failed,
+  claim GAP-26-51847, 36 evidence links, 4 Ask Atlas answers) — data reset to
+  zero afterward
+- Edge function redeployed and verified live (OPTIONS CORS per origin above)
+- Browser smoke test: voice (push-to-talk + ambient "Atlas" + spoken TTS)
+  still requires a real browser session — no browser automation tooling exists
+  in this environment, so it is not claimed.
 
 ---
 

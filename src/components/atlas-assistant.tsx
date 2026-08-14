@@ -229,6 +229,11 @@ export function AtlasAssistant({
     setTurns((t) => [...t, userTurn]);
     setBusy(true);
     voice.stopSpeaking();
+    // Structured diagnostics: the converse round-trip is traced in the Voice
+    // panel (transcript captured → converse started/completed/failed → TTS).
+    // The failure reason is never swallowed — it is shown in the event log,
+    // the toast AND the visible error turn.
+    voice.pushDiagnostic("converse-start", q.slice(0, 80));
     try {
       const res = (await converse({
         sessionId: (sessionId ?? undefined) as Id<"conversationSessions"> | undefined,
@@ -236,6 +241,7 @@ export function AtlasAssistant({
         pageContext,
         entityContextId: entityContextId as Id<"entities"> | undefined,
       })) as unknown as ConverseResponse;
+      voice.pushDiagnostic("converse-completed", res.intent ?? "answer");
       setSessionId(res.sessionId);
       localStorage.setItem(SESSION_KEY, res.sessionId);
       setTurns((t) => [
@@ -266,13 +272,16 @@ export function AtlasAssistant({
         void voice.speak(res.spoken || res.answer);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Atlas couldn't respond");
+      const reason = e instanceof Error ? e.message : String(e);
+      voice.pushDiagnostic("converse-failed", reason.slice(0, 200));
+      const short = reason.length > 220 ? `${reason.slice(0, 220)}…` : reason;
+      toast.error(short);
       setTurns((t) => [
         ...t,
         {
           id: `e-${Date.now()}`,
           role: "assistant",
-          text: "I hit a problem responding to that — please try again.",
+          text: `I hit a problem responding to that. ${short}`,
           ts: Date.now(),
         },
       ]);

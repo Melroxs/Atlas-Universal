@@ -1153,3 +1153,179 @@ export function buildSupplementDocument(
 // Convex — queries
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// Boundary normalization for the deployed RPC surfaces.
+//
+// The production RPCs return RAW jsonb rows (insurance_get_claim_package
+// returns { claim, supplements, findings, evidenceDocs }; recovery analytics
+// returns { claims, findings, supplements }). The pages consume DERIVED
+// shapes (completeness, package model, timeline, reconciliation, trend,
+// carriers, pipeline). These pure helpers enrich the raw response at the
+// data boundary so a page can never crash on a missing/nested/null field,
+// and so the derived numbers always come from the same deterministic rules
+// the rest of the app uses.
+// ---------------------------------------------------------------------------
+
+/** Convert a raw insuranceClaims jsonb row into the analyzer snapshot. */
+export function toClaimSnapshot(claim: Record<string, unknown>): ClaimSnapshot {
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const strings = (v: unknown): string[] | null =>
+    Array.isArray(v) ? v.map((x) => String(x ?? "")) : null;
+  return {
+    _id: claim._id != null ? String(claim._id) : undefined,
+    claimNumber: typeof claim.claimNumber === "string" ? claim.claimNumber : null,
+    dateOfLoss: num(claim.dateOfLoss),
+    property: typeof claim.property === "string" ? claim.property : null,
+    causeOfLoss: typeof claim.causeOfLoss === "string" ? claim.causeOfLoss : null,
+    lossDescription: typeof claim.lossDescription === "string" ? claim.lossDescription : null,
+    customer: typeof claim.customer === "string" ? claim.customer : null,
+    carrier: typeof claim.carrier === "string" ? claim.carrier : null,
+    policy: typeof claim.policy === "string" ? claim.policy : null,
+    adjuster: typeof claim.adjuster === "string" ? claim.adjuster : null,
+    status: typeof claim.status === "string" ? claim.status : null,
+    estimateAmount: num(claim.estimateAmount),
+    estimateLineItemCount: num(claim.estimateLineItemCount),
+    invoicedAmount: num(claim.invoicedAmount),
+    paymentAmount: num(claim.paymentAmount),
+    approvedAmount: num(claim.approvedAmount),
+    collectedAmount: num(claim.collectedAmount),
+    openBalance: num(claim.openBalance),
+    deductible: num(claim.deductible),
+    policyLimits: num(claim.policyLimits),
+    scopeItems: Array.isArray(claim.scopeItems)
+      ? (claim.scopeItems as ClaimSnapshot["scopeItems"])
+      : null,
+    expectedScope: strings(claim.expectedScope),
+    actualScope: strings(claim.actualScope),
+    evidenceSummary: strings(claim.evidenceSummary),
+    evidenceDocumentIds: Array.isArray(claim.evidenceDocumentIds)
+      ? claim.evidenceDocumentIds
+      : null,
+    provenance: typeof claim.provenance === "string" ? claim.provenance : null,
+    confidence: typeof claim.confidence === "number" ? claim.confidence : undefined,
+    createdAt:
+      num(claim.createdAt) ??
+      (typeof claim._creationTime === "number" ? claim._creationTime : null),
+    updatedAt: num(claim.updatedAt),
+  };
+}
+
+/**
+ * Enrich the raw insurance_get_claim_package RPC result into the full claim
+ * package the Claim Package page renders. Returns null when there is no
+ * claim row (the page shows an honest "not found" state). Arrays are coerced
+ * to [] and the derived sections are always present, so the page never
+ * crashes on a missing/nested/null field.
+ */
+export function normalizeClaimPackageResponse(
+  raw: unknown,
+): {
+  claim: Record<string, unknown>;
+  supplements: Array<Record<string, unknown>>;
+  findings: Array<Record<string, unknown>>;
+  evidenceDocs: Array<Record<string, unknown>>;
+  completeness: ClaimCompleteness;
+  packageModel: ClaimPackageModel;
+  timeline: ClaimTimelineEvent[];
+  reconciliation: ClaimReconciliation;
+} | null {
+  if (!raw || typeof raw !== "object") return null;
+  const pkg = raw as Record<string, unknown>;
+  const claim =
+    pkg.claim && typeof pkg.claim === "object"
+      ? (pkg.claim as Record<string, unknown>)
+      : null;
+  if (!claim) return null;
+  const supplements = Array.isArray(pkg.supplements)
+    ? (pkg.supplements as Array<Record<string, unknown>>)
+    : [];
+  const findings = Array.isArray(pkg.findings)
+    ? (pkg.findings as Array<Record<string, unknown>>)
+    : [];
+  const evidenceDocs = Array.isArray(pkg.evidenceDocs)
+    ? (pkg.evidenceDocs as Array<Record<string, unknown>>)
+    : [];
+  const snapshot = toClaimSnapshot(claim);
+  return {
+    claim,
+    supplements,
+    findings,
+    evidenceDocs,
+    completeness: analyzeClaimCompleteness(snapshot),
+    packageModel: buildClaimPackage(snapshot, supplements),
+    timeline: buildClaimTimeline(snapshot, supplements, findings),
+    reconciliation: reconcileClaim(snapshot, supplements),
+  };
+}
+
+/** Derived recovery-analytics shape the Revenue Recovery page renders. */
+export interface RecoveryAnalyticsResponse {
+  recoveryPipeline: string[];
+  trend: RecoveryTrendPoint[];
+  carriers: CarrierRecoveryBreakdown[];
+  statusDistribution: RecoveryStatusDistribution[];
+}
+
+/**
+ * Build the analytics contract from the raw insurance_recovery_analytics RPC
+ * result ({ claims, findings, supplements }). All numbers come from the same
+ * deterministic builders the rest of the app uses; a null/malformed backend
+ * response yields an honest zero-state, never a crash.
+ */
+export function buildRecoveryAnalytics(
+  raw: unknown,
+): RecoveryAnalyticsResponse {
+  const r =
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const claims = Array.isArray(r.claims)
+    ? (r.claims as Array<Record<string, unknown>>)
+    : [];
+  const findings = Array.isArray(r.findings)
+    ? (r.findings as Array<Record<string, unknown>>)
+    : [];
+  const supplements = Array.isArray(r.supplements)
+    ? (r.supplements as Array<Record<string, unknown>>)
+    : [];
+  return {
+    recoveryPipeline: [...RECOVERY_PIPELINE],
+    trend: buildRecoveryTrend(claims, findings, supplements),
+    carriers: buildCarrierBreakdown(
+      claims,
+      supplements as Array<{
+        claimId: unknown;
+        amount?: number | null;
+        approvedAmount?: number | null;
+        deniedAmount?: number | null;
+        status?: string | null;
+      }>,
+      findings as Array<{
+        claimId: unknown;
+        status?: string | null;
+        estimatedAmount?: number | null;
+      }>,
+    ),
+    statusDistribution: buildStatusDistribution(claims),
+  };
+}
+
+/** Default zero-state for insurance_claim_counts (never null). */
+export function defaultClaimCounts(): Record<string, unknown> {
+  return {
+    activeClaims: 0,
+    openClaims: 0,
+    attentionClaims: 0,
+    openFindings: 0,
+    drafts: 0,
+    readyForSubmission: 0,
+    submitted: 0,
+    approvedAmount: 0,
+    deniedAmount: 0,
+    requestedAmount: 0,
+    paidAmount: 0,
+    outstanding: 0,
+    potential: 0,
+    recoveryPipeline: [...RECOVERY_PIPELINE],
+  };
+}

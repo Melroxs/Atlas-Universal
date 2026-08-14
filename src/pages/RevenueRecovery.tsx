@@ -527,21 +527,21 @@ export default function RevenueRecovery() {
                   </p>
                   <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                     <span className="font-mono">
-                      {c.evidence.length + c.documentIds.length} evidence file{(c.evidence.length + c.documentIds.length) === 1 ? "" : "s"}
+                      {(c.evidence ?? []).length + (c.documentIds ?? []).length} evidence file{((c.evidence ?? []).length + (c.documentIds ?? []).length) === 1 ? "" : "s"}
                     </span>
                     <span>·</span>
                     <span className="text-amber-600 dark:text-amber-300">
                       {Math.round(c.confidence * 100)}% confidence
                     </span>
-                    {c.archivePaths && c.archivePaths.length > 0 && (
+                    {(c.archivePaths ?? []).length > 0 && (
                       <>
                         <span>·</span>
                         <span>from archive import</span>
                       </>
                     )}
-                    {c.documentTitles && c.documentTitles.length > 0 && (
+                    {(c.documentTitles ?? []).length > 0 && (
                       <span className="hidden truncate sm:inline">
-                        · {c.documentTitles.slice(0, 2).join(", ")}
+                        · {(c.documentTitles ?? []).slice(0, 2).join(", ")}
                       </span>
                     )}
                   </p>
@@ -609,6 +609,14 @@ export default function RevenueRecovery() {
           <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
           Loading command center analytics…
         </div>
+      ) : analytics === null ? (
+        <div className="flex flex-col items-center gap-2 rounded-xl border border-border/70 bg-card/50 p-6 text-center">
+          <Radar className="size-6 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">
+            Command center analytics are unavailable right now (the analytics
+            service did not respond). Everything else on this page still works.
+          </p>
+        </div>
       ) : (
         <div className="space-y-4">
           <Panel
@@ -640,7 +648,7 @@ export default function RevenueRecovery() {
           <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
           Loading claims…
         </div>
-      ) : claims.length === 0 ? (
+      ) : (claims ?? []).length === 0 ? (
         <EmptyPanel
           icon={Flame}
           title="No claims yet"

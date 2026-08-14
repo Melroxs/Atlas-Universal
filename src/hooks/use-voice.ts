@@ -123,6 +123,16 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     });
   }, []);
 
+  /**
+   * Push a structured diagnostic into the same Voice panel event log (used
+   * by the assistant for the converse round-trip: wake → transcript →
+   * converse started/completed/failed → TTS). Never pass secrets here.
+   */
+  const pushDiagnostic = useCallback(
+    (event: string, detail?: string) => logEvent(event, detail),
+    [logEvent],
+  );
+
   const finishSpeaking = useCallback(() => {
     setStatus((s) => (s === "speaking" ? "idle" : s));
     logEvent("tts-end");
@@ -506,6 +516,7 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     ttsSupported,
     providerStatus,
     voiceEvents,
+    pushDiagnostic,
     start,
     stop,
     toggle,

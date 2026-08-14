@@ -16,7 +16,10 @@
 // ---------------------------------------------------------------------------
 
 import {
+  buildRecoveryAnalytics,
+  defaultClaimCounts,
   enrichClaimFromEvidence,
+  normalizeClaimPackageResponse,
   type ClaimSnapshot,
   type EvidenceDocLike,
 } from "@/lib/insurance/logic";
@@ -501,7 +504,9 @@ export const api = {
     recentActivity: def<ObjArray>("history_recent_activity", "query"),
   },
   audit: {
-    listAuditLogs: def<ObjArray>("audit_list_logs", "query"),
+    listAuditLogs: defT<ObjArray>("audit_list_logs", "query", (d) =>
+      Array.isArray(d) ? d : [],
+    ),
   },
   archive: {
     listArchives: def<ObjArray>("archive_list", "query"),
@@ -534,11 +539,59 @@ export const api = {
     deleteArchive: def<{ ok: boolean }>("archive_delete", "mutation"),
   },
   events: {
-    listEvents: def<ObjArray>("events_list", "query"),
+    listEvents: defT<ObjArray>("events_list", "query", (d) =>
+      Array.isArray(d) ? d : [],
+    ),
     getEventDetail: def<Obj | null>("events_get_detail", "query"),
-    eventStats: def<Obj>("events_stats", "query"),
-    listEventPolicies: def<ObjArray>("events_list_policies", "query"),
-    listNotifications: def<ObjArray>("events_list_notifications", "query"),
+    eventStats: defT<Obj>("events_stats", "query", (d) =>
+      d && typeof d === "object"
+        ? d
+        : {
+            total: 0,
+            byStatus: {},
+            byType: {},
+            duplicates: 0,
+            actionsTriggered: 0,
+            retried: 0,
+            avgProcessingMs: null,
+            sourceMechanisms: [],
+          },
+    ),
+    // The deployed backend exposes events_raw_policies (tenant policy state).
+    // The page contract is the static registry merged with that state, so
+    // this is a client impl: it merges at the boundary and NEVER crashes the
+    // Events page when the RPC is missing, slow or empty (the production
+    // defect was a 404 for the old name `events_list_policies` turning into
+    // a null array the page `.map()`ed).
+    listEventPolicies: def<ObjArray>("events_list_policies", "client", async () => {
+      const [{ EVENT_REGISTRY, mergeEventPolicies }, { getSupabaseClient }, { rpcCall }] =
+        await Promise.all([
+          import("@/lib/atlas-data/events-registry"),
+          import("@/lib/supabase"),
+          import("@/lib/actions/rpc"),
+        ]);
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase is not configured.");
+      let raw: unknown = [];
+      try {
+        raw = await rpcCall(supabase, "events_raw_policies");
+      } catch (e) {
+        // The page must stay usable even when the backend RPC is unavailable:
+        // fall back to the registry with default (enabled) policy state.
+        console.error(
+          "[atlas] events_raw_policies unavailable — showing registry defaults:",
+          e instanceof Error ? e.message : String(e),
+        );
+        raw = [];
+      }
+      return mergeEventPolicies(
+        EVENT_REGISTRY,
+        raw as Array<Record<string, unknown>> | null,
+      );
+    }),
+    listNotifications: defT<ObjArray>("events_list_notifications", "query", (d) =>
+      d && typeof d === "object" ? d : { items: [], unreadCount: 0 },
+    ),
     retryEvent: def<Obj>("events_retry", "mutation"),
     setEventPolicy: def<{ ok: boolean }>("events_set_policy", "mutation"),
     markNotificationRead: def<{ ok: boolean }>("events_mark_notification_read", "mutation"),
@@ -567,25 +620,48 @@ export const api = {
   },
   insurance: {
     claims: {
-      listClaims: def<ObjArray>("insurance_list_claims", "query"),
-      getClaimPackage: def<ClaimPackageShape | null>("insurance_get_claim_package", "query"),
+      listClaims: defT<ObjArray>("insurance_list_claims", "query", (d) =>
+        Array.isArray(d) ? d : [],
+      ),
+      // The deployed RPC returns the raw claim row + its supplements/findings/
+      // evidence. The page renders the DERIVED package (completeness, model,
+      // timeline, reconciliation) — enrich at the boundary so the page can
+      // never crash on the missing sections (the production defect).
+      getClaimPackage: defT<ClaimPackageShape | null>(
+        "insurance_get_claim_package",
+        "query",
+        (d) => normalizeClaimPackageResponse(d) as unknown as ClaimPackageShape | null,
+      ),
       getClaimTimeline: def<ObjArray>("insurance_get_claim_timeline", "query"),
       getSupplementDocument: def<SupplementDocumentShape | null>(
         "insurance_get_supplement_document",
         "query",
       ),
-      claimCounts: def<Obj & { recoveryPipeline: string[] }>(
+      claimCounts: defT<Obj & { recoveryPipeline: string[] }>(
         "insurance_claim_counts",
         "query",
+        (d) => (d && typeof d === "object" ? d : defaultClaimCounts()),
       ),
-      recoveryAnalytics: def<
+      // The deployed RPC returns raw { claims, findings, supplements }; the
+      // page consumes the DERIVED analytics (trend/carriers/statusDistribution/
+      // recoveryPipeline). Building it at the boundary is what makes the
+      // Revenue Recovery page survive zero/incomplete/missing data instead of
+      // crashing on analytics.trend.flatMap (the production defect).
+      recoveryAnalytics: defT<
         Obj & {
           recoveryPipeline: string[];
           trend: RecoveryTrendPointShape[];
           carriers: CarrierRecoveryRowShape[];
           statusDistribution: LifecycleStageShape[];
         }
-      >("insurance_recovery_analytics", "query"),
+      >("insurance_recovery_analytics", "query", (d) =>
+        buildRecoveryAnalytics(d) as unknown as Obj & {
+          recoveryPipeline: string[];
+          trend: RecoveryTrendPointShape[];
+          carriers: CarrierRecoveryRowShape[];
+          statusDistribution: LifecycleStageShape[];
+        },
+      ),
       analyzeAllClaims: def<Obj>("insurance_analyze_all_claims", "query"),
       insuranceIntelligence: def<Obj>(
         "insurance_intelligence",
@@ -774,8 +850,20 @@ export const api = {
       recordClaimPayment: def<{ ok: boolean }>("insurance_record_claim_payment", "mutation"),
     },
     candidates: {
-      listClaimCandidates: def<ObjArray>("insurance_list_claim_candidates", "query"),
-      claimCandidateCounts: def<Obj>("insurance_claim_candidate_counts", "query"),
+      listClaimCandidates: defT<ObjArray>("insurance_list_claim_candidates", "query", (d) =>
+        Array.isArray(d)
+          ? d.map((c) => ({
+              ...c,
+              evidence: Array.isArray(c.evidence) ? c.evidence : [],
+              documentIds: Array.isArray(c.documentIds) ? c.documentIds : [],
+              documentTitles: Array.isArray(c.documentTitles) ? c.documentTitles : [],
+              archivePaths: Array.isArray(c.archivePaths) ? c.archivePaths : [],
+            }))
+          : [],
+      ),
+      claimCandidateCounts: defT<Obj>("insurance_claim_candidate_counts", "query", (d) =>
+        d && typeof d === "object" ? d : {},
+      ),
       approveClaimCandidate: def<Obj>("insurance_approve_claim_candidate", "mutation"),
       rejectClaimCandidate: def<{ ok: boolean }>("insurance_reject_claim_candidate", "mutation"),
       candidateSummary: def<Obj>("insurance_claim_candidate_summary", "query"),
@@ -851,10 +939,20 @@ export const api = {
       // When it isn't deployed / not configured in this project, fall back to
       // deterministic local retrieval over REAL ingested evidence so Ask Atlas
       // and voice never dead-end (Phase 15).
+      //
+      // Structured diagnostics: the edge request/status/failure is logged with
+      // an [atlas] converse prefix so the voice + Ask flows can be traced end
+      // to end (wake → transcript → converse → answer) without ever logging
+      // secrets. A failure of BOTH the edge function AND local retrieval is
+      // surfaced with the real reason instead of being swallowed.
       const { getSupabaseClient } = await import("@/lib/supabase");
       const supabase = getSupabaseClient();
       if (!supabase) throw new Error("Supabase is not configured.");
       const body = (args ?? {}) as Record<string, unknown>;
+      const question = String(body.transcript ?? body.query ?? "");
+      console.info("[atlas] converse: edge request started", {
+        question: question.slice(0, 80),
+      });
       try {
         const { data, error } = await supabase.functions.invoke(
           "conversation-converse",
@@ -865,25 +963,40 @@ export const api = {
         if (payload && typeof payload === "object" && payload.error) {
           throw new Error(payload.error);
         }
+        console.info("[atlas] converse: edge response ok");
         if (payload && typeof payload === "object" && "data" in payload) {
           return payload.data as Obj;
         }
         return (payload ?? {}) as Obj;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          "[atlas] converse: edge failure (",
+          msg.slice(0, 160),
+          ") — falling back to local retrieval",
+        );
         const isMissing =
           msg.includes("404") ||
           msg.toLowerCase().includes("not found") ||
           msg.toLowerCase().includes("failed to fetch") ||
-          msg.toLowerCase().includes("function was not found");
+          msg.toLowerCase().includes("function was not found") ||
+          msg.toLowerCase().includes("load failed");
         if (!isMissing) throw e;
         const { answerLocally } = await import("@/lib/ask/retrieval");
-        const local = await answerLocally(
-          supabase,
-          String(body.transcript ?? body.query ?? ""),
-          (body.sessionId as string | null) ?? null,
-        );
-        return local as unknown as Obj;
+        try {
+          const local = await answerLocally(
+            supabase,
+            question,
+            (body.sessionId as string | null) ?? null,
+          );
+          return local as unknown as Obj;
+        } catch (fallbackError) {
+          const fmsg =
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+          throw new Error(
+            `The conversation engine is unreachable (${msg.slice(0, 120)}) and local retrieval over your knowledge base also failed: ${fmsg}`,
+          );
+        }
       }
     }),
   },

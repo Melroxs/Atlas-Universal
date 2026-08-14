@@ -25,9 +25,12 @@
 //   tested by the project's vitest suite.
 // ---------------------------------------------------------------------------
 
-/** Origins the Atlas web app runs from. The canonical production deployment
- *  is atlasuniversalos.freebuff.app — and that is the only allowed origin. */
+/** Origins the Atlas web app runs from. atlasmvp.freebuff.app is the
+ *  canonical Freebuff-hosted deployment (current production origin);
+ *  atlasuniversalos.freebuff.app is the Vercel-hosted alias of the same app.
+ *  Both are intentionally authorized — nothing else. */
 export const ATLAS_ALLOWED_ORIGINS: string[] = [
+  "https://atlasmvp.freebuff.app",
   "https://atlasuniversalos.freebuff.app",
 ];
 

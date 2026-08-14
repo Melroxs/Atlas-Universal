@@ -143,6 +143,26 @@ const IMAGE_KINDS: Record<string, string> = {
 const SUPPORTED_EXTENSIONS = new Set(Object.keys(EXT_MIME));
 
 /**
+ * THE canonical supported-format contract.
+ *
+ * Every consumer (individual uploads, the archive classifier, the extraction
+ * layer, the UI picker) asks THIS function whether an extension is ingestible
+ * so the app can never promise a format the parsers can't process. The archive
+ * classifier additionally excludes container formats (zip/rar) which are
+ * unpacked by the archive engine, never ingested as documents.
+ */
+export function isSupportedExtension(extension: string): boolean {
+  const ext = extension.toLowerCase().replace(/^\./, "");
+  if (!SUPPORTED_EXTENSIONS.has(ext)) return false;
+  return classifyFile(`sample.${ext}`, undefined).supported;
+}
+
+/** Canonical MIME for a known extension ("" when unknown) — single source of truth. */
+export function mimeForExtension(extension: string): string {
+  return EXT_MIME[extension.toLowerCase().replace(/^\./, "")] ?? "";
+}
+
+/**
  * Classify a file by extension → MIME → magic bytes.
  *
  * - A known extension wins (browsers lie; the extension is what the user

@@ -18,6 +18,21 @@ import type { ApiFn } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
+ * Global query-version counter. Any mounted useQuery re-runs when it bumps,
+ * so a page can refresh every visible dataset straight from the database after
+ * a mutation (recommendation decisions, archive resume/retry, candidate
+ * approve/reject, …). This is the minimal equivalent of an "invalidate all"
+ * cache in a reactive data layer.
+ */
+let queryVersion = 0;
+const invalidationListeners = new Set<() => void>();
+/** Force every mounted useQuery to refetch from the database. */
+export function invalidateQueries(): void {
+  queryVersion++;
+  for (const l of invalidationListeners) l();
+}
+
+/**
  * RPC parameter mapping. Migrations declare parameters as `p_` + camelCase
  * (e.g. `p_archiveId`), but Postgres folds unquoted identifiers to lowercase
  * (`p_archiveid`), which is what PostgREST matches against. Pages call with
@@ -36,6 +51,12 @@ function toRpcArgs(args: Record<string, unknown>): Record<string, unknown> {
 export interface QueryOptions {
   /** Skip fetching entirely (e.g. before auth is ready). Default: false. */
   enabled?: boolean;
+  /**
+   * When set, the query re-fetches on this interval (ms) while enabled. Used
+   * by pages that watch a long-running client-side job (archive processing)
+   * so the UI reflects persisted state instead of a stale mount-time snapshot.
+   */
+  refreshIntervalMs?: number;
 }
 
 /**
@@ -51,9 +72,28 @@ export function useQuery<TResult = any>(
   options?: QueryOptions,
 ): TResult | undefined {
   const [result, setResult] = useState<TResult | undefined>(undefined);
+  const [tick, setTick] = useState(0);
   const argsKey = JSON.stringify(args ?? {});
   const enabled = options?.enabled ?? true;
+  const refreshIntervalMs = options?.refreshIntervalMs;
   const clientImpl = fn.clientImpl;
+
+  // Re-run the fetch effect when the global invalidation version bumps.
+  useEffect(() => {
+    const listener = () => setTick((n) => n + 1);
+    invalidationListeners.add(listener);
+    return () => {
+      invalidationListeners.delete(listener);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (refreshIntervalMs && refreshIntervalMs > 0 && enabled && args !== "skip") {
+      const t = window.setInterval(() => setTick((n) => n + 1), refreshIntervalMs);
+      return () => window.clearInterval(t);
+    }
+    return undefined;
+  }, [refreshIntervalMs, enabled, argsKey]);
 
   useEffect(() => {
     if (!enabled || args === "skip") {
@@ -108,7 +148,7 @@ export function useQuery<TResult = any>(
     return () => {
       cancelled = true;
     };
-  }, [fn.name, fn.kind, clientImpl, fn.transform, argsKey, enabled]);
+  }, [fn.name, fn.kind, clientImpl, fn.transform, argsKey, enabled, tick]);
 
   return result;
 }

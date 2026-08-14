@@ -125,7 +125,35 @@ export async function reconstructArchiveCandidates(
   return { candidates: payload.length, scannedFiles };
 }
 
-/** Ingest every queued file of an archive and advance its lifecycle. */
+/** Terminal archive/file states — used to decide final archive status. */
+const FILE_TERMINAL = new Set([
+  "ingested",
+  "failed",
+  "unsupported",
+  "blocked",
+  "too_large",
+  "duplicate",
+  "skipped",
+]);
+const ARCHIVE_TERMINAL = new Set([
+  "completed",
+  "completed_with_warnings",
+  "failed",
+  "cancelled",
+]);
+
+/**
+ * Ingest every queued file of an archive and advance its lifecycle.
+ *
+ * Safe to re-run (resume after a dead tab / interrupted run): files in
+ * `queued`, `processing` (a previous run died mid-flight) or `failed` are
+ * picked up, files already ingested are skipped, and per-file failures are
+ * recorded instead of aborting. The FINAL archive status is computed from a
+ * fresh post-run snapshot of persisted file states — never from the pre-loop
+ * snapshot — and every file is forced to a terminal state (ingested, failed,
+ * or the explicit skipped/unsupported/blocked/duplicate classification the
+ * inventory already recorded).
+ */
 export async function beginProcessingClient(args: {
   archiveId: string;
 }): Promise<{ ok: boolean; ingested: number; failed: number; candidates: number }> {
@@ -137,14 +165,24 @@ export async function beginProcessingClient(args: {
   })) as ArchiveDetail | null;
   if (!detail) throw new Error("Archive not found.");
 
+  // Idempotent: a finished archive is not re-processed.
+  if (ARCHIVE_TERMINAL.has(detail.archive?.status)) {
+    return { ok: true, ingested: 0, failed: 0, candidates: 0 };
+  }
+
   await rpcCall(supabase, "archive_patch", {
     archiveId: args.archiveId,
     patch: { status: "processing", startedAt: Date.now(), progress: 0 },
   });
 
+  // Recover every file that still needs work: queued, stuck `processing` from
+  // an interrupted run, or failed (retry). Files without a storage object or
+  // with an existing document are handled in the reconciliation pass below.
   const queue = detail.files.filter(
     (f) =>
-      (f.ingestStatus === "queued" || f.ingestStatus === "failed") &&
+      (f.ingestStatus === "queued" ||
+        f.ingestStatus === "processing" ||
+        f.ingestStatus === "failed") &&
       f.storageId &&
       !f.documentId,
   );
@@ -162,6 +200,8 @@ export async function beginProcessingClient(args: {
         patch: {
           ingestStatus: "failed",
           error: e instanceof Error ? e.message.slice(0, 2000) : String(e),
+          errorStage: "ingestion",
+          retryCount: 1,
         },
       }).catch(() => undefined);
     }
@@ -173,15 +213,48 @@ export async function beginProcessingClient(args: {
     }).catch(() => undefined);
   }
 
+  // Reconcile from a FRESH snapshot so nothing is left in a non-terminal
+  // state after this run:
+  //   - queued/processing WITHOUT a storage object can never be ingested —
+  //     mark them failed with an explicit reason.
+  //   - queued/processing WITH an existing document were ingested by an
+  //     earlier run — record the terminal state.
+  const fresh = (await rpcCall(supabase, "archive_get_detail", {
+    archiveId: args.archiveId,
+  })) as ArchiveDetail | null;
+  const files = fresh?.files ?? detail.files;
+  for (const f of files) {
+    if (f.ingestStatus === "queued" || f.ingestStatus === "processing") {
+      if (!f.storageId) {
+        failed++;
+        await rpcCall(supabase, "archive_patch_file", {
+          fileId: f._id,
+          patch: {
+            ingestStatus: "failed",
+            error: "Uploaded file is missing from storage — it cannot be ingested.",
+            errorStage: "upload",
+          },
+        }).catch(() => undefined);
+      } else if (f.documentId) {
+        ingested++;
+        await rpcCall(supabase, "archive_patch_file", {
+          fileId: f._id,
+          patch: { ingestStatus: "ingested", documentId: f.documentId },
+        }).catch(() => undefined);
+      }
+    }
+  }
+
   // Reconstruct POTENTIAL claim candidates from the archive's deterministic
-  // claim hints + ingested document titles (Phase 14 — human approval required).
+  // claim hints + the documents ingested THIS run (fresh docs, not the
+  // pre-loop snapshot). Candidates stay POTENTIAL until human approval.
   let candidates = 0;
   try {
     const res = await reconstructArchiveCandidates(
       supabase,
       args.archiveId,
-      detail.files,
-      detail.docs ?? {},
+      files,
+      fresh?.docs ?? detail.docs ?? {},
     );
     candidates = res.candidates;
   } catch (e) {
@@ -190,19 +263,23 @@ export async function beginProcessingClient(args: {
     console.error("[atlas] claim reconstruction failed:", e);
   }
 
-  // Files that were queued but NOT in the processed queue (they lacked a
-  // storageId) remain queued — everything in `queue` is now ingested or
-  // failed, so the pre-loop snapshot must not be used to count them.
-  const queueIds = new Set(queue.map((f) => f._id));
-  const stillQueued = detail.files.filter(
-    (f) => f.ingestStatus === "queued" && !queueIds.has(f._id),
-  ).length;
+  // Final status from ACTUAL persisted results: refetch once more after the
+  // reconciliation writes so the counters reflect what the database holds.
+  const finalDetail = (await rpcCall(supabase, "archive_get_detail", {
+    archiveId: args.archiveId,
+  })) as ArchiveDetail | null;
+  const finalFiles = finalDetail?.files ?? files;
+  const finalIngested = finalFiles.filter((f) => f.ingestStatus === "ingested").length;
+  const finalFailed = finalFiles.filter((f) => f.ingestStatus === "failed").length;
+  const nonTerminal = finalFiles.filter(
+    (f) => f.ingestStatus && !FILE_TERMINAL.has(f.ingestStatus),
+  );
   const status =
-    failed > 0 && ingested === 0
-      ? "failed"
-      : failed > 0
-        ? "completed_with_warnings"
-        : stillQueued > 0
+    nonTerminal.length > 0
+      ? "completed_with_warnings"
+      : finalFailed > 0 && finalIngested === 0
+        ? "failed"
+        : finalFailed > 0
           ? "completed_with_warnings"
           : "completed";
 
@@ -211,21 +288,36 @@ export async function beginProcessingClient(args: {
     patch: {
       status,
       progress: 100,
-      failureReason: status === "failed" ? `${failed} files failed to ingest.` : null,
+      failureReason:
+        status === "failed"
+          ? `${finalFailed} files failed to ingest.`
+          : nonTerminal.length > 0
+            ? `${nonTerminal.length} file${nonTerminal.length === 1 ? "" : "s"} did not reach a terminal state.`
+            : finalFailed > 0
+              ? `${finalFailed} file${finalFailed === 1 ? "" : "s"} failed to ingest.`
+              : null,
       stats: {
-        ingested,
-        failed,
-        total: detail.files.length,
+        ingested: finalIngested,
+        failed: finalFailed,
+        total: finalFiles.length,
         potentialClaims: candidates,
         completedAt: Date.now(),
       },
     },
   });
 
-  return { ok: true, ingested, failed, candidates };
+  return { ok: true, ingested: finalIngested, failed: finalFailed, candidates };
 }
 
-/** Ingest a single archive file into the knowledge base. */
+/**
+ * Ingest a single archive file into the knowledge base.
+ *
+ * The document record is created FIRST (status `processing`) and then
+ * terminalized: on success it is patched to `ready`; on ANY failure it is
+ * patched to `failed` with the real reason BEFORE the error propagates — so
+ * the file can never be left pointing at a document stuck in `processing`
+ * forever, and a retry never creates a duplicate/orphan document.
+ */
 async function ingestArchiveFile(
   supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
   file: ArchiveFileRow,
@@ -239,13 +331,9 @@ async function ingestArchiveFile(
     throw new Error("Uploaded file is missing from storage.");
   }
 
-  const bytes = await fileData.arrayBuffer();
-  const mimeType = file.mimeType || "application/octet-stream";
-  const parsed = await parseFile(mimeType, file.filename, bytes);
-
   const created = (await rpcCall(supabase, "ingestion_create_document", {
     title: file.filename,
-    mimeType: parsed.mimeType,
+    mimeType: file.mimeType || "application/octet-stream",
     size: file.size ?? 0,
     sourceType: "archive",
     sourceId: `${archiveId}/${file.path}`,
@@ -253,62 +341,91 @@ async function ingestArchiveFile(
     status: "processing",
     storageId: storagePath,
   })) as { docId: string };
+  const docId = created.docId;
 
-  if (parsed.image) {
-    // Images are real evidence but have no extractable text — store them as
-    // evidence with an honest extraction state (never fabricate OCR text).
+  try {
+    const bytes = await fileData.arrayBuffer();
+    const mimeType = file.mimeType || "application/octet-stream";
+    const parsed = await parseFile(mimeType, file.filename, bytes);
+
+    if (parsed.image) {
+      // Images are real evidence but have no extractable text — store them as
+      // evidence with an honest extraction state (never fabricate OCR text).
+      await rpcCall(supabase, "ingestion_patch_document", {
+        documentId: docId,
+        patch: {
+          status: "ready",
+          classification: "Image Evidence",
+          summary:
+            "Image evidence stored. No text/OCR content extracted — OCR is not configured in this environment.",
+          chunkCount: 0,
+          entityCount: 0,
+          processedAt: Date.now(),
+          error: null,
+        },
+      });
+      await rpcCall(supabase, "archive_patch_file", {
+        fileId: file._id,
+        patch: { ingestStatus: "ingested", documentId: docId },
+      });
+      return;
+    }
+
+    if (!parsed.text.trim()) {
+      throw new Error(
+        "[extraction] No readable text found in this file (scanned or image-only documents have no text layer; OCR is not configured).",
+      );
+    }
+
+    const result = await ingestTextClient(supabase, {
+      title: file.filename,
+      mimeType: parsed.mimeType,
+      size: file.size ?? 0,
+      sourceType: "archive",
+      sourceId: `${archiveId}/${file.path}`,
+      text: parsed.text,
+      existingDocId: docId,
+    });
+
     await rpcCall(supabase, "ingestion_patch_document", {
-      documentId: created.docId,
+      documentId: docId,
       patch: {
         status: "ready",
-        classification: "Image Evidence",
-        summary:
-          "Image evidence stored. No text/OCR content extracted — OCR is not configured in this environment.",
-        chunkCount: 0,
-        entityCount: 0,
+        classification: result.classification,
+        // Same content summary the individual-upload path writes, so claim
+        // reconstruction and evidence matching can read document content
+        // without a per-document detail fetch.
+        summary: summarize(parsed.text),
+        chunkCount: result.chunks,
+        entityCount: result.entities,
         processedAt: Date.now(),
         error: null,
       },
     });
+
     await rpcCall(supabase, "archive_patch_file", {
       fileId: file._id,
-      patch: { ingestStatus: "ingested", documentId: created.docId },
+      patch: { ingestStatus: "ingested", documentId: docId },
     });
-    return;
+  } catch (e) {
+    // NEVER leave the created document stuck in `processing`: terminalize it
+    // with the real reason, then rethrow so the caller marks the file failed.
+    // NOTE: errorStage is deliberately NOT sent here — ingestion_patch_document
+    // builds its UPDATE dynamically from patch keys and the errorStage column
+    // only exists after migration 0014; sending an unknown key would throw and
+    // be swallowed, leaving the document stuck in `processing` (the exact bug
+    // this block exists to prevent). The file-level patch (archive_patch_file)
+    // carries errorStage, which is inert until 0014 and active afterwards.
+    const message = e instanceof Error ? e.message.slice(0, 2000) : String(e);
+    await rpcCall(supabase, "ingestion_patch_document", {
+      documentId: docId,
+      patch: {
+        status: "failed",
+        error: message,
+      },
+    }).catch(() => undefined);
+    throw e;
   }
-
-  if (!parsed.text.trim()) throw new Error("No readable text found in this file.");
-
-  const result = await ingestTextClient(supabase, {
-    title: file.filename,
-    mimeType: parsed.mimeType,
-    size: file.size ?? 0,
-    sourceType: "archive",
-    sourceId: `${archiveId}/${file.path}`,
-    text: parsed.text,
-    existingDocId: created.docId,
-  });
-
-  await rpcCall(supabase, "ingestion_patch_document", {
-    documentId: created.docId,
-    patch: {
-      status: "ready",
-      classification: result.classification,
-      // Same content summary the individual-upload path writes, so claim
-      // reconstruction and evidence matching can read document content
-      // without a per-document detail fetch.
-      summary: summarize(parsed.text),
-      chunkCount: result.chunks,
-      entityCount: result.entities,
-      processedAt: Date.now(),
-      error: null,
-    },
-  });
-
-  await rpcCall(supabase, "archive_patch_file", {
-    fileId: file._id,
-    patch: { ingestStatus: "ingested", documentId: created.docId },
-  });
 }
 
 /** Requeue failed files and re-run processing for them. */
@@ -322,7 +439,7 @@ export async function retryFilesClient(args: {
   for (const fileId of args.fileIds) {
     await rpcCall(supabase, "archive_patch_file", {
       fileId,
-      patch: { ingestStatus: "queued", error: null, documentId: null },
+      patch: { ingestStatus: "queued", error: null, errorStage: null, documentId: null },
     }).catch(() => undefined);
   }
 

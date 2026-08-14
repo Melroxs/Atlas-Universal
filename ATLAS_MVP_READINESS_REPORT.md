@@ -359,6 +359,95 @@ Manual voice smoke test once the frontend redeploys:
 
 ---
 
+## 4g. Production reliability audit: recommendation actions + stuck ingestion (2026-08-14)
+
+### Reported defects (both reproduced live against the deployed project)
+
+1. **Every recommendation action (Approve / Reject / Dismiss / Mark executed)
+   failed with "Action failed".**
+   - Root cause: the deployed `recommendations_decide(p_recommendationid,
+     p_status)` requires BOTH arguments (verified via the live OpenAPI schema
+     and a live probe: calling with only `p_recommendationid` → HTTP 404
+     PGRST202 "Could not find the function … in the schema cache"). The page
+     sent only `{ recommendationId }`, so PostgREST could not resolve the
+     function → generic error. Sending both args live → HTTP 200 `{ok:true}`
+     and the persisted status flips.
+2. **Archive/document processing left records stuck queued/processing.**
+   - Reproduced live: inventory files submitted without a storage object stay
+     `queued` forever; a failed parse left the created document stuck in
+     `processing`; a dead browser tab left the archive `inventorying` with no
+     resume path; final archive status was computed from a stale pre-loop
+     snapshot.
+
+### Fixes (this session)
+
+- **Recommendations** (`src/pages/Recommendations.tsx`,
+  `src/lib/recommendations/decide.ts`): every action now sends the exact
+  `p_status` value the deployed RPC expects, the canonical state machine
+  (open → approved/rejected/dismissed, approved → executed) is enforced
+  client-side with actionable messages (e.g. "Execution failed: this
+  recommendation must be approved before it can be marked executed."), and
+  the list/counts refresh from the database after each decision.
+- **Archive processing** (`src/lib/actions/archive.ts`):
+  - a created document is ALWAYS terminalized — `ready` on success, `failed`
+    with the real reason on failure (never left `processing`; retries can no
+    longer create duplicate documents);
+  - files stuck in `processing` (interrupted run) are recovered and re-run;
+  - queued files without a storage object are terminalized to `failed` with
+    an explicit reason;
+  - files already linked to a document are recorded `ingested` (idempotent
+    resume);
+  - final archive status is recomputed from a FRESH post-run snapshot of
+    persisted file states (never the pre-loop snapshot);
+  - finished archives are not re-processed.
+- **UI** (`src/pages/ArchiveDetail.tsx`, `src/hooks/use-supabase.ts`):
+  Archive detail now polls while open (4 s), gained a **Process import /
+  Resume processing** button for non-terminal archives, and refreshes after
+  cancel/retry/delete; `invalidateQueries()` forces every mounted query to
+  refetch from the database after mutations.
+- **Migration 0014** (PENDING APPLY — needs `SUPABASE_ACCESS_TOKEN`, which was
+  rotated and is not in this environment): adds `errorStage` columns to
+  `documents` + `archiveFiles`, extends `archive_patch_file`/`ingestion_patch_document`
+  (column-guarded so a stale patch key can never throw), makes
+  `archive_cancel` terminalize pending files to `skipped`, and hardens
+  `recommendations_decide` with server-side transition enforcement + structured
+  errors. The client fixes are live-ready WITHOUT this migration; it is
+  defense-in-depth.
+
+### Verification (all live, real project `ibxvzxblyhzwokljkslt`)
+
+- `RUN_LIVE_E2E=1` reliability suite: recommendation approve → executed and
+  reject persist with audit events (`recommendation_approved`/`_executed`/
+  `_rejected`); a queued file without storage is terminalized to `failed`
+  (archive `completed_with_warnings`, not silent `completed`); a corrupt PDF's
+  created document is patched to `failed` with the real error — verified by
+  direct document query.
+- Phase 15 live E2E re-run with the new processing loop: 113-file NPP archive
+  → 105 docs ingested / 0 failed / 4 candidates / GAP-26-51847 / 4 findings /
+  36 evidence links / 8 duplicate refs / 8 single uploads / 4 Ask Atlas
+  answers. No regression.
+- Local: `bun tsc -b --noEmit` clean · `bunx vitest run` **215 passed /
+  4 skipped (live-only) / 0 failed** · `bun run build` green.
+
+### Other action surfaces audited (Phase 3)
+
+- Claim-candidate approve/reject (`insurance_approve_claim_candidate` /
+  `insurance_reject_claim_candidate`) — live-verified WORKING (HTTP 200).
+- Workflow approve/reject (`workflows_decide_approval`) — deployed signature
+  `(p_approvalid, p_decision)` matches the client call. OK.
+- Supplement status (`insurance_update_supplement_status`) — deployed
+  signature matches. OK.
+- **Gaps found (pre-existing, not the reported bug):** `tools_list` and
+  `connections_list_catalog` do not exist in the deployed schema (they are in
+  no migration) — the Actions and Connections pages render graceful empty
+  states instead of crashing. The `tools-execute-tool` / `tools-confirm-tool-action` /
+  `tools-cancel-tool-action` / `connections-sync-google-drive` edge functions
+  are not deployed (no source exists). These are separate product gaps, not
+  regressions; wiring them needs a real tools engine and is out of scope for
+  the reliability repair.
+
+---
+
 ## 6. Bottom line
 
 Code: complete, locally green (tsc ✓, 174 unit tests ✓, build ✓).

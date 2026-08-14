@@ -96,10 +96,13 @@ describe("beginProcessingClient — archive RPC contract", () => {
   it("calls archive_get_detail with p_archiveid (not p_archive_id)", async () => {
     await beginProcessingClient({ archiveId: "archive-1" });
     const detail = callsOf("archive_get_detail");
-    expect(detail).toHaveLength(1);
-    expect(detail[0]).toEqual({ p_archiveid: "archive-1" });
-    // The exact production regression must never reappear.
-    expect(detail[0]).not.toHaveProperty("p_archive_id");
+    // Initial load + fresh reconcile snapshot + final status snapshot.
+    expect(detail.length).toBeGreaterThanOrEqual(1);
+    for (const args of detail) {
+      expect(args).toEqual({ p_archiveid: "archive-1" });
+      // The exact production regression must never reappear.
+      expect(args).not.toHaveProperty("p_archive_id");
+    }
   });
 
   it("calls archive_patch with p_archiveid + p_patch", async () => {

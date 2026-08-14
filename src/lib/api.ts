@@ -544,7 +544,7 @@ export const api = {
     getArchiveDetail: def<ArchiveDetailShape | null>("archive_get_detail", "query"),
     beginArchive: def<{ archiveId: string }>("archive_begin", "mutation"),
     submitInventoryBatch: def<{ ok: boolean }>("archive_submit_inventory_batch", "mutation"),
-    beginProcessing: def<{ ok: boolean; ingested: number; failed: number }>(
+    beginProcessing: def<{ ok: boolean; ingested: number; failed: number; candidates: number }>(
       "archive_begin_processing",
       "client",
       async (args) => {

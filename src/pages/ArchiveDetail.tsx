@@ -32,7 +32,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import { invalidateQueries, useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -62,11 +62,16 @@ const WARNING_ICONS: Record<string, typeof AlertTriangle> = {
 export default function ArchiveDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // Poll while the page is open so a client-side processing run (which can
+  // outlive a single fetch) and its per-file progress are reflected instead of
+  // a stale mount-time snapshot. The detail query is tenant-scoped and capped.
   const detail = useQuery(
     api.archive.getArchiveDetail,
     id ? { archiveId: id as never } : "skip",
+    { refreshIntervalMs: 4000 },
   );
   const cancelArchive = useMutation(api.archive.cancelArchive);
+  const beginProcessing = useAction(api.archive.beginProcessing);
   const retryFiles = useAction(api.archive.retryFiles);
   const deleteArchive = useMutation(api.archive.deleteArchive);
   const [busy, setBusy] = useState<string | null>(null);
@@ -136,6 +141,7 @@ export default function ArchiveDetail() {
     setBusy("cancel");
     try {
       await cancelArchive({ archiveId: id as never });
+      invalidateQueries();
       toast.success("Import cancelled", {
         description: "Future processing has stopped; finished files are preserved.",
       });
@@ -146,10 +152,35 @@ export default function ArchiveDetail() {
     }
   };
 
+  /**
+   * Resume/process an archive that never reached a terminal state (e.g. the
+   * browser tab died after inventory submission but before/during processing).
+   * The processing loop is idempotent: already-ingested files are skipped and
+   * per-file failures are recorded instead of aborting.
+   */
+  const handleResume = async () => {
+    setBusy("resume");
+    try {
+      const res = await beginProcessing({ archiveId: id as never });
+      invalidateQueries();
+      toast.success("Processing finished", {
+        description:
+          res.failed > 0
+            ? `${res.ingested} ingested, ${res.failed} failed — failed files can be retried individually.`
+            : `${res.ingested} file${res.ingested === 1 ? "" : "s"} ingested${res.candidates ? `, ${res.candidates} potential claim${res.candidates === 1 ? "" : "s"} found.` : "."}`,
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not process this archive");
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const handleRetryAll = async () => {
     setBusy("retry");
     try {
       const res = await retryFiles({ archiveId: id as never });
+      invalidateQueries();
       toast.success(`${res.requeued} file${res.requeued === 1 ? "" : "s"} queued for retry`, {
         description: "Processing resumes in the background.",
       });
@@ -167,6 +198,7 @@ export default function ArchiveDetail() {
         archiveId: id as never,
         fileIds: [fileId as never],
       });
+      invalidateQueries();
       if (res.requeued === 0) {
         toast.error("This file can't be retried — its extracted content isn't retained.");
       } else {
@@ -184,6 +216,7 @@ export default function ArchiveDetail() {
     setBusy("delete");
     try {
       await deleteArchive({ archiveId: id as never });
+      invalidateQueries();
       toast.success("Archive record deleted");
       navigate("/dashboard/knowledge");
     } catch (e) {
@@ -202,15 +235,31 @@ export default function ArchiveDetail() {
         actions={
           <div className="flex items-center gap-2">
             {active && (
-              <Button
-                variant="outline"
-                onClick={() => void handleCancel()}
-                disabled={busy !== null}
-                className="gap-2 text-rose-600 dark:text-rose-300"
-              >
-                {busy === "cancel" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
-                Cancel import
-              </Button>
+              <>
+                <Button
+                  onClick={() => void handleResume()}
+                  disabled={busy !== null}
+                  className="gap-2"
+                >
+                  {busy === "resume" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : archive.status === "inventorying" ? (
+                    <Sparkles className="size-4" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  {archive.status === "inventorying" ? "Process import" : "Resume processing"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => void handleCancel()}
+                  disabled={busy !== null}
+                  className="gap-2 text-rose-600 dark:text-rose-300"
+                >
+                  {busy === "cancel" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
+                  Cancel import
+                </Button>
+              </>
             )}
             {!active && failedFiles.length > 0 && (
               <Button

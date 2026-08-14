@@ -1,5 +1,10 @@
 import { api } from "@/lib/api";
 import {
+  decisionStatusFor,
+  transitionError,
+  type RecommendationAction,
+} from "@/lib/recommendations/decide";
+import {
   ConfidenceBar,
   PageHeader,
   PriorityBadge,
@@ -9,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import { invalidateQueries, useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   AlertTriangle,
   ArrowDownCircle,
@@ -60,12 +65,48 @@ export default function Recommendations() {
     setBusy(key);
     try {
       await fn();
+      // Refresh every visible dataset straight from the database so the card
+      // reflects the persisted decision instead of a stale list snapshot.
+      invalidateQueries();
       toast.success(success);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Action failed");
     } finally {
       setBusy(null);
     }
+  };
+
+  /**
+   * Decide a recommendation. The deployed RPC is
+   * recommendations_decide(p_recommendationid, p_status) — BOTH arguments are
+   * required, so the action's status is always sent. Transitions are checked
+   * here (mirroring the server-side guard) so a clearly-invalid action fails
+   * with an actionable message instead of a generic error.
+   */
+  const decide = async (r: { _id: string; status: string }, action: RecommendationAction) => {
+    const status = decisionStatusFor(action);
+    const block = transitionError(action, r.status as never);
+    if (block) {
+      toast.error(block);
+      return;
+    }
+    const run =
+      action === "approve"
+        ? approve
+        : action === "reject"
+          ? reject
+          : action === "execute"
+            ? execute
+            : dismiss;
+    const label =
+      action === "approve"
+        ? "Recommendation approved"
+        : action === "reject"
+          ? "Recommendation rejected"
+          : action === "execute"
+            ? "Marked as executed"
+            : "Dismissed";
+    await act(String(r._id), () => run({ recommendationId: r._id, status }), label);
   };
 
   const handleRun = async () => {
@@ -235,11 +276,7 @@ export default function Recommendations() {
                             size="sm"
                             className="gap-1.5"
                             disabled={!isManager || deciding}
-                            onClick={() =>
-                              void act(String(r._id), () =>
-                                approve({ recommendationId: r._id }),
-                              "Recommendation approved")
-                            }
+                            onClick={() => void decide({ _id: r._id, status: r.status }, "approve")}
                           >
                             <CheckCircle2 className="size-3.5" />
                             Approve
@@ -256,11 +293,7 @@ export default function Recommendations() {
                             variant="outline"
                             className="gap-1.5"
                             disabled={!isManager || deciding}
-                            onClick={() =>
-                              void act(String(r._id), () =>
-                                reject({ recommendationId: r._id }),
-                              "Recommendation rejected")
-                            }
+                            onClick={() => void decide({ _id: r._id, status: r.status }, "reject")}
                           >
                             <XCircle className="size-3.5 text-rose-600 dark:text-rose-300" />
                             Reject
@@ -277,11 +310,7 @@ export default function Recommendations() {
                             variant="outline"
                             className="gap-1.5"
                             disabled={!isManager || deciding}
-                            onClick={() =>
-                              void act(String(r._id), () =>
-                                execute({ recommendationId: r._id }),
-                              "Marked as executed")
-                            }
+                            onClick={() => void decide({ _id: r._id, status: r.status }, "execute")}
                           >
                             <Zap className="size-3.5 text-indigo-600 dark:text-indigo-300" />
                             Mark executed
@@ -295,11 +324,7 @@ export default function Recommendations() {
                       variant="ghost"
                       className="gap-1.5 text-muted-foreground"
                       disabled={deciding}
-                      onClick={() =>
-                        void act(String(r._id), () =>
-                          dismiss({ recommendationId: r._id }),
-                        "Dismissed")
-                      }
+                      onClick={() => void decide({ _id: r._id, status: r.status }, "dismiss")}
                     >
                       <ArrowDownCircle className="size-3.5" />
                       Dismiss

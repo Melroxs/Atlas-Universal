@@ -33,3 +33,6 @@ bun-debug.log*
 *.swp
 .vercel
 .env*
+# repo-root env.local (no leading dot) is NOT covered by .env* —
+# explicitly ignore it; it carried a leaked token once and must never return
+env.local

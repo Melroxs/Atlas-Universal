@@ -13,6 +13,8 @@
  * re-validated server-side by the backend before ingestion.
  */
 
+import { mimeForExtension } from "@/lib/ingest/formats";
+
 const WINDOWS_DRIVE = /^[a-zA-Z]:[\\/]/;
 
 /** Segments that are unsafe anywhere in a path. */
@@ -156,33 +158,24 @@ export function sniffArchiveFormat(
   return { isZip: false, isRar: false, detected: "unknown" };
 }
 
-/** Simple MIME guess from extension + magic bytes (for inventory display). */
+/**
+ * Simple MIME guess from extension + magic bytes (for inventory display).
+ *
+ * The extension table comes from THE canonical contract
+ * (src/lib/ingest/formats.ts) so the archive inventory can never report a
+ * MIME that disagrees with the ingestion core. A few display-only formats
+ * (.rtf/.ppt/.pptx/.msg) are kept for inventory labeling even though the
+ * contract marks them unsupported for ingestion.
+ */
 export function sniffMimeType(filename: string, bytes?: Uint8Array): string {
   const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const canonical = mimeForExtension(ext);
+  if (canonical) return canonical;
   const table: Record<string, string> = {
-    pdf: "application/pdf",
-    doc: "application/msword",
-    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    txt: "text/plain",
     rtf: "application/rtf",
-    md: "text/markdown",
-    xls: "application/vnd.ms-excel",
-    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    csv: "text/csv",
     ppt: "application/vnd.ms-powerpoint",
     pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    webp: "image/webp",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-    eml: "message/rfc822",
     msg: "application/vnd.ms-outlook",
-    json: "application/json",
-    xml: "application/xml",
-    html: "text/html",
-    gif: "image/gif",
   };
   if (ext && table[ext]) return table[ext];
   if (bytes && bytes.length >= 4) {

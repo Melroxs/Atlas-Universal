@@ -7,7 +7,21 @@
  * not hardcoded around insurance restoration.
  */
 import { describe, expect, it } from "vitest";
+import {
+  classifyFile as classifyIngestible,
+  isSupportedExtension,
+  mimeForExtension,
+} from "@/lib/ingest/formats";
+import { sniffMimeType } from "./security";
 import { classifyFile, isSupportedForIngestion } from "./classify";
+
+/** Every extension the canonical contract knows about. */
+const CONTRACT_EXTENSIONS = [
+  "pdf", "doc", "docx", "xls", "xlsx", "csv", "txt", "md", "markdown",
+  "eml", "html", "htm", "json", "xml",
+  "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "svg",
+  "zip", "rar",
+];
 
 describe("classifyFile — filename evidence", () => {
   it("classifies claim documents from explicit claim keywords", () => {
@@ -77,6 +91,42 @@ describe("isSupportedForIngestion — parser availability", () => {
     // importer only); heic has no browser-safe path.
     for (const ext of ["doc", "rtf", "exe", "dwg", "psd", "zip", "rar", "msg", "heic"]) {
       expect(isSupportedForIngestion(ext), ext).toBe(false);
+    }
+  });
+});
+
+describe("canonical format contract — no drift", () => {
+  it("archive classifier agrees with the ingestion contract on every extension", () => {
+    for (const ext of CONTRACT_EXTENSIONS) {
+      const ingestible = classifyIngestible(`sample.${ext}`, undefined);
+      const archiveSays = isSupportedForIngestion(ext);
+      if (ext === "zip" || ext === "rar") {
+        // Containers are unpacked by the archive engine, never ingested as
+        // documents — but the archive REVIEW still accepts them as archives.
+        expect(archiveSays, `${ext} must be a container-only format`).toBe(false);
+        expect(ingestible.supported, `${ext} is a supported archive container`).toBe(true);
+      } else {
+        expect(archiveSays, `${ext} archive vs ingestible mismatch`).toBe(
+          ingestible.supported,
+        );
+      }
+    }
+  });
+
+  it("every contract extension has a canonical MIME (no fall-through to octet-stream)", () => {
+    for (const ext of CONTRACT_EXTENSIONS) {
+      expect(mimeForExtension(ext), `${ext} has no canonical MIME`).not.toBe("");
+      expect(sniffMimeType(`folder/file.${ext}`), `${ext} MIME disagreement`).toBe(
+        mimeForExtension(ext),
+      );
+    }
+  });
+
+  it("isSupportedExtension mirrors classifyFile.supported exactly", () => {
+    for (const ext of CONTRACT_EXTENSIONS) {
+      expect(isSupportedExtension(ext), ext).toBe(
+        classifyIngestible(`sample.${ext}`, undefined).supported,
+      );
     }
   });
 });

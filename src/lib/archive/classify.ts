@@ -8,6 +8,8 @@
  * it; Atlas is not hardcoded around insurance restoration.
  */
 
+import { isSupportedExtension } from "@/lib/ingest/formats";
+
 export const ARCHIVE_CLASSIFICATIONS = [
   "company profile",
   "financial",
@@ -200,21 +202,20 @@ export function classifyFile(
   };
 }
 
-/** True when a parser exists for this extension (mirrors backend parsers). */
+/**
+ * True when a parser exists for this extension.
+ *
+ * Derives from THE canonical contract (src/lib/ingest/formats.ts) so the
+ * archive review and the ingestion core can never disagree about what Atlas
+ * can ingest. Only exception: container formats (zip/rar/…) are unpacked by
+ * the archive engine (depth-bounded) or recorded as skipped — they are never
+ * ingested as documents.
+ */
 export function isSupportedForIngestion(extension: string): boolean {
-  // This list must stay in lockstep with the canonical format contract in
-  // src/lib/ingest/formats.ts — the archive review and the ingestion core can
-  // never disagree about what Atlas can ingest. Legacy .doc and .rtf have no
-  // text extractor (formats.ts marks them unsupported with an honest reason);
-  // nested zip/rar are containers, not ingestible documents.
-  const SUPPORTED = new Set([
-    "pdf", "docx", "txt", "md", "markdown",
-    "xls", "xlsx", "csv",
-    "json", "xml", "html", "htm", "eml",
-    // Images are stored + represented as evidence even though no OCR is
-    // available (Phase 15): the ingestion core records an honest
-    // content_extraction_unavailable state instead of fabricating text.
-    "jpg", "jpeg", "png", "webp", "gif", "bmp", "tif", "tiff", "svg",
-  ]);
-  return SUPPORTED.has(extension.toLowerCase());
+  const ext = extension.toLowerCase().replace(/^\./, "");
+  if (CONTAINER_EXTENSIONS.has(ext)) return false;
+  return isSupportedExtension(ext);
 }
+
+/** Archive container formats — unpacked or skipped, never ingested as docs. */
+const CONTAINER_EXTENSIONS = new Set(["zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "xz"]);

@@ -332,6 +332,36 @@ and applied in order.
 | `GOOGLE_CLIENT_ID`        | Google Drive connector           | Google OAuth client ID (server-side).        |
 | `GOOGLE_CLIENT_SECRET`    | Google Drive connector           | Google OAuth client secret (server-side).    |
 
+### AI reasoning (Gemini — server-side Edge Function secrets)
+
+Ask Atlas and Atlas Voice reason with the **Gemini API** when these secrets are
+configured on the `conversation-converse` Edge Function. The API key is read
+from the function environment only — it is never exposed to the browser,
+localStorage, the database, or the frontend bundle.
+
+| Variable                     | Used by              | Notes                                                        |
+| --------------------------- | -------------------- | ------------------------------------------------------------ |
+| `GEMINI_API_KEY`            | `conversation-converse` | Gemini API key from https://aistudio.google.com/apikey (free tier works, no credit card required). |
+| `GEMINI_MODEL`              | `conversation-converse` | Optional. Default `gemini-3.6-flash` (free-tier, fast conversational reasoning). Override to any available Gemini model. |
+| `AI_PROVIDER`               | `conversation-converse` | Optional. `gemini` (default when the key is present). Any other value keeps Atlas on deterministic evidence retrieval. |
+| `GEMINI_MAX_OUTPUT_TOKENS`  | `conversation-converse` | Optional. Default 600. Caps output cost on the free tier. |
+| `GEMINI_TIMEOUT_MS`         | `conversation-converse` | Optional. Default 20000. |
+| `ATLAS_MAX_EVIDENCE`        | `conversation-converse` | Optional. Max evidence items sent to Gemini (default 8). |
+| `ATLAS_MAX_HISTORY_TURNS`   | `conversation-converse` | Optional. Conversation turns remembered for follow-ups (default 4). |
+
+How it works: the Edge Function retrieves the caller's OWN tenant-scoped
+evidence with the deterministic retrieval brain, sends ONLY that retrieved
+evidence plus bounded conversation history to Gemini, validates the structured
+answer, resolves the model's cited evidence IDs against the real retrieved
+evidence (hallucinated IDs are dropped), and falls back to deterministic
+retrieval on any Gemini failure (missing key, 429, timeout, 500, malformed
+output). Set the secrets with:
+
+```bash
+supabase secrets set GEMINI_API_KEY=... --project-ref <ref>
+supabase functions deploy conversation-converse
+```
+
 Additional connector credentials are defined centrally in `src/lib/atlas-data/connectors-registry.ts`. The Connections page shows **"Not configured"** until the relevant variables exist, and **"Authorization required"** once they do — status is never faked. Roadmap connectors below are fully documented (real APIs, scopes, auth endpoints) but have no client yet:
 
 | Variable | Connector | Purpose |
@@ -414,8 +444,10 @@ Change code → validate locally (tsc + build + supabase db reset) → commit �
   credentials are not configured yet (the ingestion pipeline in
   `src/lib/actions/ingestion.ts` has the hook).
 - **Legacy formats:** `.doc` (old Word) is not supported; save as `.docx`.
-- **AI:** Ask Atlas and extraction degrade to deterministic heuristics when
-  `VLY_INTEGRATION_KEY` is not configured.
+- **AI:** Ask Atlas and Atlas Voice reason over retrieved evidence with the
+  Gemini API when `GEMINI_API_KEY` is configured as a `conversation-converse`
+  Edge Function secret; without it they use deterministic evidence retrieval
+  (answers are always grounded in cited evidence, never fabricated).
 - **Background jobs:** connector sync is triggered on app load / after OAuth
   connect; scheduled cron sync is not enabled on the deployment.
 - **Auth:** email/password sign-up + anonymous guests (Supabase Auth). Google

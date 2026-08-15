@@ -994,10 +994,51 @@ export const api = {
           throw new Error(payload.error);
         }
         console.info("[atlas] converse: edge response ok");
-        if (payload && typeof payload === "object" && "data" in payload) {
-          return payload.data as Obj;
+        const unwrapped =
+          payload && typeof payload === "object" && "data" in payload
+            ? (payload.data as Obj | undefined)
+            : ((payload ?? {}) as Obj);
+        // AI diagnostics (no secrets): expose provider/model/status from the
+        // deployed reasoning layer so the Ask page and Voice panel can show
+        // the real configuration instead of a misleading "no AI" state.
+        const ai = unwrapped?.ai as
+          | { configured?: boolean; provider?: string; model?: string | null; status?: string; lastErrorCode?: string; latencyMs?: number }
+          | undefined;
+        // A deployed backend that predates the AI layer reports no metadata —
+        // treat it as the honest default (deterministic retrieval) so the UI
+        // never guesses or shows a stale "checking…" state.
+        if (!ai && unwrapped && typeof unwrapped === "object") {
+          unwrapped.ai = {
+            configured: false,
+            provider: "none",
+            model: null,
+            status: "not_configured",
+            lastErrorCode: "backend_has_no_ai_layer",
+          };
         }
-        return (payload ?? {}) as Obj;
+        if (ai) {
+          const model = ai.model ?? "?";
+          if (ai.status === "connected") {
+            console.info("[atlas] converse: ai-request-completed", {
+              provider: ai.provider,
+              model,
+              latencyMs: ai.latencyMs,
+            });
+          } else if (ai.status === "fallback") {
+            console.info("[atlas] converse: ai-fallback", {
+              provider: ai.provider,
+              model,
+              reason: ai.lastErrorCode,
+            });
+          } else if (ai.status === "skipped") {
+            console.info("[atlas] converse: ai-skipped", {
+              provider: ai.provider,
+              model,
+              reason: ai.lastErrorCode,
+            });
+          }
+        }
+        return unwrapped ?? {};
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.warn(
@@ -1006,6 +1047,10 @@ export const api = {
           ") — falling back to local retrieval",
         );
         if (!isConverseEngineUnreachable(msg)) throw e;
+        console.info("[atlas] converse: ai-fallback", {
+          reason: "engine_unreachable",
+          detail: msg.slice(0, 120),
+        });
         const { answerLocally } = await import("@/lib/ask/retrieval");
         try {
           const local = await answerLocally(
@@ -1013,7 +1058,16 @@ export const api = {
             question,
             (body.sessionId as string | null) ?? null,
           );
-          return local as unknown as Obj;
+          return {
+            ...(local as unknown as Obj),
+            ai: {
+              configured: false,
+              provider: "none",
+              model: null,
+              status: "not_configured",
+              lastErrorCode: "engine_unreachable",
+            },
+          };
         } catch (fallbackError) {
           const fmsg =
             fallbackError instanceof Error ? fallbackError.message : String(fallbackError);

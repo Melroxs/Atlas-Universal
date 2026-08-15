@@ -3,42 +3,51 @@
 //
 // DEPLOYMENT CONTRACT (Freebuff bundler): source/index.ts is the entry point
 // and only files inside this function package directory are bundled. This
-// file imports the LOCAL package copy of the CORS helpers at ./cors.ts — it
+// file imports the LOCAL package copies at ./cors.ts and ./gemini.ts — it
 // must never import ../_shared/cors.ts or anything outside this directory.
 // The canonical shared helper is kept at _shared/cors.ts for the repo, and
-// the drift test in _shared/cors.test.ts guarantees the two copies stay
+// the drift test in _shared/cors.test.ts guarantees the two CORS copies stay
 // identical. The root index.ts shim keeps the standard Supabase CLI deploy
 // path working.
 //
-// PRODUCTION DEFECT THIS FUNCTION FIXES: the browser called
-// https://<project>.supabase.co/functions/v1/conversation-converse but the
-// function was never deployed — the platform answered OPTIONS with a 404,
-// which is not a valid CORS preflight response, so every voice/Ask Atlas
-// request was blocked with "Response to preflight request does not have HTTP
-// ok status" and the assistant fell through to "I hit a problem responding
-// to that". This handler answers OPTIONS with 204 + the shared CORS headers
-// BEFORE authentication, then runs the SAME deterministic conversational
-// brain the frontend uses for typed Ask Atlas, over the caller's REAL
-// tenant-scoped data (documents, chunks, entities, claim candidates, claims,
-// findings) via the same RPCs. No canned responses, no fabricated evidence.
+// AI REASONING LAYER: Atlas retrieves the tenant's OWN evidence with the
+// deterministic retrieval brain below (documents, chunks, entities, claim
+// candidates, claims, findings — via the same RPCs the frontend uses), then —
+// when a Gemini API key is configured as an Edge Function secret
+// (GEMINI_API_KEY / GEMINI_MODEL / AI_PROVIDER) — sends ONLY that retrieved
+// evidence plus bounded conversation history to the Gemini API for
+// reasoning. The model's structured answer is schema-validated, its cited
+// evidence IDs are resolved against the REAL retrieved evidence (hallucinated
+// IDs are dropped), confidence is derived from retrieval quality, and the
+// response keeps the same shape the browser already consumes (answer,
+// evidence, suggestedActions, limitations, sessionId, mode). Every Gemini
+// failure (missing key, rate limit, timeout, 500, malformed output) falls
+// back to the deterministic retrieval answer — Ask Atlas and voice never
+// dead-end and never fabricate evidence.
 //
-// The brain is a faithful port of src/lib/ask/retrieval.ts (answerLocally).
-// One conversational brain: voice, push-to-talk and typed Ask Atlas all
-// submit their transcript here (the frontend keeps its local-retrieval
-// fallback only as an offline resilience layer, not as a second engine).
-//
-// Browser contract (src/lib/api.ts converse): the client unwraps
-// `{ ok: true, data: LocalAnswer }` and reads sessionId/answer/intent/
-// evidence/suggestedActions/pending/… Error responses are structured and
-// carry the CORS headers.
+// The Gemini API key is read from the function environment and used ONLY in
+// the server-to-server Authorization header; it never reaches the browser,
+// localStorage, or the database.
 // ---------------------------------------------------------------------------
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.3";
+import { atlasCorsHeaders, atlasJson, handleAtlasPreflight } from "./cors.ts";
 import {
-  atlasCorsHeaders,
-  atlasJson,
-  handleAtlasPreflight,
-} from "./cors.ts";
+  ATLAS_SYSTEM_PROMPT,
+  appendHistory,
+  buildEvidenceContext,
+  buildGeminiRequestBody,
+  callGemini,
+  configFromEnv,
+  deriveConfidence,
+  evidenceContextId,
+  extractJsonObject,
+  normalizeHistory,
+  resolveEvidenceIds,
+  validateStructuredAnswer,
+  type GeminiCallResult,
+  type GeminiConfig,
+} from "./gemini.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -219,7 +228,7 @@ function claimNumberMatches(question: string): string[] {
     /\b\d{6,12}\b/g,
   ]) {
     const matches = q.match(re);
-    if (matches) out.push(...matches.map((m) => m.replace(/[-\s]/g, "")));
+    if (matches) out.push(...matches.map((m) => m.replace(/[\-\s]/g, "")));
   }
   return [...new Set(out)];
 }
@@ -387,6 +396,7 @@ async function answerLocally(
   supabase: Supabase,
   question: string,
   sessionIdHint?: string | null,
+  opts?: { persist?: boolean },
 ): Promise<LocalAnswer> {
   const q = question.toLowerCase();
   const limitations =
@@ -566,25 +576,29 @@ async function answerLocally(
     }
   }
 
-  // Persist the turn into the ask-session history (real record, real evidence).
+  // Persist the turn into the ask-session history (real record, real evidence)
+  // UNLESS the caller asked not to (the handler persists the FINAL answer —
+  // AI or local — after the reasoning layer decides).
   let sessionId = sessionIdHint ?? "";
-  try {
-    const inserted = (await rpcCall(supabase, "ask_insert_session", {
-      question,
-      answer,
-      classification,
-      confidence,
-      mode: "local",
-      suggestedActions,
-      toolPlan: null,
-      limitations,
-      questionType: intent,
-      investigation: null,
-      evidence,
-    })) as { sessionId: string };
-    sessionId = inserted.sessionId ?? sessionId;
-  } catch {
-    // history persistence is best-effort
+  if (opts?.persist !== false) {
+    try {
+      const inserted = (await rpcCall(supabase, "ask_insert_session", {
+        question,
+        answer,
+        classification,
+        confidence,
+        mode: "local",
+        suggestedActions,
+        toolPlan: null,
+        limitations,
+        questionType: intent,
+        investigation: null,
+        evidence,
+      })) as { sessionId: string };
+      sessionId = inserted.sessionId ?? sessionId;
+    } catch {
+      // history persistence is best-effort
+    }
   }
 
   return {
@@ -600,6 +614,241 @@ async function answerLocally(
     evidence,
     authorityAnswers: [],
     pending: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Conversation memory (short-term context for follow-ups like
+// "tell me more about the first one") — stored in conversationSessions,
+// tenant-scoped by the conversation_get_session / conversation_save_session
+// RPCs. Only the most recent N turns are ever sent to Gemini.
+// ---------------------------------------------------------------------------
+
+async function loadConversationHistory(
+  supabase: Supabase,
+  sessionId: string | null,
+  maxTurns: number,
+): Promise<Array<{ role: "user" | "model"; text: string }>> {
+  if (!sessionId) return [];
+  try {
+    const row = (await rpcCall(supabase, "conversation_get_session", {
+      sessionId,
+    })) as { messages?: unknown } | null;
+    return normalizeHistory(row?.messages, maxTurns);
+  } catch {
+    // unknown/non-tenant session — start fresh
+    return [];
+  }
+}
+
+async function saveConversationTurn(
+  supabase: Supabase,
+  sessionId: string | null,
+  title: string,
+  messages: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }>,
+  context: Record<string, unknown>,
+): Promise<string | null> {
+  try {
+    const saved = (await rpcCall(supabase, "conversation_save_session", {
+      title,
+      messages,
+      context,
+      sessionId: sessionId ?? null,
+    })) as { sessionId: string | null };
+    return saved.sessionId ?? null;
+  } catch {
+    // memory persistence is best-effort
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI reasoning layer — retrieval stays the source of truth; Gemini reasons
+// over ONLY what was retrieved.
+// ---------------------------------------------------------------------------
+
+interface AiStatus {
+  configured: boolean;
+  provider: "gemini" | "none";
+  model: string | null;
+  status: "connected" | "not_configured" | "skipped" | "fallback" | "error";
+  lastErrorCode?: string;
+  latencyMs?: number;
+  evidenceCount?: number;
+  historyTurns?: number;
+}
+
+function diag(event: string, detail: Record<string, unknown> = {}): void {
+  // Structured server-side diagnostics — NEVER include the API key, prompts,
+  // or document contents. Only counts, codes, model names, latency.
+  console.info(`[conversation-converse] ${event}`, detail);
+}
+
+/**
+ * Run the Gemini reasoning pass over the retrieved LocalAnswer. Returns the
+ * final answer payload (ai or local) plus ai status metadata. Every failure
+ * falls back to the deterministic retrieval answer — never a fabricated one.
+ */
+async function reasonWithGemini(
+  supabase: Supabase,
+  config: GeminiConfig,
+  question: string,
+  local: LocalAnswer,
+  sessionId: string | null,
+): Promise<{ data: Record<string, unknown>; ai: AiStatus }> {
+  const evidenceRaw = local.evidence as unknown as Array<Record<string, unknown>>;
+
+  // Evidence-first rule: without retrieved evidence there is nothing for the
+  // model to reason over — answering honestly from retrieval is correct and
+  // keeps the model from inventing company facts.
+  if (evidenceRaw.length === 0) {
+    diag("ai-skipped-no-evidence", { model: config.model });
+    return {
+      data: {},
+      ai: {
+        configured: true,
+        provider: "gemini",
+        model: config.model,
+        status: "skipped",
+        lastErrorCode: "no_evidence",
+      },
+    };
+  }
+
+  diag("ai-request-start", { model: config.model, evidenceCount: evidenceRaw.length });
+  const history = await loadConversationHistory(supabase, sessionId, config.maxHistoryTurns);
+  const { items, byId } = buildEvidenceContext(evidenceRaw, config);
+  const requestBody = buildGeminiRequestBody(
+    config,
+    ATLAS_SYSTEM_PROMPT,
+    question,
+    history,
+    items,
+  );
+
+  const attempt = async (): Promise<GeminiCallResult> => callGemini(config, requestBody);
+
+  let result = await attempt();
+  if (result.ok) {
+    const parsed = extractJsonObject(result.text);
+    const validated = validateStructuredAnswer(parsed);
+    if (!validated.ok) {
+      // Malformed output: one constrained retry, then deterministic fallback.
+      diag("ai-retry-malformed", { reason: validated.reason });
+      result = await attempt();
+    }
+  }
+
+  if (!result.ok) {
+    diag("ai-request-failed", {
+      code: result.code,
+      status: result.status ?? null,
+      latencyMs: result.latencyMs,
+    });
+    if (result.code === "rate_limited") diag("ai-rate-limited", { latencyMs: result.latencyMs });
+    diag("ai-fallback", { reason: result.code, mode: "local" });
+    return {
+      data: {},
+      ai: {
+        configured: true,
+        provider: "gemini",
+        model: config.model,
+        status: "fallback",
+        lastErrorCode: result.code,
+        latencyMs: result.latencyMs,
+        evidenceCount: evidenceRaw.length,
+        historyTurns: history.length,
+      },
+    };
+  }
+
+  const parsed = extractJsonObject(result.text);
+  const validated = validateStructuredAnswer(parsed);
+  if (!validated.ok || !validated.answer) {
+    diag("ai-request-failed", { code: "malformed", latencyMs: result.latencyMs });
+    diag("ai-fallback", { reason: "malformed", mode: "local" });
+    return {
+      data: {},
+      ai: {
+        configured: true,
+        provider: "gemini",
+        model: config.model,
+        status: "fallback",
+        lastErrorCode: "malformed",
+        latencyMs: result.latencyMs,
+        evidenceCount: evidenceRaw.length,
+        historyTurns: history.length,
+      },
+    };
+  }
+
+  const sa = validated.answer;
+  const { kept, dropped } = resolveEvidenceIds(sa.evidenceIds, byId);
+  if (dropped > 0) {
+    diag("ai-citation-filtered", { dropped, kept: kept.length });
+  }
+
+  // Resolve the kept ids back to the REAL retrieved evidence records so the
+  // frontend renders actual documents/chunks (never model-invented ids).
+  const evidenceById = new Map<string, LocalEvidence>();
+  for (const e of evidenceRaw) {
+    const id = evidenceContextId(e);
+    if (id) evidenceById.set(id, e as unknown as LocalEvidence);
+  }
+  const finalEvidence: LocalEvidence[] = kept
+    .map((id) => evidenceById.get(id))
+    .filter((e): e is LocalEvidence => Boolean(e));
+
+  const contradictionCount = local.intent === "contradiction_report" ? 1 : 0;
+  const confidence = deriveConfidence(finalEvidence.length, contradictionCount, sa.confidence);
+  const answerText = sa.answer || local.answer;
+  const spoken = sa.spoken || answerText;
+
+  const limitations = [
+    `Gemini reasoning over Atlas retrieval (model: ${config.model}). Answers are grounded in the tenant's own documents; verified facts, interpretation and missing information are distinguished.`,
+    ...sa.limitations,
+  ];
+  if (dropped > 0) {
+    limitations.push(
+      `${dropped} cited evidence reference${dropped === 1 ? "" : "s"} did not match the retrieved evidence and were discarded.`,
+    );
+  }
+
+  diag("ai-request-completed", {
+    model: config.model,
+    latencyMs: result.latencyMs,
+    evidenceCount: finalEvidence.length,
+    cited: kept.length,
+    mode: "ai",
+  });
+
+  return {
+    data: {
+      answer: answerText,
+      spoken,
+      classification: local.classification,
+      confidence,
+      mode: "ai",
+      limitations: limitations.join(" "),
+      suggestedActions: sa.recommendations.length
+        ? sa.recommendations
+        : local.suggestedActions,
+      questionType: sa.intent || local.intent,
+      intent: sa.intent || local.intent,
+      evidence: finalEvidence.length ? finalEvidence : local.evidence,
+      authorityAnswers: [],
+      pending: null,
+      followUpQuestions: sa.followUpQuestions,
+    },
+    ai: {
+      configured: true,
+      provider: "gemini",
+      model: config.model,
+      status: "connected",
+      latencyMs: result.latencyMs,
+      evidenceCount: finalEvidence.length,
+      historyTurns: history.length,
+    },
   };
 }
 
@@ -665,13 +914,84 @@ Deno.serve(async (req) => {
         headers,
       );
     }
+    const sessionId =
+      typeof body?.sessionId === "string" && body.sessionId.trim()
+        ? body.sessionId.trim()
+        : null;
 
-    const answer = await answerLocally(
-      admin,
+    // 1. Retrieval first — the deterministic brain over the caller's REAL
+    //    tenant-scoped data. This is the source of truth for evidence.
+    const local = await answerLocally(admin, transcript, sessionId, { persist: false });
+
+    // 2. Gemini reasoning over the retrieved evidence (when configured).
+    const { config, configured, reason } = configFromEnv(Deno.env.toObject());
+    let ai: AiStatus = {
+      configured,
+      provider: configured ? "gemini" : "none",
+      model: configured ? config!.model : null,
+      status: configured ? "connected" : "not_configured",
+      lastErrorCode: configured ? undefined : "not_configured",
+    };
+    if (reason) diag("ai-config", { reason: reason.slice(0, 200) });
+
+    let aiData: Record<string, unknown> = {};
+    if (config) {
+      const res = await reasonWithGemini(admin, config, transcript, local, sessionId);
+      aiData = res.data;
+      ai = res.ai;
+    }
+
+    const finalData: Record<string, unknown> = {
+      ...local,
+      ...aiData,
+      ai,
+    };
+    // `local` carries a mode: "local" — the aiData override must win when
+    // Gemini answered.
+    if (aiData.mode) finalData.mode = aiData.mode;
+    finalData.spoken = aiData.spoken ?? local.answer;
+
+    // 3. Persist the FINAL turn (ai or local) into ask-session history so the
+    //    Ask page history and evidence stay truthful about what was answered.
+    const finalEvidence = Array.isArray(finalData.evidence) ? finalData.evidence : local.evidence;
+    try {
+      const inserted = (await rpcCall(admin, "ask_insert_session", {
+        question: transcript,
+        answer: finalData.answer,
+        classification: finalData.classification,
+        confidence: finalData.confidence,
+        mode: finalData.mode,
+        suggestedActions: finalData.suggestedActions,
+        toolPlan: null,
+        limitations: finalData.limitations,
+        questionType: finalData.intent,
+        investigation: null,
+        evidence: finalEvidence,
+      })) as { sessionId: string };
+      finalData.askSessionId = inserted.sessionId ?? null;
+    } catch {
+      // history persistence is best-effort
+    }
+
+    // 4. Conversation memory: append the turn to conversationSessions and
+    //    return the conversation session id so follow-ups thread correctly.
+    const memoryTitle = transcript.slice(0, 60);
+    const historyMessages = appendHistory(
+      await loadConversationHistory(admin, sessionId, config?.maxHistoryTurns ?? 4),
       transcript,
-      typeof body?.sessionId === "string" ? body.sessionId : null,
+      String(finalData.answer ?? ""),
+      config?.maxHistoryTurns ?? 4,
     );
-    return atlasJson({ ok: true, data: answer }, 200, headers);
+    const convSessionId = await saveConversationTurn(
+      admin,
+      sessionId,
+      memoryTitle,
+      historyMessages,
+      { mode: finalData.mode, intent: finalData.intent },
+    );
+    finalData.sessionId = convSessionId ?? local.sessionId;
+
+    return atlasJson({ ok: true, data: finalData }, 200, headers);
   } catch (e) {
     console.error("[conversation-converse] failed:", e);
     const msg = e instanceof Error ? e.message : String(e);

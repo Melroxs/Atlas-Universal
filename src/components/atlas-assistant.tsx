@@ -110,6 +110,14 @@ interface ConverseResponse {
   pending?: PendingState;
   memoryNote?: string;
   supplementDocument?: SupplementDocumentPayload | null;
+  ai?: {
+    configured?: boolean;
+    provider?: string;
+    model?: string | null;
+    status?: string;
+    lastErrorCode?: string;
+    latencyMs?: number;
+  };
 }
 
 const SESSION_KEY = "atlas-conversation-session";
@@ -158,6 +166,7 @@ export function AtlasAssistant({
   const [voiceIntro, setVoiceIntro] = useState(false);
   const [voiceDiag, setVoiceDiag] = useState(false);
   const [micPermission, setMicPermission] = useState<string>("unknown");
+  const [lastAi, setLastAi] = useState<NonNullable<ConverseResponse["ai"]> | null>(null);
   const voiceIntroSeenRef = useRef(
     typeof localStorage !== "undefined" && !!localStorage.getItem("atlas-voice-intro"),
   );
@@ -242,6 +251,25 @@ export function AtlasAssistant({
         entityContextId: entityContextId as Id<"entities"> | undefined,
       })) as unknown as ConverseResponse;
       voice.pushDiagnostic("converse-completed", res.intent ?? "answer");
+      // AI diagnostics — expose the actual reasoning-engine state (no
+      // secrets): model, status, and latency only.
+      if (res.ai) {
+        setLastAi(res.ai);
+        const model = res.ai.model ?? "?";
+        if (res.ai.status === "connected") {
+          voice.pushDiagnostic(
+            "ai-request-completed",
+            `gemini:${model} ${res.ai.latencyMs ?? "?"}ms`,
+          );
+        } else if (res.ai.status === "fallback") {
+          voice.pushDiagnostic(
+            "ai-fallback",
+            `gemini:${model} reason=${res.ai.lastErrorCode ?? "?"}`,
+          );
+        } else if (res.ai.status === "skipped") {
+          voice.pushDiagnostic("ai-skipped", `reason=${res.ai.lastErrorCode ?? "no_evidence"}`);
+        }
+      }
       setSessionId(res.sessionId);
       localStorage.setItem(SESSION_KEY, res.sessionId);
       setTurns((t) => [
@@ -974,6 +1002,38 @@ export function AtlasAssistant({
                 </span>
               </p>
             )}
+            <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
+              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                AI reasoning
+              </p>
+              {!lastAi ? (
+                <p className="mt-0.5 text-[11px] text-muted-foreground/70">
+                  Ask a question to check the reasoning engine.
+                </p>
+              ) : (
+                <p className="mt-0.5 text-[11px]">
+                  {lastAi.configured ? (
+                    <>
+                      Provider: <span className="font-medium text-foreground">{lastAi.provider === "gemini" ? "Gemini" : lastAi.provider}</span>
+                      {lastAi.model ? ` · Model: ${lastAi.model}` : ""}
+                      {" · "}
+                      <span className="font-medium text-foreground">
+                        {lastAi.status === "connected"
+                          ? "Connected"
+                          : lastAi.status === "fallback"
+                            ? `Fallback (${lastAi.lastErrorCode ?? "?"})`
+                            : lastAi.status}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Provider: <span className="font-medium text-foreground">None</span> —
+                      <span className="text-muted-foreground"> evidence retrieval</span>
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
             <div className="rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2">
               <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                 Event log

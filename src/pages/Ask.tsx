@@ -67,6 +67,15 @@ interface PendingState {
   options?: Array<{ id?: string; label: string }>;
 }
 
+interface AiStatusInfo {
+  configured?: boolean;
+  provider?: string;
+  model?: string | null;
+  status?: string;
+  lastErrorCode?: string;
+  latencyMs?: number;
+}
+
 interface Turn {
   id: string;
   role: "user" | "assistant";
@@ -124,6 +133,7 @@ export default function Ask() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState<AiStatusInfo | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const voice = useVoice({
@@ -161,6 +171,7 @@ export default function Ask() {
         pageContext: "Ask Atlas",
       });
       setSessionId(res.sessionId);
+      if (res.ai) setAiStatus(res.ai as AiStatusInfo);
       setTurns((t) => [
         ...t,
         {
@@ -282,8 +293,14 @@ export default function Ask() {
                       )}
                       {t.classification && <KnowledgeBadge classification={t.classification} />}
                       {t.mode && (
-                        <span className="rounded-full border border-border/70 px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
-                          {t.mode === "ai" ? "AI reasoning" : "assembled locally"}
+                        <span
+                          className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${
+                            t.mode === "ai"
+                              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300"
+                              : "border-border/70 text-muted-foreground"
+                          }`}
+                        >
+                          {t.mode === "ai" ? "Gemini reasoning" : "assembled locally"}
                         </span>
                       )}
                       {typeof t.confidence === "number" && <ConfidenceBar value={t.confidence} />}
@@ -590,8 +607,66 @@ export default function Ask() {
           </div>
         </div>
 
-        {/* History */}
+        {/* AI + History */}
         <div className="flex flex-col gap-4">
+          {/* AI configuration status — reflects the real deployed backend,
+              never a guessed state. Until a question is answered the status
+              is unknown; afterwards it shows what the conversation engine
+              actually used. */}
+          <div className="rounded-xl border border-border/70 bg-card/50 p-3.5">
+            <div className="flex items-center gap-2">
+              <div className="flex size-7 items-center justify-center rounded-lg border border-teal-400/25 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                <Bot className="size-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-1.5 text-xs font-semibold">
+                  AI
+                  {aiStatus?.configured ? (
+                    <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-1.5 py-px font-mono text-[9px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                      {aiStatus.status === "connected"
+                        ? "connected"
+                        : aiStatus.status === "fallback"
+                          ? "fallback"
+                          : aiStatus.status === "skipped"
+                            ? "no evidence"
+                            : aiStatus.status}
+                    </span>
+                  ) : aiStatus ? (
+                    <span className="rounded-full border border-border/70 px-1.5 py-px font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+                      not configured
+                    </span>
+                  ) : (
+                    <span className="rounded-full border border-border/70 px-1.5 py-px font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+                      checking…
+                    </span>
+                  )}
+                </p>
+                {aiStatus?.configured ? (
+                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                    {aiStatus.provider === "gemini" ? "Gemini" : aiStatus.provider ?? "AI"}
+                    {aiStatus.model ? ` · ${aiStatus.model}` : ""} — evidence-grounded
+                    reasoning
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
+                    {aiStatus
+                      ? "Atlas is using evidence retrieval until an AI model is configured."
+                      : "Ask a question to check the reasoning engine."}
+                  </p>
+                )}
+              </div>
+            </div>
+            {(aiStatus?.configured || aiStatus?.status === "fallback") && aiStatus?.lastErrorCode && (
+              <p className="mt-2 border-t border-border/50 pt-2 font-mono text-[10px] text-muted-foreground/70">
+                {aiStatus.status === "fallback"
+                  ? `last answer fell back to retrieval (${aiStatus.lastErrorCode})`
+                  : aiStatus.status === "skipped"
+                    ? "no evidence was retrieved for the last question"
+                    : `status: ${aiStatus.status}`}
+              </p>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <h2 className="flex items-center gap-2 text-sm font-semibold">
               <History className="size-4 text-cyan-600 dark:text-cyan-300" />

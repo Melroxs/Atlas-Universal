@@ -317,6 +317,21 @@ export async function beginProcessingClient(args: {
     },
   });
 
+  // CLAIM DISCOVERY + RECONSTRUCTION (§"FINAL CLAIM DISCOVERY"): when new
+  // documents were actually ingested, run the deterministic discovery engine
+  // so HIGH-confidence evidence becomes a REAL persisted claim (linked to its
+  // evidence) instead of stopping at a candidate. Best-effort by design — a
+  // discovery failure never fails the archive run; the Revenue Recovery scan
+  // re-runs the same engine on demand.
+  if (finalIngested > 0) {
+    try {
+      const { runClaimDiscovery } = await import("@/lib/actions/claim-discovery");
+      await runClaimDiscovery(supabase);
+    } catch (e) {
+      console.error("[atlas] automatic claim discovery after archive failed:", e);
+    }
+  }
+
   return { ok: true, ingested: finalIngested, failed: finalFailed, candidates };
 }
 

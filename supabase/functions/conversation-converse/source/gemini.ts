@@ -149,6 +149,16 @@ recommendation, and structure it as:
 You never execute actions yourself; you only recommend them for a human to
 approve.
 
+When the question involves missing information, readiness, risks, or
+contradictions, include a "findings" array in your JSON answer. Each finding
+is an object: {"category": string, "statement": string, "evidenceIds":
+string[]}. Category is one of: FACT (directly supported), INFERENCE
+(interpretation, clearly labelled), UNKNOWN (cannot be determined), MISSING
+(expected but not found), CONFLICT (sources disagree), RECOMMENDATION (a
+suggested action). Statements must be grounded in the provided evidence;
+never fabricate a finding. Absence reasoning is allowed and expected: if the
+expected evidence is not in the list, state it as MISSING.
+
 Reasoning about restoration work: scope and estimate documents (estimates,
 Xactimate, invoices, payments, supplements, FNOL reports, inspection reports,
 correspondence, policy documents) carry the financial facts. A difference
@@ -167,10 +177,26 @@ markdown).`;
 // Structured answer schema
 // ---------------------------------------------------------------------------
 
+/** Reasoning categories (§23) — conclusions are labeled, never dressed up. */
+export type AtlasReasoningCategory =
+  | "FACT"
+  | "INFERENCE"
+  | "UNKNOWN"
+  | "MISSING"
+  | "CONFLICT"
+  | "RECOMMENDATION";
+
+export interface AtlasFinding {
+  category: AtlasReasoningCategory;
+  statement: string;
+  /** Evidence IDs cited by the model — must match provided evidence ids. */
+  evidenceIds?: string[];
+}
+
 export interface AtlasStructuredAnswer {
   /** The full answer for the UI. */
   answer: string;
-  /** Intent label, e.g. "claim_reconstruction", "contradiction_report". */
+  /** Intent label, e.g. "claim_reconstruction", "contradiction_analysis". */
   intent?: string;
   /** Evidence IDs cited by the model — must match provided evidence ids. */
   evidenceIds: string[];
@@ -182,6 +208,13 @@ export interface AtlasStructuredAnswer {
   followUpQuestions: string[];
   /** Speech-optimized answer (optional; falls back to `answer`). */
   spoken?: string;
+  /** Categorized, evidence-grounded findings (optional). */
+  findings?: AtlasFinding[];
+  /**
+   * The model's own 0..1 confidence, when emitted. Used ONLY as a ±0.05 nudge
+   * on the retrieval-derived confidence — never trusted on its own.
+   */
+  confidence?: number;
 }
 
 export interface ValidationResult {
@@ -190,15 +223,48 @@ export interface ValidationResult {
   reason?: string;
 }
 
+const FINDING_CATEGORIES: readonly AtlasReasoningCategory[] = [
+  "FACT",
+  "INFERENCE",
+  "UNKNOWN",
+  "MISSING",
+  "CONFLICT",
+  "RECOMMENDATION",
+];
+
 function asStringArray(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, 8);
 }
 
+function asFindings(v: unknown): AtlasFinding[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: AtlasFinding[] = [];
+  for (const raw of v) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const f = raw as Record<string, unknown>;
+    const category =
+      typeof f.category === "string" &&
+      FINDING_CATEGORIES.includes(f.category as AtlasReasoningCategory)
+        ? (f.category as AtlasReasoningCategory)
+        : undefined;
+    const statement = typeof f.statement === "string" ? f.statement.trim() : "";
+    if (!category || !statement) continue;
+    out.push({
+      category,
+      statement,
+      evidenceIds: asStringArray(f.evidenceIds),
+    });
+    if (out.length >= 12) break;
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /**
  * Validate a parsed model response against the Atlas structured-answer
  * schema. Strict about the fields the frontend and citation resolver depend
- * on; lenient about optional cosmetics.
+ * on; lenient about optional cosmetics (findings are optional but, when
+ * present, must carry a known category and a non-empty statement).
  */
 export function validateStructuredAnswer(obj: unknown): ValidationResult {
   if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
@@ -212,6 +278,12 @@ export function validateStructuredAnswer(obj: unknown): ValidationResult {
   const intent = typeof o.intent === "string" && o.intent.trim() ? o.intent.trim() : undefined;
   const spoken =
     typeof o.spoken === "string" && o.spoken.trim() ? o.spoken.trim() : undefined;
+  const rawConfidence =
+    typeof o.confidence === "number" ? o.confidence : Number.parseFloat(String(o.confidence ?? ""));
+  const confidence =
+    Number.isFinite(rawConfidence)
+      ? Math.min(1, Math.max(0, rawConfidence))
+      : undefined;
   return {
     ok: true,
     answer: {
@@ -222,6 +294,8 @@ export function validateStructuredAnswer(obj: unknown): ValidationResult {
       limitations: asStringArray(o.limitations),
       followUpQuestions: asStringArray(o.followUpQuestions),
       spoken,
+      findings: asFindings(o.findings),
+      confidence,
     },
   };
 }
@@ -424,7 +498,7 @@ export function buildGeminiRequestBody(
                     )
                     .join("\n\n")
                 : "(no evidence was retrieved for this question)"
-            }\n</evidence>\n\nQuestion: ${question}\n\nRespond ONLY with a JSON object of the form {\"answer\": string, \"intent\": string, \"evidenceIds\": string[], \"recommendations\": string[], \"limitations\": string[], \"followUpQuestions\": string[], \"spoken\": string}. Cite ONLY evidence ids from the <evidence> list. If no evidence supports the question, answer honestly that Atlas could not verify it from the documents available.`,
+            }\n</evidence>\n\nQuestion: ${question}\n\nRespond ONLY with a JSON object of the form {\"answer\": string, \"intent\": string, \"evidenceIds\": string[], \"recommendations\": string[], \"limitations\": string[], \"followUpQuestions\": string[], \"spoken\": string, \"findings\": [{\"category\": \"FACT|INFERENCE|UNKNOWN|MISSING|CONFLICT|RECOMMENDATION\", \"statement\": string, \"evidenceIds\": string[]}]}. Cite ONLY evidence ids from the <evidence> list. If no evidence supports the question, answer honestly that Atlas could not verify it from the documents available.`,
         },
       ],
     },

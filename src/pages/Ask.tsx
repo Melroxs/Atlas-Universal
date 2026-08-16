@@ -91,6 +91,10 @@ interface Turn {
   authorityAnswers?: AuthorityAnswer[];
   intent?: string;
   pending?: PendingState | null;
+  findings?: ReasoningFinding[];
+  missingInformation?: string[];
+  contradictions?: EvidenceContradiction[];
+  recommendations?: string[];
   timestamp: number;
 }
 
@@ -104,6 +108,30 @@ interface ToolPlan {
   verificationPlan?: string;
   reason?: string;
 }
+
+/** Reasoning categories (§23) — conclusions are labeled, never dressed up. */
+interface ReasoningFinding {
+  category: string;
+  statement: string;
+  evidenceIds?: string[];
+}
+
+interface EvidenceContradiction {
+  key?: string;
+  field?: string;
+  severity?: string;
+  detail?: string;
+  values?: Array<{ value?: string; documentTitle?: string; documentId?: string }>;
+}
+
+const FINDING_STYLES: Record<string, string> = {
+  FACT: "border-emerald-400/30 bg-emerald-400/10 text-emerald-700 dark:text-emerald-300",
+  INFERENCE: "border-sky-400/30 bg-sky-400/10 text-sky-700 dark:text-sky-300",
+  UNKNOWN: "border-slate-400/30 bg-slate-400/10 text-slate-600 dark:text-slate-300",
+  MISSING: "border-amber-400/30 bg-amber-400/10 text-amber-700 dark:text-amber-300",
+  CONFLICT: "border-rose-400/30 bg-rose-400/10 text-rose-700 dark:text-rose-300",
+  RECOMMENDATION: "border-violet-400/30 bg-violet-400/10 text-violet-700 dark:text-violet-300",
+};
 
 const EVIDENCE_ICONS: Record<string, typeof FileText> = {
   chunk: FileText,
@@ -189,6 +217,10 @@ export default function Ask() {
           authorityAnswers: res.authorityAnswers as unknown as AuthorityAnswer[] | undefined,
           intent: res.intent,
           pending: res.pending,
+          findings: (res.findings as ReasoningFinding[] | undefined) ?? undefined,
+          missingInformation: (res.missingInformation as string[] | undefined) ?? undefined,
+          contradictions: (res.contradictions as EvidenceContradiction[] | undefined) ?? undefined,
+          recommendations: (res.recommendations as string[] | undefined) ?? undefined,
           timestamp: Date.now(),
         },
       ]);
@@ -223,6 +255,10 @@ export default function Ask() {
         evidence: s.evidence as Evidence[],
         toolPlan: s.toolPlan ?? null,
         questionType: s.questionType,
+        findings: s.findings as ReasoningFinding[] | undefined,
+        missingInformation: s.missingInformation as string[] | undefined,
+        contradictions: s.contradictions as EvidenceContradiction[] | undefined,
+        recommendations: s.recommendations as string[] | undefined,
         timestamp: s._creationTime,
       },
     ]);
@@ -431,6 +467,107 @@ export default function Ask() {
                           </div>
                         </div>
                       )}
+                      {/* Structured intelligence (§37): categorized findings,
+                          gaps and contradictions — each grounded in evidence. */}
+                      {t.findings && t.findings.length > 0 && (
+                        <div className="mt-3 border-t border-border/50 pt-2.5">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                            <Radar className="size-3 text-teal-600 dark:text-teal-300" />
+                            Atlas analysis
+                          </p>
+                          <div className="mt-2 space-y-1.5">
+                            {t.findings.map((f, i) => (
+                              <div
+                                key={`${t.id}-f${i}`}
+                                className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2"
+                              >
+                                <span
+                                  className={`mt-px shrink-0 rounded-full border px-1.5 py-px font-mono text-[9px] font-semibold uppercase tracking-wide ${
+                                    FINDING_STYLES[f.category] ?? FINDING_STYLES.UNKNOWN
+                                  }`}
+                                >
+                                  {f.category}
+                                </span>
+                                <p className="min-w-0 flex-1 text-[11px] leading-5 text-foreground">
+                                  {f.statement}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {t.missingInformation && t.missingInformation.length > 0 && (
+                        <div className="mt-3 border-t border-border/50 pt-2.5">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                            <Radar className="size-3" />
+                            Missing information
+                          </p>
+                          <ul className="mt-1.5 space-y-1">
+                            {t.missingInformation.map((m) => (
+                              <li
+                                key={m}
+                                className="flex items-start gap-1.5 text-[11px] leading-5 text-muted-foreground"
+                              >
+                                <span className="mt-1.5 size-1 shrink-0 rounded-full bg-amber-500/70" />
+                                {m}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {t.contradictions && t.contradictions.length > 0 && (
+                        <div className="mt-3 border-t border-border/50 pt-2.5">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                            <Radar className="size-3" />
+                            Contradictions ({t.contradictions.length})
+                          </p>
+                          <div className="mt-1.5 space-y-1.5">
+                            {t.contradictions.map((c, i) => (
+                              <div
+                                key={`${t.id}-c${i}`}
+                                className="rounded-lg border border-rose-400/20 bg-rose-400/5 px-2.5 py-2"
+                              >
+                                <p className="text-[11px] font-medium text-foreground">
+                                  {c.detail ?? `${c.field ?? "value"} conflict`}
+                                </p>
+                                {c.values && c.values.length > 0 && (
+                                  <div className="mt-1 flex flex-wrap gap-1.5">
+                                    {c.values.map((v, j) => (
+                                      <span
+                                        key={j}
+                                        className="rounded border border-border/60 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                                      >
+                                        {v.value}
+                                        {v.documentTitle ? ` — ${v.documentTitle}` : ""}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {t.recommendations &&
+                        t.recommendations.length > 0 &&
+                        (!t.suggestedActions || t.suggestedActions.length === 0) && (
+                          <div className="mt-3 border-t border-border/50 pt-2.5">
+                            <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                              <Lightbulb className="size-3" />
+                              Recommended actions
+                            </p>
+                            <div className="mt-1.5 flex flex-wrap gap-1.5">
+                              {t.recommendations.map((a) => (
+                                <span
+                                  key={a}
+                                  className="rounded-md border border-violet-400/25 bg-violet-400/5 px-2 py-0.5 text-[11px] text-violet-700 dark:text-violet-200"
+                                >
+                                  {a}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       {t.limitations && (
                         <p className="mt-3 text-[11px] italic leading-5 text-muted-foreground">
                           ⚠ {t.limitations}

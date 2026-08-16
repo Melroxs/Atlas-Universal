@@ -7,7 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
-import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import {
+  invalidateQueries,
+  useAction,
+  useMutation,
+  useQuery,
+} from "@/hooks/use-supabase";
 import {
   Activity,
   AlertTriangle,
@@ -26,6 +31,7 @@ import {
   History,
   Landmark,
   Layers,
+  Loader2,
   MapPin,
   Plus,
   RefreshCw,
@@ -47,6 +53,46 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const MANAGER_ROLES = ["owner", "admin", "manager"];
+
+// ---------------------------------------------------------------------------
+// Loading / error helpers
+//
+// useQuery returns `undefined` while loading and `null` when the RPC fails, so
+// every section distinguishes the three honest states: loading (spinner),
+// failure (explicit error + Retry via invalidateQueries), and data (rendered
+// from the normalized contract). A failed section NEVER masquerades as an
+// empty section, and an empty section never spins forever.
+// ---------------------------------------------------------------------------
+
+function SectionLoading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+      <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
+      {label}
+    </div>
+  );
+}
+
+function SectionError({
+  message,
+  detail,
+}: {
+  message: string;
+  detail?: string | null;
+}) {
+  return (
+    <div className="flex flex-col items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <AlertTriangle className="size-4 text-destructive" />
+        {message}
+      </div>
+      {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
+      <Button variant="outline" size="sm" onClick={() => invalidateQueries()} className="gap-2">
+        <RefreshCw className="size-3.5" /> Retry
+      </Button>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types (server-driven shapes)
@@ -398,23 +444,57 @@ export default function BusinessBrain() {
     holidays: string;
   } | null>(null);
 
+  // Local form state — initialized once from the normalized org context. The
+  // deployed RPC returns `context: null` for a tenant that has not saved one
+  // yet — that is a SUCCESSFUL empty state, so the form still initializes with
+  // profile/company fallbacks and sensible defaults (never a stuck "Loading").
   useEffect(() => {
-    if (!form && orgData?.context) {
+    if (!form && orgData) {
       setForm({
-        country: orgData.context.country ?? orgData.profile?.country ?? "",
-        regions: (orgData.context.regions ?? []).join(", "),
-        cities: (orgData.context.cities ?? []).join(", "),
-        timezone: orgData.context.primaryTimezone ?? orgData.organization.timezone,
-        locale: orgData.context.locale ?? "",
-        currency: orgData.context.currency ?? "",
-        fiscalYearStart: orgData.context.fiscalYearStart ?? "",
-        businessDays: orgData.context.businessDays ?? [1, 2, 3, 4, 5],
-        hoursStart: orgData.context.businessHours?.start ?? "09:00",
-        hoursEnd: orgData.context.businessHours?.end ?? "17:00",
-        holidays: (orgData.context.holidays ?? []).join(", "),
+        country: orgData.context?.country ?? orgData.profile?.country ?? "",
+        regions: (orgData.context?.regions ?? []).join(", "),
+        cities: (orgData.context?.cities ?? []).join(", "),
+        timezone: orgData.context?.primaryTimezone ?? orgData.organization.timezone,
+        locale: orgData.context?.locale ?? "",
+        currency: orgData.context?.currency ?? "",
+        fiscalYearStart: orgData.context?.fiscalYearStart ?? "",
+        businessDays: orgData.context?.businessDays ?? [1, 2, 3, 4, 5],
+        hoursStart: orgData.context?.businessHours?.start ?? "09:00",
+        hoursEnd: orgData.context?.businessHours?.end ?? "17:00",
+        holidays: (orgData.context?.holidays ?? []).join(", "),
       });
     }
   }, [orgData, form]);
+
+  // Observability — safe metadata only (section, RPC name, latency, counts,
+  // error classification). Never secrets or document contents.
+  useEffect(() => {
+    console.info("[atlas] business-brain-load-start");
+    const sections = [
+      ["organization", orgData],
+      ["universal-knowledge", brain],
+      ["authority", authority],
+      ["coverage", coverageData],
+      ["insurance", insurance],
+      ["monitor", monitor],
+      ["changes", changes],
+      ["assessments", assessments],
+      ["excellence", excellenceData],
+    ] as const;
+    const settled = sections.filter(([, v]) => v !== undefined);
+    if (settled.length === sections.length) {
+      const failed = settled.filter(([, v]) => v === null);
+      if (failed.length > 0) {
+        console.info("[atlas] business-brain-load-failed", {
+          failedSections: failed.map(([name]) => name),
+        });
+      } else {
+        console.info("[atlas] business-brain-load-completed", {
+          sections: sections.length,
+        });
+      }
+    }
+  }, [orgData, brain, authority, coverageData, insurance, monitor, changes, assessments, excellenceData]);
 
   const [newLoc, setNewLoc] = useState({ name: "", kind: "branch", city: "", timezone: "" });
 
@@ -433,6 +513,7 @@ export default function BusinessBrain() {
       holidays: form.holidays.split(",").map((s) => s.trim()).filter(Boolean),
     });
     setDirty(false);
+    invalidateQueries();
     toast.success("Organization context saved");
   };
 
@@ -445,6 +526,7 @@ export default function BusinessBrain() {
       timezone: newLoc.timezone || undefined,
     });
     setNewLoc({ name: "", kind: "branch", city: "", timezone: "" });
+    invalidateQueries();
     toast.success("Location added");
   };
 
@@ -457,6 +539,7 @@ export default function BusinessBrain() {
           ? "Source checked — no change."
           : `Check complete: ${res.status.replace(/_/g, " ")}${res.createdVersionIds?.length ? ` · ${res.createdVersionIds.length} version(s) published` : ""}`,
       );
+      invalidateQueries();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Check failed");
     } finally {
@@ -468,6 +551,7 @@ export default function BusinessBrain() {
     setDecidingId(assessmentId);
     try {
       await decide({ assessmentId, decision });
+      invalidateQueries();
       toast.success(`Review ${decision}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Decision failed");
@@ -513,10 +597,18 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Overview */}
         <TabsContent value="overview" className="mt-6 flex flex-col gap-6">
-          <div className="grid gap-6 lg:grid-cols-5">
+          {orgData === undefined ? (
+            <SectionLoading label="Loading organization context…" />
+          ) : orgData === null ? (
+            <SectionError
+              message="Business Brain couldn't load organization data."
+              detail="Unable to reach the organization data service. Retry once it is available."
+            />
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-5">
             <Panel className="lg:col-span-3" title="Organization context">
               {!form ? (
-                <p className="text-sm text-muted-foreground">Loading context…</p>
+                <SectionLoading label="Preparing the form…" />
               ) : (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Country">
@@ -660,10 +752,10 @@ export default function BusinessBrain() {
             <div className="flex flex-col gap-6 lg:col-span-2">
               <Panel title="Operating locations">
                 <div className="flex flex-col gap-3">
-                  {orgData?.locations.length === 0 && (
+                  {orgData.locations.length === 0 && (
                     <p className="text-sm text-muted-foreground">No locations configured yet.</p>
                   )}
-                  {orgData?.locations.map((loc) => (
+                  {orgData.locations.map((loc) => (
                     <div
                       key={loc._id}
                       className="flex items-center justify-between rounded-lg border border-border/70 bg-card/50 px-3 py-2"
@@ -692,6 +784,7 @@ export default function BusinessBrain() {
                         className="size-8 text-muted-foreground hover:text-destructive"
                         onClick={async () => {
                           await removeLocation({ id: loc._id });
+                          invalidateQueries();
                           toast.success("Location removed");
                         }}
                       >
@@ -750,31 +843,34 @@ export default function BusinessBrain() {
                       }
                     />
                     <Row label="Next business day" value={snapshot.nextBusinessDay} />
-                    <Row label="End of business day" value={fmtTime(snapshot.endOfBusinessDay)} />
+                    <Row label="End of business day" value={fmtTime(new Date(snapshot.endOfBusinessDay).getTime())} />
                     <Row label="Fiscal quarter" value={snapshot.fiscalQuarter.label} />
                     <Row label="This week" value={`${snapshot.weekStart} → ${snapshot.today}`} />
                     <Row label="This month" value={`${snapshot.monthStart} → ${snapshot.monthEnd}`} />
                     <Row
                       label="User timezone"
                       value={
-                        orgData?.user
+                        orgData.user
                           ? `${orgData.user.timezone} (${fmtTime(orgData.user.snapshot.now)})`
                           : "—"
                       }
                     />
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">Loading calendar…</p>
+                  <SectionLoading label="Loading calendar…" />
                 )}
               </Panel>
             </div>
-          </div>
+            </div>
+          )}
         </TabsContent>
 
         {/* ------------------------------------------------ Universal knowledge */}
         <TabsContent value="brain" className="mt-6 flex flex-col gap-6">
-          {!brain ? (
-            <p className="text-sm text-muted-foreground">Loading universal knowledge…</p>
+          {brain === undefined ? (
+            <SectionLoading label="Loading universal knowledge…" />
+          ) : brain === null ? (
+            <SectionError message="Universal knowledge couldn't be loaded." />
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -934,8 +1030,13 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Jurisdiction & authority */}
         <TabsContent value="authority" className="mt-6 flex flex-col gap-6">
-          {!authority ? (
-            <p className="text-sm text-muted-foreground">Loading authoritative sources…</p>
+          {authority === undefined ? (
+            <SectionLoading label="Loading authoritative sources…" />
+          ) : authority === null ? (
+            <SectionError
+              message="Authoritative knowledge couldn't be loaded."
+              detail="Unable to reach the jurisdiction & authority service. Retry once it is available."
+            />
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -1055,8 +1156,13 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Authority monitor */}
         <TabsContent value="monitor" className="mt-6 flex flex-col gap-6">
-          {!monitor ? (
-            <p className="text-sm text-muted-foreground">Loading authority monitor…</p>
+          {monitor === undefined ? (
+            <SectionLoading label="Loading authority monitor…" />
+          ) : monitor === null ? (
+            <SectionError
+              message="Authority monitor couldn't be loaded."
+              detail="Unable to reach the source health service. Retry once it is available."
+            />
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -1181,8 +1287,13 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Knowledge changes */}
         <TabsContent value="changes" className="mt-6 flex flex-col gap-6">
-          {!changes || !assessments ? (
-            <p className="text-sm text-muted-foreground">Loading living knowledge…</p>
+          {changes === undefined || assessments === undefined ? (
+            <SectionLoading label="Loading living knowledge…" />
+          ) : changes === null || assessments === null ? (
+            <SectionError
+              message="Living knowledge couldn't be loaded."
+              detail="Unable to reach the knowledge change history service. Retry once it is available."
+            />
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -1324,8 +1435,13 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Coverage */}
         <TabsContent value="coverage" className="mt-6 flex flex-col gap-6">
-          {!coverageData ? (
-            <p className="text-sm text-muted-foreground">Measuring coverage…</p>
+          {coverageData === undefined ? (
+            <SectionLoading label="Measuring coverage…" />
+          ) : coverageData === null ? (
+            <SectionError
+              message="Industry coverage couldn't be measured."
+              detail="The coverage engine could not read the knowledge registry. Retry once it is available."
+            />
           ) : (
             <>
               <Panel title="Industry knowledge coverage" description="Measured from actual registered items, sources and knowledge entries — never fabricated.">
@@ -1366,8 +1482,18 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Industry excellence */}
         <TabsContent value="excellence" className="mt-6 flex flex-col gap-6">
-          {!excellenceData || !activePack ? (
-            <p className="text-sm text-muted-foreground">Measuring industry excellence…</p>
+          {excellenceData === undefined ? (
+            <SectionLoading label="Measuring industry excellence…" />
+          ) : excellenceData === null ? (
+            <SectionError
+              message="Industry excellence couldn't be measured."
+              detail="The excellence engine could not read the knowledge registry. Retry once it is available."
+            />
+          ) : !activePack ? (
+            <p className="text-sm text-muted-foreground">
+              No industry packs are registered yet — excellence scoring starts once packs are
+              available.
+            </p>
           ) : (
             <>
               <div className="flex flex-wrap gap-2">
@@ -1538,8 +1664,10 @@ export default function BusinessBrain() {
 
         {/* ------------------------------------------------ Insurance intelligence */}
         <TabsContent value="insurance" className="mt-6 flex flex-col gap-6">
-          {!insurance ? (
-            <p className="text-sm text-muted-foreground">Loading insurance intelligence…</p>
+          {insurance === undefined ? (
+            <SectionLoading label="Loading insurance intelligence…" />
+          ) : insurance === null ? (
+            <SectionError message="Insurance intelligence couldn't be loaded." />
           ) : (
             <>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

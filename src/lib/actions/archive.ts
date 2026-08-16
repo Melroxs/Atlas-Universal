@@ -19,6 +19,7 @@ import { parseFile } from "@/lib/ingest/parsers";
 import { summarize } from "@/lib/ingest/text";
 import { rpcCall } from "@/lib/actions/rpc";
 import type { ClaimHint } from "@/lib/archive/types";
+import { normalizeArchiveDetailResponse } from "@/lib/archive/normalize";
 import {
   buildCandidateFromArchive,
   clusterDocumentsByClaimNumber,
@@ -42,6 +43,22 @@ interface ArchiveDetail {
   files: ArchiveFileRow[];
   docs: Record<string, { _id: string; title: string; classification?: string; status?: string }>;
   candidates: Record<string, any>[];
+}
+
+/**
+ * Fetch + normalize archive_get_detail. Every consumer of the RPC (the page
+ * AND this processing loop) reads through here so a missing/null collection
+ * can never surface as undefined (the production ArchiveDetail crash:
+ * `Cannot read properties of undefined (reading 'length')`). The runtime
+ * value is the normalized contract (files/candidates/warnings always arrays,
+ * docs/stats always objects); the cast restores the loop's internal types.
+ */
+async function getArchiveDetailNormalized(
+  supabase: NonNullable<ReturnType<typeof getSupabaseClient>>,
+  archiveId: string,
+): Promise<ArchiveDetail | null> {
+  const raw = await rpcCall(supabase, "archive_get_detail", { archiveId });
+  return normalizeArchiveDetailResponse(raw) as unknown as ArchiveDetail | null;
 }
 
 /**
@@ -160,9 +177,7 @@ export async function beginProcessingClient(args: {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
 
-  const detail = (await rpcCall(supabase, "archive_get_detail", {
-    archiveId: args.archiveId,
-  })) as ArchiveDetail | null;
+  const detail = await getArchiveDetailNormalized(supabase, args.archiveId);
   if (!detail) throw new Error("Archive not found.");
 
   // Idempotent: a finished archive is not re-processed.
@@ -219,9 +234,7 @@ export async function beginProcessingClient(args: {
   //     mark them failed with an explicit reason.
   //   - queued/processing WITH an existing document were ingested by an
   //     earlier run — record the terminal state.
-  const fresh = (await rpcCall(supabase, "archive_get_detail", {
-    archiveId: args.archiveId,
-  })) as ArchiveDetail | null;
+  const fresh = await getArchiveDetailNormalized(supabase, args.archiveId);
   const files = fresh?.files ?? detail.files;
   for (const f of files) {
     if (f.ingestStatus === "queued" || f.ingestStatus === "processing") {
@@ -265,9 +278,7 @@ export async function beginProcessingClient(args: {
 
   // Final status from ACTUAL persisted results: refetch once more after the
   // reconciliation writes so the counters reflect what the database holds.
-  const finalDetail = (await rpcCall(supabase, "archive_get_detail", {
-    archiveId: args.archiveId,
-  })) as ArchiveDetail | null;
+  const finalDetail = await getArchiveDetailNormalized(supabase, args.archiveId);
   const finalFiles = finalDetail?.files ?? files;
   const finalIngested = finalFiles.filter((f) => f.ingestStatus === "ingested").length;
   const finalFailed = finalFiles.filter((f) => f.ingestStatus === "failed").length;

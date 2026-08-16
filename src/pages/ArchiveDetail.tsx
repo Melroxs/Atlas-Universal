@@ -65,6 +65,10 @@ export default function ArchiveDetail() {
   // Poll while the page is open so a client-side processing run (which can
   // outlive a single fetch) and its per-file progress are reflected instead of
   // a stale mount-time snapshot. The detail query is tenant-scoped and capped.
+  // The result is normalized at the api boundary (normalizeArchiveDetailResponse)
+  // so every collection is ALWAYS an array/object — never undefined (the
+  // production crash: `Cannot read properties of undefined (reading 'length')`
+  // on archive.warnings right after ingestion completed).
   const detail = useQuery(
     api.archive.getArchiveDetail,
     id ? { archiveId: id as never } : "skip",
@@ -84,21 +88,37 @@ export default function ArchiveDetail() {
       </div>
     );
   }
+  // null covers both "not found in this workspace" and a genuine RPC failure
+  // (the query hook collapses both). Show an explicit error state with Retry
+  // instead of a blank page or a fake empty archive.
   if (detail === null) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <Archive className="size-8 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">
-          This archive isn't available in your workspace.
+        <p className="text-sm font-medium">Unable to load archive details</p>
+        <p className="max-w-sm text-xs text-muted-foreground">
+          Atlas couldn't load this archive right now. It may not be available in
+          your workspace, or the request failed. Try again — nothing you
+          ingested is affected.
         </p>
-        <Button variant="outline" onClick={() => navigate("/dashboard/knowledge")}>
-          <ArrowLeft className="mr-2 size-4" />
-          Back to Knowledge
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => invalidateQueries()} className="gap-2">
+            <RefreshCw className="size-4" />
+            Retry
+          </Button>
+          <Button variant="ghost" onClick={() => navigate("/dashboard/knowledge")}>
+            <ArrowLeft className="mr-2 size-4" />
+            Back to Knowledge
+          </Button>
+        </div>
       </div>
     );
   }
 
+  // Normalized contract (src/lib/archive/normalize.ts): archive is always an
+  // object with warnings: [] / stats: {} / checksum: "" defaults, files is
+  // always [], docs is always {}, candidates is always []. Loading is the
+  // `detail === undefined` branch above — distinct from a loaded empty archive.
   const archive = detail.archive;
   const files = detail.files;
   const docs = detail.docs as Record<

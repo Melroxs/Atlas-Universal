@@ -25,6 +25,23 @@ import {
 } from "@/lib/insurance/logic";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rpcCall } from "@/lib/actions/rpc";
+import { normalizeArchiveDetailResponse } from "@/lib/archive/normalize";
+import {
+  normalizeAuthorityMonitorResponse,
+  normalizeAuthoritativeKnowledgeResponse,
+  normalizeImpactAssessments,
+  normalizeKnowledgeChanges,
+  normalizeOrganizationContextResponse,
+  type NormalizedOrgContextShape,
+} from "@/lib/everest/normalize";
+import {
+  analyzeRecoveryClient,
+  buildBusinessBrain,
+  buildIndustryCoverage,
+  buildIndustryExcellence,
+  buildInsuranceIntelligence,
+  buildValueIntelligence,
+} from "@/lib/everest/client";
 
 export type FnKind = "query" | "mutation" | "edge" | "client";
 
@@ -541,7 +558,17 @@ export const api = {
   archive: {
     listArchives: def<ObjArray>("archive_list", "query"),
     archiveStats: def<Obj>("archive_stats", "query"),
-    getArchiveDetail: def<ArchiveDetailShape | null>("archive_get_detail", "query"),
+    // The RPC returns jsonb where optional collections can be missing or
+    // null (archive.warnings, files, docs, candidates, stats). Normalize at
+    // this boundary so ArchiveDetail and the client processing loop always
+    // receive arrays/objects — never undefined (the production crash:
+    // "Cannot read properties of undefined (reading 'length')" after an
+    // archive finished ingesting and the page rendered).
+    getArchiveDetail: defT<ArchiveDetailShape | null>(
+      "archive_get_detail",
+      "query",
+      (d) => normalizeArchiveDetailResponse(d) as ArchiveDetailShape | null,
+    ),
     beginArchive: def<{ archiveId: string }>("archive_begin", "mutation"),
     submitInventoryBatch: def<{ ok: boolean }>("archive_submit_inventory_batch", "mutation"),
     beginProcessing: def<{ ok: boolean; ingested: number; failed: number; candidates: number }>(
@@ -1096,72 +1123,186 @@ export const api = {
     transcribeAudio: def<Obj>("voice-transcribe", "edge"),
   },
   everest: {
-    getOrganizationContext: def<OrganizationContextShape | null>(
+    // Deployed `everest_get_organization_context()` takes ZERO parameters. The
+    // page historically passed `{ userTimezone }` — PostgREST 404s any extra
+    // param (PGRST202), so the org section never loaded in production. This is
+    // a client impl: it calls the RPC with no args, uses the passed
+    // userTimezone only for the browser-side temporal snapshot, and normalizes
+    // the deployed `{ tenantId, context, timezoneNote, profile, locations }`
+    // shape into the page contract (context/organization/user/locations). A
+    // genuine RPC failure throws → useQuery resolves null → the page shows an
+    // explicit error state (never an eternal "Loading…").
+    getOrganizationContext: def<NormalizedOrgContextShape | null>(
       "everest_get_organization_context",
-      "query",
+      "client",
+      async (args) => {
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        const a = (args ?? {}) as Record<string, unknown>;
+        const userTimezone =
+          typeof a.userTimezone === "string" && a.userTimezone
+            ? a.userTimezone
+            : undefined;
+        const raw = await rpcCall(supabase, "everest_get_organization_context");
+        return normalizeOrganizationContextResponse(raw, Date.now(), userTimezone);
+      },
     ),
+    // Deployed `everest_update_organization_context(p_patch jsonb)` — the page
+    // submits individual form fields, so this client impl packs them into the
+    // single jsonb patch the RPC requires (previously a plain mutation that
+    // 404'd on `p_country`/`p_regions`/…).
     updateOrganizationContext: def<{ ok: boolean }>(
       "everest_update_organization_context",
-      "mutation",
+      "client",
+      async (args) => {
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        const a = (args ?? {}) as Record<string, unknown>;
+        const patch: Record<string, unknown> = {};
+        for (const k of [
+          "country",
+          "regions",
+          "cities",
+          "primaryTimezone",
+          "locale",
+          "currency",
+          "fiscalYearStart",
+          "businessDays",
+          "businessHours",
+          "holidays",
+          "industry",
+          "businessModel",
+          "companySize",
+        ]) {
+          if (a[k] !== undefined) patch[k] = a[k] === null ? null : a[k];
+        }
+        await rpcCall(supabase, "everest_update_organization_context", {
+          p_patch: patch,
+        });
+        return { ok: true };
+      },
     ),
     upsertOperatingLocation: def<{ ok: boolean }>("everest_upsert_operating_location", "mutation"),
     removeOperatingLocation: def<{ ok: boolean }>("everest_remove_operating_location", "mutation"),
+    // Not an RPC — the universal Business Brain ships with the frontend
+    // (migration 0005 header: static knowledge lives client-side). The old
+    // stub returned empty arrays, so the page showed all-zero stat cards
+    // despite the real atlas data being available.
     getBusinessBrain: def<BusinessBrainShape>(
       "everest_business_brain",
       "client",
-      async () => ({
-        businessTypes: [],
-        financialKnowledge: {
-          revenue: [],
-          expenses: [],
-          profitability: [],
-          incomeStatementFlow: [],
-          accountingIdentity: {},
-        },
-        orgRoles: [],
-        businessObjects: [],
-        lifecycles: [],
-        maturity: [],
-        orgStructures: [],
-        businessFunctions: [],
-        disambiguation: undefined,
-      }),
+      () => buildBusinessBrain() as unknown as BusinessBrainShape,
     ),
+    // Deployed RPC + boundary enrichments: tier labels/weights, retrieval
+    // metadata and fail-closed per-row applicability evaluated against the
+    // tenant's own org context (fetched via the same zero-arg RPC). If the
+    // context fetch fails, applicability fails closed with a reason instead of
+    // silently treating knowledge as applicable.
     listAuthoritativeKnowledge: def<AuthoritativeKnowledgeShape>(
       "everest_list_authoritative_knowledge",
-      "query",
+      "client",
+      async () => {
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        let context: Record<string, unknown> | null = null;
+        try {
+          const org = (await rpcCall(
+            supabase,
+            "everest_get_organization_context",
+          )) as Record<string, unknown> | null;
+          const ctx = org && typeof org === "object" ? (org.context as Record<string, unknown>) : null;
+          if (ctx && typeof ctx === "object") {
+            context = {
+              country: ctx.country,
+              regions: ctx.regions,
+              cities: ctx.cities,
+              industry: ctx.industry,
+            };
+          }
+        } catch (e) {
+          // Fail closed — applicability gets an explicit reason, never a pass.
+          console.error(
+            "[atlas] org context unavailable for knowledge applicability (failing closed):",
+            e instanceof Error ? e.message : String(e),
+          );
+        }
+        const raw = await rpcCall(supabase, "everest_list_authoritative_knowledge");
+        return normalizeAuthoritativeKnowledgeResponse(
+          raw,
+          context,
+        ) as unknown as AuthoritativeKnowledgeShape;
+      },
     ),
+    // Not deployed as RPCs — measured client-side from the real registered
+    // pack items + the deployed `everest_raw_knowledge` registry (empty
+    // registry → honest zero scores, never fabricated rows).
     getIndustryCoverage: def<IndustryCoverageShape | null>(
       "everest_industry_coverage",
-      "query",
+      "client",
+      async () => {
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        return (await buildIndustryCoverage(supabase)) as unknown as IndustryCoverageShape;
+      },
     ),
     getInsuranceIntelligence: def<EverestInsuranceShape | null>(
       "everest_insurance_intelligence",
-      "query",
+      "client",
+      () => buildInsuranceIntelligence() as unknown as EverestInsuranceShape,
     ),
-    getAuthorityMonitor: def<AuthorityMonitorShape | null>(
+    getAuthorityMonitor: defT<AuthorityMonitorShape | null>(
       "everest_authority_monitor",
       "query",
+      (d) => normalizeAuthorityMonitorResponse(d) as AuthorityMonitorShape | null,
     ),
-    listKnowledgeChanges: def<ObjArray>("everest_list_knowledge_changes", "query"),
-    listImpactAssessments: def<ObjArray>("everest_list_impact_assessments", "query"),
+    // Guaranteed arrays at the boundary — never undefined/null (same class of
+    // production defect that crashed ArchiveDetail).
+    listKnowledgeChanges: defT<ObjArray>(
+      "everest_list_knowledge_changes",
+      "query",
+      (d) => normalizeKnowledgeChanges(d),
+    ),
+    listImpactAssessments: defT<ObjArray>(
+      "everest_list_impact_assessments",
+      "query",
+      (d) => normalizeImpactAssessments(d),
+    ),
     decideImpactReview: def<{ ok: boolean }>("everest_decide_impact_review", "mutation"),
     getIndustryExcellence: def<IndustryExcellenceShape | null>(
       "everest_industry_excellence",
-      "query",
+      "client",
+      async () => {
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        return (await buildIndustryExcellence(supabase)) as unknown as IndustryExcellenceShape;
+      },
     ),
     getValueIntelligence: def<ValueIntelligenceShape | null>(
       "everest_value_intelligence",
-      "query",
+      "client",
+      (args) => buildValueIntelligence(args) as unknown as ValueIntelligenceShape,
     ),
-    analyzeClaimRecovery: def<Obj | null>("everest_analyze_claim_recovery", "query"),
-    getOrganizationalState: def<Obj | null>("everest_get_organizational_state", "query"),
+    // Not an RPC — deterministic recovery analysis over the page's claim
+    // facts (the same engine the demo loader uses).
+    analyzeClaimRecovery: def<Obj | null>(
+      "everest_analyze_claim_recovery",
+      "client",
+      (args) => analyzeRecoveryClient(args) as unknown as Obj,
+    ),
     runAuthorityCheckNow: def<{ status: string; createdVersionIds?: string[] }>(
       "everest-authority-check",
       "edge",
     ),
     runInvestigation: def<Obj>("everest-run-investigation", "edge"),
-    seedEverest: def<{ seeded: number }>("everest_seed", "mutation"),
+    seedEverest: def<{ seededSources: number; seededKnowledge: number }>(
+      "everest_seed",
+      "mutation",
+    ),
   },
   seed: {
     seedDemoData: def<Obj>("seed_demo_data", "mutation"),

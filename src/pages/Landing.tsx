@@ -1,6 +1,7 @@
 import { motion, MotionConfig, type Variants } from "framer-motion";
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router";
+import logo from "@/assets/logo.svg";
 import {
   ArrowRight,
   Banknote,
@@ -237,7 +238,13 @@ function AtlasCoreNode() {
   return (
     <div className="flex flex-col items-center">
       <div className="relative flex size-20 items-center justify-center rounded-2xl border border-teal-400/40 bg-card shadow-[0_0_44px_rgba(45,212,191,0.16)]">
-        <Radar className="size-8 text-teal-600 dark:text-teal-300" />
+        <img
+          src={logo}
+          alt="Atlas logo"
+          width={56}
+          height={56}
+          className="size-14 rounded-xl"
+        />
         <motion.span
           className="absolute inset-0 rounded-2xl border border-teal-400/40"
           animate={{ opacity: [0.6, 0], scale: [1, 1.35] }}
@@ -649,9 +656,13 @@ export default function Landing() {
         <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
           <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3.5">
             <a href="#top" className="flex items-center gap-2.5 transition-opacity hover:opacity-85">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
-                <Radar className="size-5" />
-              </div>
+              <img
+                src={logo}
+                alt="Atlas logo"
+                width={36}
+                height={36}
+                className="size-9 rounded-lg"
+              />
               <span className="text-lg font-semibold tracking-tight text-foreground">Atlas</span>
             </a>
             <nav className="hidden items-center gap-7 text-sm text-muted-foreground md:flex">
@@ -1665,9 +1676,13 @@ export default function Landing() {
             <div className="grid gap-10 md:grid-cols-[1.4fr_1fr_1fr_1fr]">
               <div>
                 <a href="#top" className="flex items-center gap-2.5">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
-                    <Radar className="size-4" />
-                  </div>
+                  <img
+                    src={logo}
+                    alt="Atlas logo"
+                    width={32}
+                    height={32}
+                    className="size-8 rounded-lg"
+                  />
                   <span className="text-base font-semibold tracking-tight">Atlas</span>
                 </a>
                 <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">

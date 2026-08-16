@@ -928,46 +928,23 @@ export const api = {
         "insurance_reconstruct_claims",
         "client",
         async () => {
-          // Scan the knowledge base for deterministic claim identifiers and
-          // persist evidence-backed POTENTIAL candidates (idempotent — the
-          // backend dedupes on tenantId + claimKey). Archive imports already
-          // reconstruct candidates during ingestion; this covers documents
-          // that arrived through other sources.
-          const [{ rpcCall }, { clusterDocumentsByClaimNumber }, { getSupabaseClient }] =
-            await Promise.all([
-              import("@/lib/actions/rpc"),
-              import("@/lib/insurance/reconstruct"),
-              import("@/lib/supabase"),
-            ]);
+          // CLAIM DISCOVERY + EVIDENCE RECONSTRUCTION (§"FINAL CLAIM
+          // DISCOVERY"): the deterministic discovery engine turns the
+          // tenant's ingested evidence into REAL persisted claims — it does
+          // NOT stop at candidates. HIGH-confidence evidence creates a claim
+          // (approving the pending candidate when one exists, otherwise
+          // insurance_create_claim) with its evidence attached; evidence that
+          // matches an existing claim ENRICHES it (missing fields only, never
+          // overwriting); MEDIUM evidence becomes a reviewable candidate; LOW
+          // evidence is kept without manufacturing anything. See
+          // src/lib/actions/claim-discovery.ts for the full executor.
+          const [{ runClaimDiscovery }, { getSupabaseClient }] = await Promise.all([
+            import("@/lib/actions/claim-discovery"),
+            import("@/lib/supabase"),
+          ]);
           const supabase = getSupabaseClient();
           if (!supabase) throw new Error("Supabase is not configured.");
-          const docs = ((await rpcCall(supabase, "documents_list_documents")) ?? []) as Array<{
-            _id: string;
-            title?: string | null;
-          }>;
-          const candidates = clusterDocumentsByClaimNumber(
-            docs
-              .filter((d) => d && typeof d.title === "string" && d.title)
-              .map((d) => ({ _id: d._id, title: d.title as string })),
-          );
-          if (candidates.length === 0) {
-            return { ok: true, candidates: 0, scanned: docs.length };
-          }
-          await rpcCall(supabase, "insurance_upsert_candidates", {
-            candidates: candidates.map((c) => ({
-              archiveId: null,
-              claimKey: c.claimKey,
-              claimNumber: c.claimNumber,
-              customer: c.customer ?? null,
-              property: c.property ?? null,
-              fileCount: Math.max(1, c.documentIds.length),
-              totalSize: null,
-              confidence: c.confidence,
-              filePaths: [],
-              evidence: c.evidence,
-            })),
-          });
-          return { ok: true, candidates: candidates.length, scanned: docs.length };
+          return runClaimDiscovery(supabase);
         },
       ),
     },

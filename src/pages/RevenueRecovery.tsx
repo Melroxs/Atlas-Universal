@@ -314,10 +314,23 @@ export default function RevenueRecovery() {
     setScanning(true);
     try {
       const res = await reconstructClaims();
+      const parts: string[] = [];
+      if (res.created > 0) {
+        parts.push(`created ${res.created} claim${res.created === 1 ? "" : "s"}`);
+      }
+      if (res.enriched > 0) {
+        parts.push(`enriched ${res.enriched} claim${res.enriched === 1 ? "" : "s"}`);
+      }
+      if (res.proposed > 0) {
+        parts.push(`proposed ${res.proposed} candidate${res.proposed === 1 ? "" : "s"} for review`);
+      }
+      if (res.kept > 0) {
+        parts.push(`kept ${res.kept} evidence set${res.kept === 1 ? "" : "s"} for future reconciliation`);
+      }
       toast.success(
-        res.candidates > 0
-          ? `Found ${res.candidates} potential claim${res.candidates === 1 ? "" : "s"} across ${res.scanned} documents`
-          : "No potential claims found in the knowledge base",
+        parts.length > 0
+          ? `Claim discovery: ${parts.join(", ")} across ${res.scanned} documents`
+          : "No claim evidence found in the knowledge base",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not scan the knowledge base");

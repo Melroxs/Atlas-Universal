@@ -240,6 +240,72 @@ describe("validateStructuredAnswer", () => {
     expect(validateStructuredAnswer({ answer: "  " }).ok).toBe(false);
     expect(validateStructuredAnswer({}).ok).toBe(false);
   });
+
+  it("parses categorized findings (§23 reasoning categories)", () => {
+    const v = validateStructuredAnswer({
+      answer: "Atlas found a discrepancy.",
+      findings: [
+        {
+          category: "FACT",
+          statement: "The contractor estimate lists 32.4 squares.",
+          evidenceIds: ["doc:contractor-estimate"],
+        },
+        {
+          category: "FACT",
+          statement: "The inspection report lists 28.7 squares.",
+          evidenceIds: ["doc:inspection"],
+        },
+        {
+          category: "CONFLICT",
+          statement: "The quantities disagree.",
+          evidenceIds: ["doc:contractor-estimate", "doc:inspection"],
+        },
+        {
+          category: "RECOMMENDATION",
+          statement: "Verify the roof measurement before submission.",
+          evidenceIds: [],
+        },
+      ],
+    });
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.answer?.findings).toHaveLength(4);
+      expect(v.answer?.findings?.[2].category).toBe("CONFLICT");
+      expect(v.answer?.findings?.[0].evidenceIds).toEqual(["doc:contractor-estimate"]);
+    }
+  });
+
+  it("drops malformed findings (unknown category / empty statement) but keeps the answer", () => {
+    const v = validateStructuredAnswer({
+      answer: "ok",
+      findings: [
+        { category: "MADE_UP", statement: "nope" },
+        { category: "FACT", statement: "  " },
+        { category: "MISSING", statement: "Pricing support is not in the records." },
+        "not an object",
+      ],
+    });
+    expect(v.ok).toBe(true);
+    if (v.ok) {
+      expect(v.answer?.findings).toHaveLength(1);
+      expect(v.answer?.findings?.[0].category).toBe("MISSING");
+    }
+  });
+
+  it("treats absent findings as undefined (not an empty array)", () => {
+    const v = validateStructuredAnswer({ answer: "plain answer" });
+    expect(v.ok).toBe(true);
+    if (v.ok) expect(v.answer?.findings).toBeUndefined();
+  });
+
+  it("clamps the model's confidence to 0..1 and defaults it when absent", () => {
+    const withConf = validateStructuredAnswer({ answer: "ok", confidence: 1.4 });
+    expect(withConf.ok).toBe(true);
+    if (withConf.ok) expect(withConf.answer?.confidence).toBe(1);
+    const absent = validateStructuredAnswer({ answer: "ok" });
+    expect(absent.ok).toBe(true);
+    if (absent.ok) expect(absent.answer?.confidence).toBeUndefined();
+  });
 });
 
 describe("extractJsonObject", () => {

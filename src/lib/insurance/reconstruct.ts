@@ -16,15 +16,25 @@
 // ---------------------------------------------------------------------------
 
 const CLAIM_NUMBER_PATTERNS: Array<RegExp> = [
-  // Alphanumeric claim id (GAP-26-51847, CL-2019-48211) — checked FIRST so
-  // the bare long-number pattern can't grab the numeric tail ("51847"). The
-  // negative lookahead keeps the label words “claim”/“clm” from being read
-  // as the letter prefix, so “Claim-12345” yields 12345, not the literal
-  // string “Claim-12345”.
-  /\b(?!claim|clm)[A-Z]{2,6}[-_. ]?\d{1,4}[-_. ]?\d{4,12}(?=[._-]|\b)/i,
-  /(?:claim|clm)[-_. ]?(\d{3,12})/i,
+  // Alphanumeric claim id (GAP-26-51847, CL-2019-48211, GAP2651847) —
+  // checked FIRST so the label-bound bare pattern can't grab the numeric
+  // tail ("51847"). The negative lookahead keeps the label words
+  // “claim”/“clm” from being read as the letter prefix, so “Claim-12345”
+  // yields 12345, not the literal string “Claim-12345”.
+  //
+  // The digit part is STRICTLY either two groups joined by a separator
+  // (26-51847) or a single run of at least 7 digits — a loose `\d{1,4}\.?`
+  // split would let “POL-884213”, “FL 33813”, “NUMBER 51847” or
+  // “HO-884217” read as claim numbers (a policy tail, ZIP code or label
+  // word is NOT a claim identifier).
+  /\b(?!claim|clm)[A-Z]{2,6}[-_. ]?(?:\d{1,4}[-_. ]\d{4,12}|\d{7,12})(?=[._-]|\b)/i,
+  // Explicit label: Claim-12345, Claim No. 12345, CLM12345. A bare long
+  // number is ONLY a claim number when it directly follows a claim indicator
+  // — a bare number alone is a ZIP code, policy tail, invoice number or year
+  // and must never become a claim identifier (the archive layer's
+  // supporting-context rule, enforced at the extraction boundary).
+  /(?:claim|clm|claim\s*(?:no\.?|number|id)?)[-_. :]?(\d{3,12})/i,
   /\b(?:CL|CLM|CN)\d{4,12}(?=[._-]|\b)/i,
-  /\b\d{4,12}(?=[._-]|\b)/,
 ];
 
 /** Extract the first claim number found in arbitrary text, or null. */

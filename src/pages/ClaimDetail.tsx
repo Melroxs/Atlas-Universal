@@ -41,9 +41,17 @@ import {
   User,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
+import {
+  assessReadiness,
+  type ReadinessAssessment,
+  type RequirementClaimFacts,
+  type RequirementContext,
+  type RequirementEvidenceDocument,
+  type WorkflowKey,
+} from "../../supabase/functions/conversation-converse/source/evidence-requirements.ts";
 
 function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
@@ -64,6 +72,14 @@ const COMPLETENESS_TONE: Record<string, string> = {
   inferred: "border-violet-400/30 bg-violet-400/10 text-violet-600 dark:text-violet-300",
   missing: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
   needs_review: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  conflicted: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
+  stale: "border-orange-400/30 bg-orange-400/10 text-orange-600 dark:text-orange-300",
+};
+
+const READINESS_TONE: Record<string, string> = {
+  READY: "border-emerald-400/30 bg-emerald-400/10 text-emerald-600 dark:text-emerald-300",
+  NEEDS_REVIEW: "border-amber-400/30 bg-amber-400/10 text-amber-600 dark:text-amber-300",
+  NOT_READY: "border-rose-400/30 bg-rose-400/10 text-rose-600 dark:text-rose-300",
 };
 
 const SUPPLEMENT_TONE: Record<string, string> = {
@@ -103,6 +119,75 @@ export default function ClaimDetail() {
   const [creating, setCreating] = useState(false);
   const [supForm, setSupForm] = useState({ reason: "", amount: "", justification: "" });
   const [docSup, setDocSup] = useState<Id<"claimSupplements"> | null>(null);
+  const [readinessWorkflow, setReadinessWorkflow] = useState<WorkflowKey>("supplement_readiness");
+
+  /**
+   * Deterministic readiness assessment (evidence-requirements engine):
+   * expected evidence vs the claim's actual linked evidence. Runs the same
+   * canonical pure module as Ask Atlas — the page never invents a verdict.
+   */
+  const readiness = useMemo<ReadinessAssessment | null>(() => {
+    if (!pkg || !pkg.claim) return null;
+    const claim = pkg.claim as Record<string, unknown>;
+    const claimFacts: RequirementClaimFacts = {
+      _id: typeof claim._id === "string" ? claim._id : undefined,
+      claimNumber: typeof claim.claimNumber === "string" ? claim.claimNumber : null,
+      dateOfLoss: typeof claim.dateOfLoss === "number" ? claim.dateOfLoss : null,
+      property: typeof claim.property === "string" ? claim.property : null,
+      causeOfLoss: typeof claim.causeOfLoss === "string" ? claim.causeOfLoss : null,
+      customer: typeof claim.customer === "string" ? claim.customer : null,
+      carrier: typeof claim.carrier === "string" ? claim.carrier : null,
+      policy: typeof claim.policy === "string" ? claim.policy : null,
+      adjuster: typeof claim.adjuster === "string" ? claim.adjuster : null,
+      status: typeof claim.status === "string" ? claim.status : null,
+      estimateAmount: typeof claim.estimateAmount === "number" ? claim.estimateAmount : null,
+      estimateLineItemCount:
+        typeof claim.estimateLineItemCount === "number" ? claim.estimateLineItemCount : null,
+      invoicedAmount: typeof claim.invoicedAmount === "number" ? claim.invoicedAmount : null,
+      paymentAmount: typeof claim.paymentAmount === "number" ? claim.paymentAmount : null,
+      approvedAmount: typeof claim.approvedAmount === "number" ? claim.approvedAmount : null,
+      deductible: typeof claim.deductible === "number" ? claim.deductible : null,
+      scopeItems: Array.isArray(claim.scopeItems) ? claim.scopeItems : null,
+      evidenceSummary: Array.isArray(claim.evidenceSummary)
+        ? claim.evidenceSummary.map((x) => String(x ?? ""))
+        : null,
+      evidenceDocumentIds: Array.isArray(claim.evidenceDocumentIds)
+        ? claim.evidenceDocumentIds
+        : null,
+      confidence: typeof claim.confidence === "number" ? claim.confidence : undefined,
+      provenance: typeof claim.provenance === "string" ? claim.provenance : null,
+      updatedAt: typeof claim.updatedAt === "number" ? claim.updatedAt : null,
+    };
+    const documents: RequirementEvidenceDocument[] = (
+      Array.isArray(pkg.evidenceDocs) ? pkg.evidenceDocs : []
+    ).map((d) => {
+      const row = d as Record<string, unknown>;
+      return {
+        _id: typeof row._id === "string" ? row._id : undefined,
+        title: typeof row.title === "string" ? row.title : null,
+        classification:
+          typeof row.classification === "string" ? row.classification : null,
+        summary: typeof row.summary === "string" ? row.summary : null,
+      };
+    });
+    const ctx: RequirementContext = {
+      claim: claimFacts,
+      documents,
+      claimNumber: claimFacts.claimNumber,
+    };
+    // Contradiction overrides from the deterministic completeness analyzer
+    // (both sides of a conflict are preserved — never silently resolved).
+    const overrides = (Array.isArray(pkg.completeness?.categories)
+      ? (pkg.completeness.categories as Array<Record<string, unknown>>).filter(
+          (c) => c?.status === "conflicted",
+        )
+      : []
+    ).map((c) => ({
+      field: String(c.label ?? "value"),
+      values: [String(c.note ?? "conflicting values need reconciliation")],
+    }));
+    return assessReadiness(ctx, readinessWorkflow, overrides);
+  }, [pkg, readinessWorkflow]);
 
   const submitSupplement = async () => {
     if (!supForm.reason.trim()) {
@@ -451,6 +536,175 @@ export default function ClaimDetail() {
                 </div>
               ))}
             </div>
+          </Panel>
+
+          {/* Readiness — deterministic expected-evidence model (same engine
+              Ask Atlas uses). Never invents a verdict: every requirement is
+              SATISFIED / PARTIAL / MISSING / UNKNOWN / CONFLICT from the real
+              claim + linked evidence. */}
+          <Panel
+            title="Readiness"
+            description="Atlas compares the evidence this workflow requires against what is actually on file — derived from the expected-evidence model, not from keyword search."
+          >
+            {!readiness ? (
+              <p className="text-sm text-muted-foreground">
+                Readiness data is unavailable for this claim right now.
+              </p>
+            ) : (
+              <>
+                <div className="mb-4 flex flex-wrap gap-1.5">
+                  {(["claim_readiness", "supplement_readiness", "submission_readiness"] as WorkflowKey[]).map(
+                    (w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setReadinessWorkflow(w)}
+                        className={`rounded-full border px-2.5 py-1 font-mono text-[10px] uppercase tracking-wide transition-colors ${
+                          readinessWorkflow === w
+                            ? "border-teal-400/40 bg-teal-400/10 text-teal-700 dark:text-teal-200"
+                            : "border-border/70 text-muted-foreground hover:border-teal-400/30"
+                        }`}
+                      >
+                        {w.replace(/_/g, " ")}
+                      </button>
+                    ),
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Badge
+                    variant="outline"
+                    className={`font-mono text-[10px] uppercase tracking-wide ${
+                      READINESS_TONE[readiness.status] ?? "border-border/70 text-muted-foreground"
+                    }`}
+                  >
+                    {readiness.status.replace(/_/g, " ")}
+                  </Badge>
+                  <div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full ${
+                        readiness.score >= 0.75
+                          ? "bg-emerald-400"
+                          : readiness.score >= 0.45
+                            ? "bg-amber-400"
+                            : "bg-rose-400"
+                      }`}
+                      style={{ width: `${Math.round(readiness.score * 100)}%` }}
+                    />
+                  </div>
+                  <span className="font-mono text-xs font-semibold text-foreground">
+                    {readiness.satisfied.length}/{readiness.requirements.length}
+                  </span>
+                </div>
+                <p className="mt-2.5 text-[11px] leading-5 text-muted-foreground">
+                  {readiness.summary}
+                </p>
+
+                {readiness.blockingIssues.length > 0 && (
+                  <div className="mt-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                      <ShieldAlert className="size-3" />
+                      Blocking ({readiness.blockingIssues.length})
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {readiness.blockingIssues.map((g) => (
+                        <div
+                          key={g.key}
+                          className="rounded-lg border border-rose-400/20 bg-rose-400/5 px-3 py-2"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs font-medium text-foreground">{g.label}</p>
+                            <Badge
+                              variant="outline"
+                              className="ml-auto font-mono text-[9px] uppercase tracking-wide text-muted-foreground"
+                            >
+                              {g.status.replace(/_/g, " ")}
+                              {g.severity ? ` · ${g.severity.toLowerCase()}` : ""}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{g.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {readiness.warnings.length > 0 && (
+                  <div className="mt-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                      <Radar className="size-3" />
+                      Warnings ({readiness.warnings.length})
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {readiness.warnings.map((g) => (
+                        <div
+                          key={g.key}
+                          className="rounded-lg border border-amber-400/20 bg-amber-400/5 px-3 py-2"
+                        >
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-xs font-medium text-foreground">{g.label}</p>
+                            <Badge
+                              variant="outline"
+                              className="ml-auto font-mono text-[9px] uppercase tracking-wide text-muted-foreground"
+                            >
+                              {g.status.replace(/_/g, " ")}
+                              {g.severity ? ` · ${g.severity.toLowerCase()}` : ""}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{g.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {readiness.contradictions.length > 0 && (
+                  <div className="mt-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-rose-700 dark:text-rose-300">
+                      <ShieldAlert className="size-3" />
+                      Contradictions ({readiness.contradictions.length})
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {readiness.contradictions.map((g) => (
+                        <div
+                          key={g.key}
+                          className="rounded-lg border border-rose-400/25 bg-rose-400/10 px-3 py-2"
+                        >
+                          <p className="text-[11px] leading-5 text-foreground">
+                            {g.note} Both sources are preserved for reconciliation.
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {readiness.recommendedActions.length > 0 && (
+                  <div className="mt-4">
+                    <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-violet-700 dark:text-violet-300">
+                      <Sparkles className="size-3" />
+                      Recommended actions
+                    </p>
+                    <ul className="mt-2 space-y-1.5">
+                      {readiness.recommendedActions.map((a) => (
+                        <li
+                          key={a}
+                          className="flex items-start gap-2 text-[11px] leading-5 text-muted-foreground"
+                        >
+                          <Check className="mt-0.5 size-3 shrink-0 text-violet-500" />
+                          {a}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <p className="mt-4 border-t border-border/50 pt-2.5 text-[10px] italic leading-4 text-muted-foreground/70">
+                  Deterministic Atlas analysis over the claim record and linked evidence —
+                  the same expected-evidence model Ask Atlas uses. Missing evidence is
+                  reported as missing; Atlas never guesses.
+                </p>
+              </>
+            )}
           </Panel>
 
           {/* Evidence */}

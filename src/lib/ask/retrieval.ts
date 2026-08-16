@@ -15,7 +15,22 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rpcCall } from "@/lib/actions/rpc";
-import { analyzeClaimCompleteness, type ClaimSnapshot } from "@/lib/insurance/logic";
+import { analyzeClaimCompleteness, toClaimSnapshot, type ClaimSnapshot } from "@/lib/insurance/logic";
+import {
+  assessReadiness,
+  summarizeReadiness,
+  workflowLabel,
+  type ReadinessAssessment,
+  type RequirementClaimFacts,
+  type RequirementContext,
+  type RequirementEvidenceDocument,
+  type WorkflowKey,
+} from "../../../supabase/functions/conversation-converse/source/evidence-requirements.ts";
+import {
+  compareClaimAgainstDocuments,
+  scanDocumentsForContradictions,
+  type EvidenceContradiction,
+} from "../../../supabase/functions/conversation-converse/source/contradictions.ts";
 
 export interface LocalEvidence {
   kind: "chunk" | "document" | "entity" | "candidate" | "finding";
@@ -27,6 +42,21 @@ export interface LocalEvidence {
   snippet?: string;
   relevance?: number;
   evidenceType?: string;
+}
+
+/** Reasoning categories (§23) — conclusions are labeled, never dressed up. */
+export type ReasoningCategory =
+  | "FACT"
+  | "INFERENCE"
+  | "UNKNOWN"
+  | "MISSING"
+  | "CONFLICT"
+  | "RECOMMENDATION";
+
+export interface ReasoningFinding {
+  category: ReasoningCategory;
+  statement: string;
+  evidenceIds?: string[];
 }
 
 export interface LocalAnswer {
@@ -42,6 +72,11 @@ export interface LocalAnswer {
   evidence: LocalEvidence[];
   authorityAnswers: unknown[];
   pending: null;
+  /** Structured intelligence (§37) — always arrays, never undefined. */
+  findings?: ReasoningFinding[];
+  missingInformation?: string[];
+  contradictions?: EvidenceContradiction[];
+  recommendations?: string[];
 }
 
 const STOPWORDS = new Set([
@@ -182,157 +217,244 @@ interface CandidateRow {
   archiveId?: string | null;
 }
 
-interface ContradictionHit {
-  claim?: string;
-  field: string;
-  values: Array<{ value: string; doc: string }>;
+interface RelevantDoc {
+  _id: string;
+  title?: string | null;
+  classification?: string | null;
+  summary?: string | null;
+  text?: string;
 }
 
 /**
- * Deterministic contradiction detector. Reads the tenant's own documents
- * (title/source path/summary/classification to find candidates, chunk text
- * for the values), then reports fields that carry two or more distinct
- * values for the same claim. Grouping is by claim number found in the
- * document content; every reported value cites the document it came from.
+ * Load claim-relevant tenant documents with their chunk text (bounded).
+ * Every doc is tenant-scoped (RLS) — evidence can never cross tenants.
  */
-async function findContradictions(
-  supabase: SupabaseClient,
-): Promise<{ hits: ContradictionHit[]; evidence: LocalEvidence[] }> {
-  let docs: DocRow[] = [];
-  try {
-    const { data, error } = await supabase
-      .from("documents")
-      .select("_id, title, sourceId, summary, classification")
-      .limit(1000);
-    if (!error && Array.isArray(data) && data.length > 0) {
-      docs = data as DocRow[];
-    }
-  } catch {
-    // fall through to the RPC below
-  }
-  if (docs.length === 0) {
-    docs = ((await rpcCall(supabase, "documents_list_documents")) ?? []) as DocRow[];
-  }
-
+async function loadRelevantDocs(supabase: SupabaseClient): Promise<RelevantDoc[]> {
+  const docs = ((await rpcCall(supabase, "documents_list_documents")) ?? []) as DocRow[];
   const relevant = docs
-    .filter((d) =>
-      /estimate|xactimate|invoice|payment|supplement|fnol|scope|inspection|correspondence|policy|loss/i.test(
-        `${d.title ?? ""} ${d.summary ?? ""} ${d.classification ?? ""}`,
-      ),
+    .filter(
+      (d) =>
+        d.status === "ready" &&
+        /estimate|xactimate|invoice|payment|supplement|fnol|scope|inspection|correspondence|policy|loss|deductible/i.test(
+          `${d.title ?? ""} ${d.summary ?? ""} ${d.classification ?? ""}`,
+        ),
     )
-    .slice(0, 30);
-
-  interface Pick {
-    claim?: string;
-    value: string;
-    doc: DocRow;
-  }
-  const byField = new Map<string, Pick[]>();
-  const labelPatterns: Array<[string, RegExp]> = [
-    ["Estimate total", /(?:total\s+)?estimate\s*(?:total)?[:$]\s*\$?\s*([\d,]+(?:\.\d{2})?)/i],
-    ["Invoice total", /invoice\s+total[:$]\s*\$?\s*([\d,]+(?:\.\d{2})?)/i],
-    ["Payment amount", /payment\s+amount[:$]\s*\$?\s*([\d,]+(?:\.\d{2})?)/i],
-    ["Roofing amount", /roofing\s*[:$]\s*\$?\s*([\d,]+(?:\.\d{2})?)/i],
-  ];
-  const push = (field: string, pick: Pick) => {
-    const list = byField.get(field) ?? [];
-    list.push(pick);
-    byField.set(field, list);
-  };
-
+    .slice(0, 20);
+  const out: RelevantDoc[] = [];
   for (const d of relevant) {
     let text = "";
     try {
       const detail = (await rpcCall(supabase, "documents_get_document_detail", {
         documentId: d._id,
       })) as { chunks?: Array<{ content?: string }> };
-      text = (detail?.chunks ?? []).map((c) => c.content ?? "").join("\n");
+      text = (detail?.chunks ?? []).map((c) => c.content ?? "").join("\n").slice(0, 20_000);
     } catch {
       // an unreadable document is simply skipped
     }
-    if (!text.trim()) continue;
-    const claim =
-      (d.summary ?? "").match(/(?:claim|re:)\s*([A-Z]{2,6}[- ]?\d{1,4}[- ]?\d{4,12})/i)?.[1] ??
-      text.match(/(?:claim|re:)\s*([A-Z]{2,6}[- ]?\d{1,4}[- ]?\d{4,12})/i)?.[1] ??
-      undefined;
-
-    for (const [field, re] of labelPatterns) {
-      const m = text.match(re);
-      if (m) push(field, { claim, value: `$${m[1]}`, doc: d });
-    }
-    const dates = text.matchAll(
-      /\b(Jan\w*|Feb\w*|Mar\w*|Apr\w*|May|Jun\w*|Jul\w*|Aug\w*|Sep\w*|Oct\w*|Nov\w*|Dec\w*)\s+\d{1,2}(,?\s+\d{4})?\b/g,
-    );
-    for (const m of dates) {
-      if (m[0]) push("Loss date", { claim, value: m[0], doc: d });
-    }
-    const sq = text.matchAll(/(\d+(?:\.\d+)?)\s*SQ\b/gi);
-    for (const m of sq) {
-      if (m[1]) push("Roof area (SQ)", { claim, value: `${m[1]} SQ`, doc: d });
-    }
+    out.push({
+      _id: d._id,
+      title: d.title,
+      classification: d.classification,
+      summary: d.summary,
+      text,
+    });
   }
+  return out;
+}
 
-  const hits: ContradictionHit[] = [];
-  for (const [field, picks] of byField) {
-    const grouped = new Map<string | undefined, Pick[]>();
-    for (const p of picks) {
-      const list = grouped.get(p.claim) ?? [];
-      list.push(p);
-      grouped.set(p.claim, list);
-    }
-    for (const [claim, group] of grouped) {
-      const distinct = [...new Map(group.map((p) => [p.value, p])).values()];
-      if (distinct.length >= 2) {
-        hits.push({
-          claim,
-          field,
-          values: distinct.map((p) => ({ value: p.value, doc: p.doc.title ?? "Document" })),
-        });
-      }
-    }
-  }
-  // Cross-field: estimate vs invoice, roofing vs payment (same claim).
-  const cross = (a: string, b: string, label: string) => {
-    const pa = byField.get(a) ?? [];
-    const pb = byField.get(b) ?? [];
-    for (const ca of pa) {
-      for (const cb of pb) {
-        if (ca.claim === cb.claim && ca.value !== cb.value) {
-          hits.push({
-            claim: ca.claim,
-            field: label,
-            values: [
-              { value: ca.value, doc: ca.doc.title ?? "Document" },
-              { value: cb.value, doc: cb.doc.title ?? "Document" },
-            ],
-          });
-          return;
-        }
-      }
-    }
+/** Map a persisted claim row to the evidence-requirements claim shape. */
+function toRequirementClaim(raw: Record<string, unknown>): RequirementClaimFacts {
+  return {
+    _id: raw._id != null ? String(raw._id) : undefined,
+    claimNumber: typeof raw.claimNumber === "string" ? raw.claimNumber : null,
+    dateOfLoss: typeof raw.dateOfLoss === "number" ? raw.dateOfLoss : null,
+    property: typeof raw.property === "string" ? raw.property : null,
+    causeOfLoss: typeof raw.causeOfLoss === "string" ? raw.causeOfLoss : null,
+    customer: typeof raw.customer === "string" ? raw.customer : null,
+    carrier: typeof raw.carrier === "string" ? raw.carrier : null,
+    policy: typeof raw.policy === "string" ? raw.policy : null,
+    adjuster: typeof raw.adjuster === "string" ? raw.adjuster : null,
+    status: typeof raw.status === "string" ? raw.status : null,
+    estimateAmount: typeof raw.estimateAmount === "number" ? raw.estimateAmount : null,
+    estimateLineItemCount: typeof raw.estimateLineItemCount === "number" ? raw.estimateLineItemCount : null,
+    invoicedAmount: typeof raw.invoicedAmount === "number" ? raw.invoicedAmount : null,
+    paymentAmount: typeof raw.paymentAmount === "number" ? raw.paymentAmount : null,
+    approvedAmount: typeof raw.approvedAmount === "number" ? raw.approvedAmount : null,
+    deductible: typeof raw.deductible === "number" ? raw.deductible : null,
+    scopeItems: Array.isArray(raw.scopeItems)
+      ? (raw.scopeItems as RequirementClaimFacts["scopeItems"])
+      : null,
+    evidenceSummary: Array.isArray(raw.evidenceSummary)
+      ? raw.evidenceSummary.map((x) => String(x ?? ""))
+      : null,
+    evidenceDocumentIds: Array.isArray(raw.evidenceDocumentIds)
+      ? raw.evidenceDocumentIds
+      : null,
+    confidence: typeof raw.confidence === "number" ? raw.confidence : undefined,
+    provenance: typeof raw.provenance === "string" ? raw.provenance : null,
+    updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : null,
   };
-  cross("Estimate total", "Invoice total", "Estimate vs invoice");
-  cross("Roofing amount", "Payment amount", "Roofing vs carrier payment");
+}
 
-  const evidence: LocalEvidence[] = [];
+/** Load approved claims (insurance_list_claims → row.claim), best-effort. */
+async function loadClaims(supabase: SupabaseClient): Promise<RequirementClaimFacts[]> {
+  try {
+    const rows = ((await rpcCall(supabase, "insurance_list_claims")) ?? []) as Array<{
+      claim?: Record<string, unknown>;
+    }>;
+    return (Array.isArray(rows) ? rows : [])
+      .map((r) => toRequirementClaim(r?.claim ?? {}))
+      .filter((c) => c.claimNumber);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Deterministic contradiction engine over the tenant's OWN documents and
+ * claims (canonical pure module). Every hit preserves BOTH values and their
+ * source documents — never a silently picked winner.
+ */
+async function findContradictions(
+  supabase: SupabaseClient,
+): Promise<{ hits: EvidenceContradiction[]; evidence: LocalEvidence[] }> {
+  const relevant = await loadRelevantDocs(supabase);
+  let hits = scanDocumentsForContradictions(relevant);
+  // Claim-record vs document comparison (persisted values vs extracted ones).
+  const claims = await loadClaims(supabase);
+  for (const claim of claims) {
+    const norm = (s: string) => s.replace(/[-\s]/g, "").toUpperCase();
+    const target = norm(claim.claimNumber ?? "");
+    const claimDocs = relevant.filter((d) =>
+      norm(`${d.title ?? ""} ${d.text ?? ""}`).includes(target),
+    );
+    hits = [...hits, ...compareClaimAgainstDocuments(claim, claimDocs)];
+  }
+  // Dedupe by stable key.
   const seen = new Set<string>();
-  for (const h of hits) {
+  const unique = hits.filter((h) => {
+    if (seen.has(h.key)) return false;
+    seen.add(h.key);
+    return true;
+  });
+  const evidence: LocalEvidence[] = [];
+  const seenDocs = new Set<string>();
+  for (const h of unique) {
     for (const v of h.values) {
-      const doc = docs.find((d) => d.title === v.doc);
-      if (!doc || seen.has(doc._id)) continue;
-      seen.add(doc._id);
+      if (!v.documentId || seenDocs.has(v.documentId)) continue;
+      seenDocs.add(v.documentId);
+      const doc = relevant.find((d) => d._id === v.documentId);
       evidence.push({
         kind: "document",
-        documentId: doc._id,
-        documentTitle: doc.title ?? undefined,
-        title: doc.title ?? "Document",
-        snippet: doc.summary?.slice(0, 300) ?? v.value,
+        documentId: v.documentId,
+        documentTitle: v.documentTitle,
+        title: v.documentTitle,
+        snippet: doc?.summary?.slice(0, 300) ?? v.value,
         relevance: 0.85,
-        evidenceType: doc.classification ?? "Document",
+        evidenceType: doc?.classification ?? "Document",
       });
     }
   }
-  return { hits, evidence: evidence.slice(0, 8) };
+  return { hits: unique, evidence: evidence.slice(0, 8) };
+}
+
+/** Build the gap/readiness context for a claim from tenant documents. */
+async function buildRequirementContext(
+  supabase: SupabaseClient,
+  claim: RequirementClaimFacts,
+): Promise<{ ctx: RequirementContext; contradictions: EvidenceContradiction[] }> {
+  const relevant = await loadRelevantDocs(supabase);
+  const documents: RequirementEvidenceDocument[] = relevant.map((d) => ({
+    _id: d._id,
+    title: d.title ?? null,
+    classification: d.classification ?? null,
+    summary: d.summary ?? null,
+    text: d.text ?? null,
+  }));
+  const ctx: RequirementContext = { claim, documents, claimNumber: claim.claimNumber };
+  const contradictions = compareClaimAgainstDocuments(claim, relevant);
+  return { ctx, contradictions };
+}
+
+/** Pick the claim a question refers to (claim number match, else most recent). */
+function pickClaim(
+  claims: RequirementClaimFacts[],
+  question: string,
+): RequirementClaimFacts | null {
+  if (claims.length === 0) return null;
+  const norm = (s: string) => s.replace(/[-\s]/g, "").toUpperCase();
+  const cn = claimNumberMatches(question).map(norm);
+  if (cn.length > 0) {
+    const byNumber = claims.find((c) => cn.includes(norm(c.claimNumber ?? "")));
+    if (byNumber) return byNumber;
+  }
+  return claims[0];
+}
+
+/** Structured findings from a readiness assessment (reasoning categories §23). */
+function readinessFindings(readiness: ReadinessAssessment): ReasoningFinding[] {
+  const findings: ReasoningFinding[] = [];
+  for (const s of readiness.satisfied) {
+    findings.push({ category: "FACT", statement: `${s} is satisfied.` });
+  }
+  for (const b of readiness.blockingIssues) {
+    findings.push({
+      category: b.status === "CONFLICT" ? "CONFLICT" : "MISSING",
+      statement: `${b.label}: ${b.note}`,
+      evidenceIds: b.evidence,
+    });
+  }
+  for (const w of readiness.warnings) {
+    findings.push({
+      category: w.status === "CONFLICT" ? "CONFLICT" : "UNKNOWN",
+      statement: `${w.label}: ${w.note}`,
+      evidenceIds: w.evidence,
+    });
+  }
+  for (const a of readiness.recommendedActions) {
+    findings.push({ category: "RECOMMENDATION", statement: a });
+  }
+  return findings;
+}
+
+/** Run the gap + readiness engines for the question's claim, best-effort. */
+async function runIntelligence(
+  supabase: SupabaseClient,
+  question: string,
+  workflow: WorkflowKey,
+): Promise<{
+  readiness: ReadinessAssessment | null;
+  ctx: RequirementContext | null;
+  contradictions: EvidenceContradiction[];
+  claim: RequirementClaimFacts | null;
+}> {
+  const claims = await loadClaims(supabase);
+  const claim = pickClaim(claims, question);
+  if (!claim) return { readiness: null, ctx: null, contradictions: [], claim: null };
+  const { ctx, contradictions } = await buildRequirementContext(supabase, claim);
+  const readiness = assessReadiness(
+    ctx,
+    workflow,
+    contradictions.map((c) => ({
+      field: c.field,
+      values: c.values.map((v) => `${v.value} (${v.documentTitle})`),
+    })),
+  );
+  return { readiness, ctx, contradictions, claim };
+}
+
+/** Local evidence items for a claim (for the intelligence answers). */
+function claimEvidence(ctx: RequirementContext | null): LocalEvidence[] {
+  if (!ctx) return [];
+  return ctx.documents.slice(0, 6).map((d) => ({
+    kind: "document" as const,
+    documentId: d._id,
+    documentTitle: d.title ?? undefined,
+    title: d.title ?? "Document",
+    snippet: d.summary?.slice(0, 300) ?? d.classification ?? "",
+    relevance: 0.8,
+    evidenceType: d.classification ?? "Document",
+  }));
 }
 
 /** Deterministic intent router — every branch reads real persisted state. */
@@ -351,15 +473,79 @@ export async function answerLocally(
   let confidence = 0.5;
   let evidence: LocalEvidence[] = [];
   let suggestedActions: string[] = [];
+  let structuredFindings: ReasoningFinding[] | undefined;
+  let structuredMissing: string[] | undefined;
+  let structuredContradictions: EvidenceContradiction[] | undefined;
+  let structuredRecommendations: string[] | undefined;
+
+  // -------------------------------------------------------------------------
+  // Structured intelligence intents (§19/§14/§25): evidence-gap analysis,
+  // claim/supplement readiness and decision explanation run the deterministic
+  // evidence-requirements + contradiction engines over the tenant's REAL
+  // claims. They only fire when an approved claim exists — pending candidates
+  // keep the reconstruction branch below. The engines are the intelligence
+  // layer; keyword search is never used to fake absence reasoning.
+  // -------------------------------------------------------------------------
+  const isGap =
+    /\b(missing|lack|lacking|absent|gaps?(?![- ]?\d)|incomplete|do we have everything|what.*need|not.*found|pricing support)\b/.test(q) ||
+    /missing information|what are we missing/i.test(q);
+  const isReadiness =
+    /\b(ready|should we submit|can we submit|submit.*(supplement|claim)|prepared|readiness|challenged|denied)\b/.test(q);
+  const isWhy = /why.*(flag|not ready|isn.t ready|deny|denied|risk|block)/.test(q);
+
+  if (
+    (isGap || isReadiness || isWhy) &&
+    !/how many potential claims|potential claims|claims did you identify|what did you find|what.*in this company data|summarize|overview/.test(
+      q,
+    )
+  ) {
+    const claims = await loadClaims(supabase);
+    if (claims.length > 0) {
+      const workflow: WorkflowKey =
+        isReadiness && /submit|submission|send/i.test(q)
+          ? "submission_readiness"
+          : isReadiness
+            ? "supplement_readiness"
+            : "claim_readiness";
+      const intel = await runIntelligence(supabase, q, workflow);
+      if (intel.readiness) {
+        const r = intel.readiness;
+        intent = isGap ? "evidence_gap_analysis" : isWhy ? "decision_explanation" : "claim_readiness";
+        classification = "OBSERVATION";
+        confidence = Math.max(0.45, 0.85 - (r.blockingIssues.length + r.warnings.length) * 0.05);
+        evidence = claimEvidence(intel.ctx);
+        structuredFindings = readinessFindings(r);
+        structuredMissing = [...r.blockingIssues, ...r.warnings].map(
+          (g) => `${g.label} (${g.gapType ?? "missing"})`,
+        );
+        structuredContradictions = intel.contradictions;
+        structuredRecommendations = r.recommendedActions;
+        suggestedActions = r.recommendedActions;
+        const lead =
+          isGap
+            ? `Atlas compared the evidence required for ${workflowLabel(workflow).toLowerCase()} against what is actually on file for claim ${r.claimNumber ?? "this claim"}. The gaps below are derived from the expected-evidence model, not from searching for the word “missing”.`
+            : isReadiness
+              ? `Readiness assessment for claim ${r.claimNumber ?? "this claim"}.`
+              : `Atlas flagged this because the expected evidence for ${workflowLabel(workflow).toLowerCase()} is not fully on file.`;
+        answer = `${lead} ${summarizeReadiness(r)}`;
+      }
+    }
+  }
 
   const cn = claimNumberMatches(question);
   const candidateIntent =
-    /claim|recover|mitchell|supplement|reconcil|pay/.test(q) &&
-    (cn.length > 0 || /mitchell|claim/.test(q));
+    /claim|recover|supplement|reconcil|pay/.test(q) &&
+    (cn.length > 0 || /claim/.test(q));
+  // Explicit discrepancy/contradiction questions route to the contradiction
+  // engine (§43) — claim reconstruction must never hijack them.
+  const contradictionQuestion =
+    /discrepanc|contradict|conflict|inconsisten|differ|difference|not match/.test(q);
 
-  // Claim-reconstruction intents — never hijack dataset/summary questions.
+  // Claim-reconstruction intents — never hijack dataset/summary or
+  // contradiction questions.
   if (
     candidateIntent &&
+    !contradictionQuestion &&
     !/how many potential claims|potential claims|claims did you identify|what did you find|what.*in this company data|summarize|overview/.test(
       q,
     )
@@ -375,7 +561,15 @@ export async function answerLocally(
               (c.claimNumber ? norm(c.claimNumber) === n : false),
           ),
         )
-      : candidates.filter((c) => (c.customer ?? "").toLowerCase().includes("mitchell"));
+      : // No claim number in the question → match candidates by ANY word of
+        // their customer name appearing in the question (a general, tenant-
+        // agnostic customer lookup — never a hardcoded demo name).
+        candidates.filter((c) =>
+          (c.customer ?? "")
+            .toLowerCase()
+            .split(/\s+/)
+            .some((w) => w.length >= 3 && q.toLowerCase().includes(w)),
+        );
     const relevant = candidatesFor.length ? candidatesFor : candidates;
     if (relevant.length > 0) {
       intent = "claim_reconstruction";
@@ -466,26 +660,28 @@ export async function answerLocally(
   }
 
   // 3. Contradiction / discrepancy intents — report REAL conflicting values
-  //    deterministically from the tenant's own documents (never invented).
-  if (!answer && /discrepanc|contradict|conflict|inconsisten|differ|difference|not match/.test(q)) {
+  //    from the deterministic contradiction engine (both sources preserved).
+  if (!answer && contradictionQuestion) {
     const res = await findContradictions(supabase);
     if (res.hits.length > 0) {
-      intent = "contradiction_report";
+      intent = "contradiction_analysis";
       classification = "OBSERVATION";
       confidence = 0.7;
-      answer = `Atlas found ${res.hits.length} contradiction${res.hits.length === 1 ? "" : "s"} in the supplied company data. ${res.hits
-        .map(
-          (h) =>
-            `${h.field} appears as ${h.values
-              .map((v) => `${v.value} (in ${v.doc})`)
-              .join(" and as ")}${h.claim ? ` for claim ${h.claim}` : ""}`,
-        )
-        .join(". ")}. Each difference is flagged for human reconciliation — a difference is not automatically an error (supplements, allowances and adjustments are legitimate causes).`;
-      evidence = res.evidence;
-      suggestedActions = [
+      structuredContradictions = res.hits;
+      structuredFindings = res.hits.map((h) => ({
+        category: "CONFLICT" as const,
+        statement: h.detail,
+        evidenceIds: h.values.map((v) => v.documentId).filter((x): x is string => Boolean(x)),
+      }));
+      structuredRecommendations = [
         "Open the cited documents and reconcile each flagged difference against the carrier ledger and approved scope.",
-        "Approve the claim candidate in Revenue Recovery to run the deterministic financial analyzers on the confirmed baseline.",
+        "Re-run Atlas analysis after the reconciliation so the conflicting values are resolved with both sources preserved.",
       ];
+      answer = `Atlas found ${res.hits.length} contradiction${res.hits.length === 1 ? "" : "s"} in the supplied company data. ${res.hits
+        .map((h) => h.detail)
+        .join(" ")} Each difference is flagged for human reconciliation — a difference is not automatically an error (supplements, allowances and adjustments are legitimate causes).`;
+      evidence = res.evidence;
+      suggestedActions = structuredRecommendations;
     } else {
       intent = "knowledge_search";
       answer =
@@ -553,6 +749,11 @@ export async function answerLocally(
     evidence,
     authorityAnswers: [],
     pending: null,
+    // Structured intelligence contract (§37) — arrays are always defined.
+    findings: structuredFindings ?? [],
+    missingInformation: structuredMissing ?? [],
+    contradictions: structuredContradictions ?? [],
+    recommendations: structuredRecommendations ?? suggestedActions,
   };
 }
 

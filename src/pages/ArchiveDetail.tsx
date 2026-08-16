@@ -33,6 +33,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { invalidateQueries, useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import type {
+  NormalizedArchiveCandidate,
+  NormalizedArchiveFile,
+} from "@/lib/archive/normalize";
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
@@ -115,29 +119,19 @@ export default function ArchiveDetail() {
     );
   }
 
-  // Normalized contract (src/lib/archive/normalize.ts): archive is always an
-  // object with warnings: [] / stats: {} / checksum: "" defaults, files is
-  // always [], docs is always {}, candidates is always []. Loading is the
-  // `detail === undefined` branch above — distinct from a loaded empty archive.
+  // Normalized contract (src/lib/archive/normalize.ts): the boundary ALWAYS
+  // provides archive (status/fileType/checksum/fileCount/warnings/stats with
+  // defaults), files ([] + per-row field defaults), docs ({} with per-doc
+  // string defaults) and candidates ([] + per-row evidence/documentIds arrays
+  // — the live production crash was `c.documentIds.length` on a row that has
+  // no such column). Loading is the `detail === undefined` branch above —
+  // distinct from a loaded empty archive.
   const archive = detail.archive;
-  const files = detail.files;
-  const docs = detail.docs as Record<
-    string,
-    { _id: string; title: string; classification: string; status: string }
-  >;
-  const candidates = (detail.candidates ?? []) as Array<{
-    _id: string;
-    claimNumber?: string;
-    customer?: string;
-    property?: string;
-    confidence: number;
-    status: string;
-    basis: string;
-    evidence: string[];
-    documentIds: string[];
-  }>;
+  const files = detail.files as NormalizedArchiveFile[];
+  const docs = detail.docs;
+  const candidates = detail.candidates as NormalizedArchiveCandidate[];
   const pendingCandidates = candidates.filter((c) => c.status === "pending");
-  const st = (archive.stats ?? {}) as Record<string, unknown>;
+  const st = archive.stats as Record<string, unknown>;
   const active = !TERMINAL.has(archive.status);
   const failedFiles = files.filter((f) => f.ingestStatus === "failed");
 
@@ -149,8 +143,8 @@ export default function ArchiveDetail() {
     ["Blocked for security", num(st.blocked), "text-rose-600 dark:text-rose-300"],
     ["Too large to ingest", num(st.tooLarge), "text-muted-foreground"],
   ];
-  const classifications = (st.classifications ?? {}) as Record<string, number>;
-  const potentialClaims = (st.potentialClaims ?? []) as Array<{
+  const classifications = st.classifications as Record<string, number>;
+  const potentialClaims = st.potentialClaims as Array<{
     claimNumber: string;
     fileCount: number;
     confidence: number;
@@ -583,9 +577,9 @@ export default function ArchiveDetail() {
                               content not retained — cannot retry
                             </p>
                           )}
-                          {(f.claimHints ?? []).length > 0 && (
+                          {f.claimHints.length > 0 && (
                             <div className="mt-1 flex flex-wrap gap-1">
-                              {(f.claimHints as Array<{ claimNumber: string; confidence?: number }>).map((h) => (
+                              {f.claimHints.map((h) => (
                                 <span key={h.claimNumber} className="rounded bg-amber-400/10 px-1 py-0.5 font-mono text-[9px] text-amber-700 dark:text-amber-300">
                                   {h.claimNumber}
                                 </span>

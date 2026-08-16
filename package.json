@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && node scripts/deploy-conversation-converse.mjs",
+    "build": "vite build",
+    "build:edge": "node scripts/deploy-conversation-converse.mjs",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",

@@ -129,6 +129,15 @@ export default function Settings() {
   const set = (key: keyof typeof form, value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
 
+  // Stable names + standard autofill tokens (organization, url, addresses)
+  // keep browser/extension autofill working without clobbering other fields.
+  const AUTOCOMPLETE: Partial<Record<keyof typeof form, string>> = {
+    companyName: "organization",
+    website: "url",
+    city: "address-level2",
+    stateProvince: "address-level1",
+  };
+
   const field = (key: keyof typeof form, label: string, placeholder: string, type = "text") => (
     <div className="space-y-1.5">
       <Label htmlFor={`s-${key}`} className="text-xs font-medium text-muted-foreground">
@@ -136,9 +145,11 @@ export default function Settings() {
       </Label>
       <Input
         id={`s-${key}`}
+        name={`s-${key}`}
         type={type}
         value={form[key]}
         placeholder={placeholder}
+        autoComplete={AUTOCOMPLETE[key] ?? "off"}
         onChange={(e) => set(key, e.target.value)}
       />
     </div>
@@ -165,7 +176,7 @@ export default function Settings() {
               Industry
             </Label>
             <Select value={form.industry} onValueChange={(v) => set("industry", v)}>
-              <SelectTrigger id="s-industry">
+              <SelectTrigger id="s-industry" name="s-industry">
                 <SelectValue placeholder="Select industry" />
               </SelectTrigger>
               <SelectContent>
@@ -183,7 +194,7 @@ export default function Settings() {
               Country
             </Label>
             <Select value={form.country} onValueChange={(v) => set("country", v)}>
-              <SelectTrigger id="s-country">
+              <SelectTrigger id="s-country" name="s-country">
                 <SelectValue placeholder="Country" />
               </SelectTrigger>
               <SelectContent>
@@ -203,7 +214,7 @@ export default function Settings() {
               Company size
             </Label>
             <Select value={form.companySize} onValueChange={(v) => set("companySize", v)}>
-              <SelectTrigger id="s-size">
+              <SelectTrigger id="s-size" name="s-size">
                 <SelectValue placeholder="Employees" />
               </SelectTrigger>
               <SelectContent>
@@ -224,8 +235,10 @@ export default function Settings() {
             </Label>
             <Input
               id="s-services"
+              name="s-services"
               value={form.servicesProducts}
               placeholder="Mitigation, reconstruction, roofing"
+              autoComplete="off"
               onChange={(e) => set("servicesProducts", e.target.value)}
             />
           </div>
@@ -287,8 +300,10 @@ export default function Settings() {
             </Label>
             <Input
               id="sys-name"
+              name="sys-name"
               value={sysForm.name}
               placeholder="e.g. QuickBooks"
+              autoComplete="off"
               onChange={(e) => setSysForm((f) => ({ ...f, name: e.target.value }))}
             />
           </div>
@@ -298,8 +313,10 @@ export default function Settings() {
             </Label>
             <Input
               id="sys-cat"
+              name="sys-cat"
               value={sysForm.category}
               placeholder="e.g. accounting"
+              autoComplete="off"
               onChange={(e) => setSysForm((f) => ({ ...f, category: e.target.value }))}
             />
           </div>
@@ -309,8 +326,10 @@ export default function Settings() {
             </Label>
             <Input
               id="sys-vendor"
+              name="sys-vendor"
               value={sysForm.vendor}
               placeholder="e.g. Intuit"
+              autoComplete="off"
               onChange={(e) => setSysForm((f) => ({ ...f, vendor: e.target.value }))}
             />
           </div>
@@ -321,7 +340,11 @@ export default function Settings() {
                 setSysForm((f) => ({ ...f, status: v as "active" | "planned" | "none" }))
               }
             >
-              <SelectTrigger className="h-9">
+              <SelectTrigger
+                className="h-9"
+                name="sys-status"
+                aria-label="System status"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

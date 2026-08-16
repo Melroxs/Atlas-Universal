@@ -25,6 +25,7 @@ import {
 } from "@/lib/insurance/logic";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rpcCall } from "@/lib/actions/rpc";
+import { normalizeArchiveDetailResponse } from "@/lib/archive/normalize";
 
 export type FnKind = "query" | "mutation" | "edge" | "client";
 
@@ -541,7 +542,17 @@ export const api = {
   archive: {
     listArchives: def<ObjArray>("archive_list", "query"),
     archiveStats: def<Obj>("archive_stats", "query"),
-    getArchiveDetail: def<ArchiveDetailShape | null>("archive_get_detail", "query"),
+    // The RPC returns jsonb where optional collections can be missing or
+    // null (archive.warnings, files, docs, candidates, stats). Normalize at
+    // this boundary so ArchiveDetail and the client processing loop always
+    // receive arrays/objects — never undefined (the production crash:
+    // "Cannot read properties of undefined (reading 'length')" after an
+    // archive finished ingesting and the page rendered).
+    getArchiveDetail: defT<ArchiveDetailShape | null>(
+      "archive_get_detail",
+      "query",
+      (d) => normalizeArchiveDetailResponse(d) as ArchiveDetailShape | null,
+    ),
     beginArchive: def<{ archiveId: string }>("archive_begin", "mutation"),
     submitInventoryBatch: def<{ ok: boolean }>("archive_submit_inventory_batch", "mutation"),
     beginProcessing: def<{ ok: boolean; ingested: number; failed: number; candidates: number }>(

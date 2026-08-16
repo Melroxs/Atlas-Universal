@@ -253,6 +253,15 @@ export default function Setup() {
 
   const systemCount = Object.values(systems).filter((s) => s !== "none").length;
 
+  // Autofill hints: stable names + standard autoComplete tokens for fields the
+  // browser/extension autofill can legally fill (organization, url, addresses).
+  const AUTOCOMPLETE: Partial<Record<keyof typeof form, string>> = {
+    companyName: "organization",
+    website: "url",
+    city: "address-level2",
+    stateProvince: "address-level1",
+  };
+
   const input = (key: keyof typeof form, label: string, placeholder: string, type = "text") => (
     <div className="space-y-1.5">
       <Label htmlFor={key} className="text-xs font-medium text-muted-foreground">
@@ -260,9 +269,11 @@ export default function Setup() {
       </Label>
       <Input
         id={key}
+        name={key}
         type={type}
         value={form[key]}
         placeholder={placeholder}
+        autoComplete={AUTOCOMPLETE[key] ?? "off"}
         onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
       />
     </div>
@@ -339,9 +350,11 @@ export default function Setup() {
                   </Label>
                   <Input
                     id="ws-name"
+                    name="workspaceName"
                     value={workspaceName}
                     placeholder="e.g. Northshore Restoration Inc."
                     onChange={(e) => setWorkspaceName(e.target.value)}
+                    autoComplete="organization"
                     autoFocus
                   />
                 </div>
@@ -366,7 +379,7 @@ export default function Setup() {
                     value={form.industry}
                     onValueChange={(v) => setForm((f) => ({ ...f, industry: v }))}
                   >
-                    <SelectTrigger id="industry">
+                    <SelectTrigger id="industry" name="industry">
                       <SelectValue placeholder="Select industry" />
                     </SelectTrigger>
                     <SelectContent>
@@ -387,7 +400,7 @@ export default function Setup() {
                     value={form.country}
                     onValueChange={(v) => setForm((f) => ({ ...f, country: v }))}
                   >
-                    <SelectTrigger id="country">
+                    <SelectTrigger id="country" name="country">
                       <SelectValue placeholder="Country" />
                     </SelectTrigger>
                     <SelectContent>
@@ -410,7 +423,7 @@ export default function Setup() {
                     value={form.companySize}
                     onValueChange={(v) => setForm((f) => ({ ...f, companySize: v }))}
                   >
-                    <SelectTrigger id="companySize">
+                    <SelectTrigger id="companySize" name="companySize">
                       <SelectValue placeholder="Employees" />
                     </SelectTrigger>
                     <SelectContent>
@@ -431,8 +444,10 @@ export default function Setup() {
                   </Label>
                   <Input
                     id="servicesProducts"
+                    name="servicesProducts"
                     value={form.servicesProducts}
                     placeholder="Mitigation, reconstruction, roofing"
+                    autoComplete="off"
                     onChange={(e) => setForm((f) => ({ ...f, servicesProducts: e.target.value }))}
                   />
                 </div>
@@ -502,7 +517,13 @@ export default function Setup() {
                           }))
                         }
                       >
-                        <SelectTrigger className="h-8 w-[104px] text-xs">
+                        {/* Programmatic label: the visible text is the system
+                            name, so the select is labeled with that context. */}
+                        <SelectTrigger
+                          className="h-8 w-[104px] text-xs"
+                          name={`system-${sys.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`}
+                          aria-label={`${sys.name} system status`}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>

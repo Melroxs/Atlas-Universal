@@ -344,6 +344,204 @@ describe("normalizeArchiveDetailResponse — ArchiveDetail crash contract", () =
   });
 });
 
+describe("per-row crash class — nullable/missing COLUMNS (the live production bug)", () => {
+  it("candidate rows WITHOUT documentIds (deployed claimCandidates has no such column) + NULL evidence", () => {
+    // The deployed claimCandidates table has filePaths + nullable evidence but
+    // NO documentIds column. The page renders `c.evidence.length +
+    // c.documentIds.length` inside pendingCandidates.map() — this is the
+    // exact live crash (`Cannot read properties of undefined (reading
+    // 'length')` in an Array.map callback). The normalizer must synthesize
+    // BOTH as arrays at the boundary.
+    const raw = {
+      archive: {
+        _id: "a1",
+        status: "completed",
+        filename: "npp.zip",
+        fileType: "zip",
+        compressedSize: 1,
+        extractedSize: 1,
+        fileCount: 1,
+        checksum: "abc",
+        createdAt: 1,
+        rawRetained: false,
+        progress: 1,
+        warnings: [],
+        stats: { ingested: 1, failed: 0, total: 1 },
+      },
+      files: [],
+      docs: {},
+      candidates: [
+        {
+          _id: "cand-1",
+          claimNumber: "GAP-26-51847",
+          customer: "NPP Roofing & Restoration",
+          status: "pending",
+          confidence: 0.91,
+          basis: "folder context",
+          evidence: null, // nullable column, null in the raw row
+          filePaths: ["Claims/GAP-26-51847/a.pdf"],
+          // documentIds: ABSENT — the column does not exist on the table
+        },
+      ],
+    };
+    const n = normalizeArchiveDetailResponse(raw);
+    expect(n).not.toBeNull();
+    const norm = n!;
+    expect(norm.candidates).toHaveLength(1);
+    const c = norm.candidates[0];
+    expect(c.evidence).toEqual([]);
+    expect(c.documentIds).toEqual([]);
+    // The exact render expression the page runs:
+    expect(() => c.evidence.length + c.documentIds.length).not.toThrow();
+    expect(c.evidence.length + c.documentIds.length).toBe(0);
+    expect(() => assertRenderable(norm)).not.toThrow();
+  });
+
+  it("file rows with NULL classification (nullable column) — .replace() must not throw", () => {
+    const raw = {
+      archive: {
+        _id: "a1",
+        status: "completed",
+        filename: "x.zip",
+        fileType: "zip",
+        compressedSize: 1,
+        extractedSize: 1,
+        fileCount: 1,
+        checksum: "abc",
+        createdAt: 1,
+        rawRetained: false,
+        progress: 1,
+        warnings: [],
+        stats: { ingested: 1, failed: 0, total: 1 },
+      },
+      files: [
+        {
+          _id: "f1",
+          path: "a.pdf",
+          filename: "a.pdf",
+          ingestStatus: "ingested",
+          documentId: "d1",
+          classification: null, // nullable column
+          classificationConfidence: null,
+          size: 1,
+          claimHints: null,
+        },
+      ],
+      docs: { d1: { _id: "d1", title: "a.pdf" } },
+      candidates: [],
+    };
+    const n = normalizeArchiveDetailResponse(raw);
+    expect(n).not.toBeNull();
+    const norm = n!;
+    const f = norm.files[0];
+    expect(() => f.classification.replace(/_/g, " ")).not.toThrow();
+    expect(f.classification).toBe("");
+    expect(f.classificationConfidence).toBe(0);
+    expect(f.claimHints).toEqual([]);
+    expect(() => assertRenderable(norm)).not.toThrow();
+  });
+
+  it("archive row with NULL status / fileType / checksum / missing stats — header .toUpperCase()/.replace()/slice() must not throw", () => {
+    const raw = {
+      archive: {
+        _id: "a1",
+        status: null, // nullable in legacy rows
+        filename: "x.zip",
+        fileType: null,
+        compressedSize: null,
+        extractedSize: null,
+        fileCount: null,
+        checksum: null,
+        createdAt: null,
+        rawRetained: null,
+        progress: null,
+        completedAt: null,
+        failureReason: null,
+        warnings: null,
+        // stats: entirely absent
+      },
+      files: null,
+      docs: null,
+      candidates: null,
+    };
+    const n = normalizeArchiveDetailResponse(raw);
+    expect(n).not.toBeNull();
+    const norm = n!;
+    // The page's header expressions:
+    expect(() => norm.archive.fileType.toUpperCase()).not.toThrow();
+    expect(() => norm.archive.status && norm.archive.status.replace(/ /g, "_")).not.toThrow();
+    expect(() => norm.archive.checksum.slice(0, 16)).not.toThrow();
+    expect(() => norm.archive.fileCount.toLocaleString()).not.toThrow();
+    expect(() => norm.archive.filename).not.toThrow();
+    expect(() => norm.archive.progress).not.toThrow();
+    expect(() => assertRenderable(norm)).not.toThrow();
+  });
+
+  it("stats.potentialClaims null / scalar, classifications null — page .map()/.entries() must not throw", () => {
+    const raw = {
+      archive: {
+        _id: "a1",
+        status: "completed",
+        filename: "x.zip",
+        fileType: "zip",
+        compressedSize: 1,
+        extractedSize: 1,
+        fileCount: 0,
+        checksum: "abc",
+        createdAt: 1,
+        rawRetained: false,
+        progress: 1,
+        warnings: [],
+        stats: { ingested: 1, failed: 0, total: 1, potentialClaims: null, classifications: null },
+      },
+      files: [],
+      docs: {},
+      candidates: [],
+    };
+    const n = normalizeArchiveDetailResponse(raw);
+    expect(n).not.toBeNull();
+    const norm = n!;
+    const st = norm.archive.stats;
+    expect(Array.isArray(st.potentialClaims)).toBe(true);
+    expect(st.classifications).toEqual({});
+    expect(() => st.potentialClaims.map((c: { claimNumber: string }) => c.claimNumber)).not.toThrow();
+    expect(() => Object.entries(st.classifications)).not.toThrow();
+    expect(() => assertRenderable(norm)).not.toThrow();
+  });
+
+  it("candidate rows with scalar evidence / documentIds (jsonb mis-shaped) coerce to arrays", () => {
+    const raw = {
+      archive: {
+        _id: "a1",
+        status: "completed",
+        filename: "x.zip",
+        fileType: "zip",
+        compressedSize: 1,
+        extractedSize: 1,
+        fileCount: 0,
+        checksum: "abc",
+        createdAt: 1,
+        rawRetained: false,
+        progress: 1,
+        warnings: [],
+        stats: { ingested: 0, failed: 0, total: 0 },
+      },
+      files: [],
+      docs: {},
+      candidates: [
+        { _id: "c1", status: "pending", claimNumber: "X1", evidence: "doc-1", documentIds: "doc-2" },
+      ],
+    };
+    const n = normalizeArchiveDetailResponse(raw);
+    expect(n).not.toBeNull();
+    const norm = n!;
+    const c = norm.candidates[0];
+    expect(Array.isArray(c.evidence)).toBe(true);
+    expect(Array.isArray(c.documentIds)).toBe(true);
+    expect(() => c.evidence.length + c.documentIds.length).not.toThrow();
+  });
+});
+
 describe("api.archive.getArchiveDetail transform (registry boundary)", () => {
   it("applies normalizeArchiveDetailResponse to raw RPC results", () => {
     const transform = api.archive.getArchiveDetail.transform;

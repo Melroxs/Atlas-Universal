@@ -185,7 +185,30 @@ try {
   check("2c. demo claims flagged isDemo", claims.some((c) => c.isDemo === true), `demo=${claims.filter((c) => c.isDemo).length}`);
   console.log(`   claim sample: ${shape(claims[0])}`);
 
-  // 3. Candidates (potential claims) — present if the demo loader creates any.
+  // 3. Candidates (potential claims) — the demo loader materializes claims
+  // directly, so this probe seeds ONE clearly-marked candidate through the
+  // same deployed upsert RPC the ingestion pipeline uses. That lets the
+  // Revenue Recovery approve flow (candidate → real claim, no duplicate)
+  // run inside this probe instead of being covered only by
+  // probe-claim-materialization.mjs.
+  const candSeed = await rpc(token, "insurance_upsert_candidates", {
+    p_candidates: [
+      {
+        archiveId: null,
+        claimKey: `DEMO-CHAIN-${Date.now()}`,
+        claimNumber: "GAP-PROBE-0001",
+        customer: "Probe Candidate Owner",
+        property: "505 Probe Ave, Tampa FL 33605",
+        carrier: "Citizens",
+        fileCount: 1,
+        totalSize: 1,
+        confidence: 0.88,
+        filePaths: [],
+        evidence: [],
+      },
+    ],
+  });
+  check("3a. candidate seeded via deployed upsert RPC", candSeed.status === 200, `HTTP ${candSeed.status}`);
   const cands = (await rpc(token, "insurance_list_claim_candidates", {})).body ?? [];
   for (const c of cands) if (c._id) created.candidates.push(c._id);
   const pending = cands.filter((c) => c.status === "pending");
@@ -217,10 +240,25 @@ try {
 
   // 6. Real evidence rows + chunks naming the demo claim numbers, so Ask
   // Atlas retrieval has grounded workspace content (ingestion contract).
+  // The estimate + invoice documents are deliberately seeded for ONE shared
+  // claim with LABELED values ("Estimate total:" / "Invoice total:") so the
+  // deterministic contradiction engine has a real, parseable pair to flag —
+  // narrative prose is not enough (the scanner only reports labeled fields
+  // with distinct values, by design, to avoid false positives).
   const docIds = [];
   const kinds = ["estimate", "inspection", "invoice"];
+  const evClaim =
+    claimNums.find((n) => /[A-Z]/.test(n)) ?? claimNums[0] ?? "DEMO";
+  const claimIdx = Math.max(
+    0,
+    claimNums.indexOf(evClaim),
+  );
+  const CONTENT_BY_KIND = {
+    estimate: `Claim ${evClaim} (${DEMO_CLAIMS[claimIdx]?.customer ?? "demo"}) — estimate for the ${DEMO_CLAIMS[claimIdx]?.carrier ?? "carrier"} claim at ${DEMO_CLAIMS[claimIdx]?.property ?? "the demo property"}. Estimate total: $25,000. These claims need attention: payment received is below the estimate; open balance outstanding. Next step: reconcile payment against the approved estimate and invoice.`,
+    inspection: `Claim ${evClaim} (${DEMO_CLAIMS[claimIdx]?.customer ?? "demo"}) — inspection for the ${DEMO_CLAIMS[claimIdx]?.carrier ?? "carrier"} claim at ${DEMO_CLAIMS[claimIdx]?.property ?? "the demo property"}. Inspection completed; roof area 28.7 SQ. Open balance outstanding needs attention.`,
+    invoice: `Claim ${evClaim} (${DEMO_CLAIMS[claimIdx]?.customer ?? "demo"}) — invoice for the ${DEMO_CLAIMS[claimIdx]?.carrier ?? "carrier"} claim at ${DEMO_CLAIMS[claimIdx]?.property ?? "the demo property"}. Invoice total: $15,000. Payment received is below the estimate; open balance outstanding needs attention. Next step: reconcile and consider a documented supplement.`,
+  };
   for (const [i, kind] of kinds.entries()) {
-    const evClaim = claimNums[i] ?? claimNums[0] ?? "DEMO";
     const d = await rpc(token, "ingestion_create_document", {
       p_title: `demo_claim_${evClaim}_${kind}.pdf`,
       p_mimetype: "application/pdf",
@@ -240,13 +278,13 @@ try {
       await rpc(token, "ingestion_patch_document", {
         p_documentid: id,
         p_patch: {
-          summary: `Claim ${evClaim} (${DEMO_CLAIMS[i]?.customer ?? "demo"}) needs attention: these claims show discrepancies — payment received is below the estimate. Next step: reconcile payment against the approved estimate and invoice.`,
+          summary: `Claim ${evClaim} (${DEMO_CLAIMS[claimIdx]?.customer ?? "demo"}) needs attention: these claims show discrepancies — payment received is below the estimate. Next step: reconcile payment against the approved estimate and invoice.`,
         },
       });
       await rpc(token, "ingestion_insert_chunk", {
         p_documentid: id,
         p_chunkindex: 0,
-        p_content: `Claim ${evClaim} (${DEMO_CLAIMS[i]?.customer ?? "demo"}) — ${kind} for the ${DEMO_CLAIMS[i]?.carrier ?? "carrier"} claim at ${DEMO_CLAIMS[i]?.property ?? "the demo property"}. These claims show discrepancies: estimated $25,000 but payment $10,000 received; open balance outstanding needs attention. Inspection completed; invoice issued. Next step: reconcile and consider a documented supplement.`,
+        p_content: CONTENT_BY_KIND[kind],
         p_embedding: null,
         p_tokencount: 80,
       });

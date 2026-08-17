@@ -956,8 +956,28 @@ export const api = {
       ),
     },
     demoData: {
-      loadDemoData: def<Obj>("insurance_demo_load", "mutation"),
-      removeDemoData: def<Obj>("insurance_demo_remove", "mutation"),
+      // The `insurance_demo_load` RPC does not exist in the deployed schema
+      // (production regression: the Revenue Recovery “Load demo data” button
+      // 404'd). The deterministic demo loader already exists client-side —
+      // seed through the DEPLOYED RPCs (insurance_demo_remove +
+      // insurance_create_claim + insurance_update_claim +
+      // insurance_create_supplement + insurance_upsert_findings) instead.
+      loadDemoData: def<{ claims: number; demo: true }>(
+        "insurance_demo_load",
+        "client",
+        async () => {
+          const { loadDemoDataClient } = await import("@/lib/insurance/demo");
+          return loadDemoDataClient();
+        },
+      ),
+      removeDemoData: def<{ removed: number }>(
+        "insurance_demo_remove",
+        "client",
+        async () => {
+          const { removeDemoDataClient } = await import("@/lib/insurance/demo");
+          return removeDemoDataClient();
+        },
+      ),
     },
   },
   tools: {

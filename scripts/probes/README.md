@@ -21,6 +21,13 @@ supplements, memberships, tenant, user) in a `finally` block.
 - `probe-claims-list-shape.mjs` — prints the exact raw rows the frontend
   receives from `insurance_list_claims` (keys + types, never values) to
   verify the API boundary contract.
+- `probe-demo-chain-ask.mjs` — demo-dataset + Ask Atlas acceptance: seeds
+  clearly-marked demo claims through the deployed RPCs (the client demo
+  loader's contract), creates grounded evidence documents + chunks, drives
+  claim list / package / evidence-attach, then asks the deployed
+  `conversation-converse` function the three acceptance questions and
+  verifies answers cite the actual workspace claims (and reports the
+  Gemini status honestly — never fakes an AI answer).
 
 Run any probe with:
 

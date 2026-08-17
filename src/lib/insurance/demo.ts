@@ -330,7 +330,11 @@ export async function loadDemoDataClient(): Promise<{ claims: number; demo: true
       claimId,
       patch: {
         createdAt: now - spec.createdDaysAgo * day,
-        updatedAt: now - spec.updatedDaysAgo * day,
+        // NOTE: insurance_update_claim always stamps updatedAt = epoch_ms()
+        // itself, so patching updatedAt here raises "multiple assignments to
+        // the same column" (42601). UpdatedAt is therefore left to the RPC;
+        // createdAt still carries the demo age so freshness/readiness
+        // analysis stays meaningful.
         isDemo: true,
         timeline: spec.timeline.map((t) => ({
           ts: now - t.daysAgo * day,

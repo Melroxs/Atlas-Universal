@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import { uploadToStorage } from "@/lib/actions/upload";
+import { normalizeArchiveStats } from "@/lib/actions/normalize";
 import { ACCEPTED_EXTENSIONS, classifyFile } from "@/lib/ingest/formats";
 import { describeIngestionError } from "@/lib/ingest/errors";
 import {
@@ -28,7 +29,7 @@ import {
   UploadCloud,
   XCircle,
 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -41,7 +42,9 @@ export default function Knowledge() {
   const seedDemo = useMutation(api.seed.seedDemoData);
   const runDetectors = useAction(api.recommendations.runDetectors);
   const archives = useQuery(api.archive.listArchives);
-  const archiveStats = useQuery(api.archive.archiveStats);
+  const archiveStatsRaw = useQuery(api.archive.archiveStats);
+  // archive_stats contract: null/failed → honest zero-shape; valid → numbers.
+  const archiveStats = useMemo(() => normalizeArchiveStats(archiveStatsRaw), [archiveStatsRaw]);
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);

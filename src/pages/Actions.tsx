@@ -30,7 +30,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useAction, useQuery } from "@/hooks/use-supabase";
+import { invalidateQueries, useAction, useQuery } from "@/hooks/use-supabase";
+import { resolveActionsViewState } from "@/lib/actions/normalize";
 import {
   AlertTriangle,
   Cable,
@@ -41,6 +42,7 @@ import {
   Loader2,
   Play,
   Radar,
+  RefreshCw,
   ShieldAlert,
   ShieldCheck,
   Wrench,
@@ -195,11 +197,19 @@ export default function Actions() {
   const [confirming, setConfirming] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
+  // Canonical view contract: tools/history are ALWAYS arrays when resolved
+  // (null/undefined/malformed RPC payloads become honest loading/error/empty
+  // states — never a crash on .length/.map).
+  const view = useMemo(
+    () => resolveActionsViewState(tools, history, statusFilter),
+    [tools, history, statusFilter],
+  );
+
   // Ask Atlas handoff: ?tool=<toolId>&args=<JSON> opens the composer prefilled.
   useEffect(() => {
     const toolId = searchParams.get("tool");
-    if (!toolId || !tools) return;
-    const tool = tools.find((t) => t.id === toolId);
+    if (!toolId || view.tools.state !== "populated") return;
+    const tool = view.tools.rows.find((t) => t.id === toolId) as ToolRow | undefined;
     if (!tool) return;
     const raw = searchParams.get("args");
     let prefill: Record<string, unknown> = {};
@@ -214,7 +224,7 @@ export default function Actions() {
       }
     }
     openComposer(tool, prefill);
-  }, [searchParams, tools]);
+  }, [searchParams, view]);
 
   const openComposer = (tool: ToolRow, prefill?: Record<string, unknown>) => {
     const values: ComposerValues = {};
@@ -342,21 +352,7 @@ export default function Actions() {
     }
   };
 
-  const stats = useMemo(() => {
-    const list = tools ?? [];
-    return {
-      total: list.length,
-      implemented: list.filter((t) => t.implementationStatus === "implemented").length,
-      enabled: list.filter((t) => t.enabled).length,
-      run: history?.length ?? 0,
-    };
-  }, [tools, history]);
-
-  const filteredHistory = useMemo(() => {
-    const list = history ?? [];
-    if (statusFilter === "all") return list;
-    return list.filter((r) => r.status === statusFilter);
-  }, [history, statusFilter]);
+  const { stats, filteredHistory } = view;
 
   const disabledReason = (tool: ToolRow): string | null => {
     if (tool.implementationStatus !== "implemented") return "Documented — not implemented yet.";
@@ -414,12 +410,31 @@ export default function Actions() {
             generated from the server registry
           </span>
         </h2>
-        {tools === undefined ? (
+        {view.tools.state === "loading" ? (
           <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/50 p-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
             Loading tool registry…
           </div>
-        ) : tools.length === 0 ? (
+        ) : view.tools.state === "error" ? (
+          <div className="flex items-start gap-3 rounded-xl border border-rose-400/25 bg-rose-400/5 p-5">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-300" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">Tool registry unavailable</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                {view.tools.error} Atlas still renders everything else on this page.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-1.5"
+              onClick={() => invalidateQueries()}
+            >
+              <RefreshCw className="size-3.5" />
+              Retry
+            </Button>
+          </div>
+        ) : view.tools.state === "empty" ? (
           <EmptyPanel
             icon={Wrench}
             title="No tools registered"
@@ -427,7 +442,7 @@ export default function Actions() {
           />
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
-            {tools.map((tool) => {
+            {(view.tools.rows as ToolRow[]).map((tool) => {
               const reason = disabledReason(tool);
               return (
                 <Card key={tool.id} className="border-border/70 bg-card/60 shadow-none">
@@ -545,12 +560,29 @@ export default function Actions() {
           </Select>
         </div>
 
-        {history === undefined ? (
+        {view.history.state === "loading" ? (
           <div className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/50 p-6 text-sm text-muted-foreground">
             <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />
             Loading history…
           </div>
-        ) : filteredHistory.length === 0 ? (
+        ) : view.history.state === "error" ? (
+          <div className="flex items-start gap-3 rounded-xl border border-rose-400/25 bg-rose-400/5 p-5">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-rose-600 dark:text-rose-300" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">Action history unavailable</p>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{view.history.error}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 gap-1.5"
+              onClick={() => invalidateQueries()}
+            >
+              <RefreshCw className="size-3.5" />
+              Retry
+            </Button>
+          </div>
+        ) : view.history.state === "empty" ? (
           <EmptyPanel
             icon={History}
             title={statusFilter === "all" ? "No actions yet" : "No actions in this state"}
@@ -595,7 +627,7 @@ export default function Actions() {
                       “{r.requestText}”
                     </p>
                   )}
-                  {r.explanation && typeof r.explanation === "object" && (
+                  {r.explanation != null && typeof r.explanation === "object" && (
                     <p className="text-xs leading-5 text-muted-foreground">
                       {(r.explanation as Record<string, unknown>).summary as string}
                     </p>

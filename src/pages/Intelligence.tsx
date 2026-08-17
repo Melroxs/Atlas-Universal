@@ -202,6 +202,10 @@ export default function Intelligence() {
                     <Loader2 className="size-4 animate-spin" />
                     Loading items…
                   </div>
+                ) : packItems === null ? (
+                  <p className="py-8 text-center text-sm text-muted-foreground">
+                    Pack items could not be loaded — the request failed.
+                  </p>
                 ) : packItems.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
                     This pack has no items yet.

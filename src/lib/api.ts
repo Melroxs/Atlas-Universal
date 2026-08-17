@@ -19,6 +19,7 @@ import {
   buildRecoveryAnalytics,
   defaultClaimCounts,
   enrichClaimFromEvidence,
+  normalizeClaimListResponse,
   normalizeClaimPackageResponse,
   type ClaimSnapshot,
   type EvidenceDocLike,
@@ -677,8 +678,14 @@ export const api = {
   },
   insurance: {
     claims: {
+      // The deployed RPC returns rows wrapped as { claim, findings,
+      // supplements }; the pages read flat fields (c._id, c.customer,
+      // c.completeness, …). Normalize at this boundary so list rows carry the
+      // persisted claim id + derived aggregates — the production defect was
+      // undefined row fields navigating to /revenue-recovery/undefined →
+      // ClaimDetail “Claim not found”.
       listClaims: defT<ObjArray>("insurance_list_claims", "query", (d) =>
-        Array.isArray(d) ? d : [],
+        normalizeClaimListResponse(d) as unknown as ObjArray,
       ),
       // The deployed RPC returns the raw claim row + its supplements/findings/
       // evidence. The page renders the DERIVED package (completeness, model,

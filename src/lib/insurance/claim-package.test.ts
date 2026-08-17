@@ -18,6 +18,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildRecoveryAnalytics,
   defaultClaimCounts,
+  matchCandidateEvidenceDocs,
+  normalizeClaimListResponse,
   normalizeClaimPackageResponse,
   toClaimSnapshot,
   RECOVERY_PIPELINE,
@@ -136,5 +138,128 @@ describe("defaultClaimCounts + toClaimSnapshot", () => {
     const sparse = toClaimSnapshot({ _id: "x" });
     expect(sparse.estimateAmount).toBeNull();
     expect(sparse.updatedAt).toBeNull();
+  });
+});
+
+describe("normalizeClaimListResponse", () => {
+  it("returns [] for a null/malformed response (pages render empty, never crash)", () => {
+    for (const raw of [null, undefined, {}, "nope", { claim: {} }, 42]) {
+      expect(normalizeClaimListResponse(raw)).toEqual([]);
+    }
+  });
+
+  it("unwraps the deployed { claim, findings, supplements } wrapper into flat rows", () => {
+    const rows = normalizeClaimListResponse([
+      {
+        claim: {
+          _id: "c1",
+          claimNumber: "GAP-26-51847",
+          customer: "NPP Roofing & Restoration",
+          property: "123 Maple St",
+          status: "opened",
+          isDemo: true,
+          estimateAmount: 25000,
+          paymentAmount: 10000,
+          createdAt: Date.now() - 86_400_000,
+          updatedAt: Date.now() - 3_600_000,
+        },
+        findings: [
+          { _id: "f1", status: "open" },
+          { _id: "f2", status: "resolved" },
+        ],
+        supplements: [{ _id: "s1", status: "draft" }],
+      },
+    ]);
+    expect(rows.length).toBe(1);
+    const row = rows[0];
+    // The persisted id is preserved verbatim — list rows and the detail route
+    // resolve the SAME claim (the production defect navigated to "undefined").
+    expect(row._id).toBe("c1");
+    expect(row.customer).toBe("NPP Roofing & Restoration");
+    expect(row.claimNumber).toBe("GAP-26-51847");
+    expect(row.status).toBe("opened");
+    expect(row.isDemo).toBe(true);
+    // Derived aggregates the Claims table / Dashboard render.
+    expect(row.completeness).toBeGreaterThanOrEqual(0);
+    expect(row.completenessTotal).toBeGreaterThan(0);
+    expect(row.openFindings).toBe(1);
+    expect(row.draftSupplements).toBe(1);
+    expect(row.readySupplements).toBe(0);
+    expect(typeof row.outstanding).toBe("number");
+    expect(typeof row.hasDiscrepancy).toBe("boolean");
+    expect(row.needsAttention).toBe(true);
+    // Fresh activity → never flagged stalled.
+    expect(row.stalled).toBe(false);
+  });
+
+  it("passes already-flat rows through and skips rows without a claim id", () => {
+    const rows = normalizeClaimListResponse([
+      { _id: "flat-1", customer: "Flat Co", claimNumber: "F-1", status: "opened" },
+      { customer: "No id row", claimNumber: "F-2" },
+      null,
+      "junk",
+      ["array-row"],
+    ]);
+    expect(rows.length).toBe(1);
+    expect(rows[0]._id).toBe("flat-1");
+    expect(rows[0].customer).toBe("Flat Co");
+  });
+
+  it("flags only stale open claims as stalled (terminal statuses never stall)", () => {
+    const old = Date.now() - 60 * 86_400_000;
+    const rows = normalizeClaimListResponse([
+      { claim: { _id: "open-stale", status: "opened", createdAt: old, updatedAt: old } },
+      { claim: { _id: "closed-old", status: "closed", createdAt: old, updatedAt: old } },
+      { claim: { _id: "open-fresh", status: "opened", createdAt: Date.now() } },
+    ]);
+    expect(rows.find((r) => r._id === "open-stale")?.stalled).toBe(true);
+    expect(rows.find((r) => r._id === "closed-old")?.stalled).toBe(false);
+    expect(rows.find((r) => r._id === "open-fresh")?.stalled).toBe(false);
+  });
+});
+
+describe("matchCandidateEvidenceDocs", () => {
+  const docs = [
+    { _id: "d1", title: "2026-05-01_carrier_estimate.pdf", sourceId: null },
+    { _id: "d2", title: "2026-05-01_inspection_report.pdf", sourceId: null },
+    { _id: "d3", title: "policy.pdf", sourceId: "archive/x/policy.pdf" },
+    { _id: "d4", title: "Another Folder\\nested\\estimate.xlsx", sourceId: null },
+  ];
+
+  it("matches candidate evidence paths to real document titles (basename, date-prefix aware)", () => {
+    const ids = matchCandidateEvidenceDocs(
+      {
+        filePaths: ["2026-05-01_carrier_estimate.pdf", "archive/x/inspection_report.pdf"],
+        evidence: ["policy.pdf"],
+      },
+      docs as unknown as Array<Record<string, unknown>>,
+    );
+    expect(ids.sort()).toEqual(["d1", "d2", "d3"]);
+  });
+
+  it("matches backslash paths and returns unique ids only", () => {
+    const ids = matchCandidateEvidenceDocs(
+      { filePaths: ["Another Folder\\nested\\estimate.xlsx"], evidence: ["estimate.xlsx"] },
+      docs as unknown as Array<Record<string, unknown>>,
+    );
+    expect(ids).toEqual(["d4"]);
+  });
+
+  it("returns [] when nothing matches (never fabricates a link)", () => {
+    expect(
+      matchCandidateEvidenceDocs({ filePaths: ["totally-unrelated.pdf"] }, docs as unknown as Array<Record<string, unknown>>),
+    ).toEqual([]);
+    expect(
+      matchCandidateEvidenceDocs({}, docs as unknown as Array<Record<string, unknown>>),
+    ).toEqual([]);
+    expect(matchCandidateEvidenceDocs({ evidence: ["x.pdf"] }, [])).toEqual([]);
+  });
+
+  it("is conservative: short/ambiguous names never match via the contains-fallback", () => {
+    const short = matchCandidateEvidenceDocs(
+      { filePaths: ["ab"] },
+      [{ _id: "d9", title: "xabz", sourceId: null }],
+    );
+    expect(short).toEqual([]);
   });
 });

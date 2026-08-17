@@ -1260,6 +1260,145 @@ export function normalizeClaimPackageResponse(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Claim list contract (insurance_list_claims)
+// ---------------------------------------------------------------------------
+// The deployed RPC returns one row per claim as a WRAPPER:
+//   { claim: {…full claim row…}, findings: […], supplements: […] }
+// The Claims table / Dashboard read the fields directly off the row
+// (c._id, c.customer, c.completeness, …), so the raw wrapper made every
+// field undefined — rows rendered as “Unnamed claim” and clicks navigated to
+// `/dashboard/revenue-recovery/undefined`, which Claim Detail rejected with
+// “Claim not found”. This normalizer unwraps each row at the API boundary
+// and derives the aggregate fields the pages consume from the same
+// deterministic builders the rest of the app uses. Nothing is fabricated:
+// null/malformed responses → []; rows without a claim object are skipped.
+
+/** Terminal claim statuses — a terminal claim is never “stalled”. */
+const TERMINAL_CLAIM_STATUSES = new Set([
+  "closed",
+  "approved",
+  "work_completed",
+  "billing",
+  "denied",
+  "cancelled",
+]);
+
+/**
+ * Normalize an insurance_list_claims response into the flat claim rows the
+ * Claims table and Dashboard render. Always returns an array; the persisted
+ * claim `_id` is preserved verbatim (never undefined), so list rows and the
+ * detail route resolve the SAME claim.
+ */
+export function normalizeClaimListResponse(
+  raw: unknown,
+): Array<Record<string, unknown>> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<Record<string, unknown>> = [];
+  for (const row of raw) {
+    if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+    const wrapper = row as Record<string, unknown>;
+    const claim =
+      wrapper.claim && typeof wrapper.claim === "object" && !Array.isArray(wrapper.claim)
+        ? (wrapper.claim as Record<string, unknown>)
+        : wrapper; // already-flat rows pass through
+    if (!claim._id) continue;
+    const findings = Array.isArray(wrapper.findings)
+      ? (wrapper.findings as Array<Record<string, unknown>>)
+      : [];
+    const supplements = Array.isArray(wrapper.supplements)
+      ? (wrapper.supplements as Array<Record<string, unknown>>)
+      : [];
+    const snapshot = toClaimSnapshot(claim);
+    const completeness = analyzeClaimCompleteness(snapshot);
+    const reconciliation = reconcileClaim(snapshot, supplements);
+    const openFindings = findings.filter((f) => f?.status === "open").length;
+    const draftSupplements = supplements.filter((s) => s?.status === "draft").length;
+    const readySupplements = supplements.filter(
+      (s) => s?.status === "ready_for_submission",
+    ).length;
+    const lastActivity = snapshot.updatedAt ?? snapshot.createdAt;
+    const stalled =
+      !TERMINAL_CLAIM_STATUSES.has(snapshot.status ?? "") &&
+      typeof lastActivity === "number" &&
+      Date.now() - lastActivity > 30 * 86_400_000;
+    const needsAttention =
+      openFindings > 0 ||
+      readySupplements > 0 ||
+      reconciliation.outstanding > 0 ||
+      completeness.complete < completeness.total;
+    const hasDiscrepancy =
+      reconciliation.hasDiscrepancy ||
+      completeness.categories.some((c) => c.status === "conflicted");
+    out.push({
+      ...claim,
+      _id: claim._id,
+      findings,
+      supplements,
+      completeness: completeness.complete,
+      completenessTotal: completeness.total,
+      openFindings,
+      draftSupplements,
+      readySupplements,
+      outstanding: reconciliation.outstanding,
+      hasDiscrepancy,
+      needsAttention,
+      stalled,
+      isDemo: Boolean(claim.isDemo),
+    });
+  }
+  return out;
+}
+
+/**
+ * Deterministically match a claim candidate's evidence references (file paths
+ * / document titles) against the tenant's real document rows. Returns unique
+ * document ids; no matches → []. Matching is exact on normalized basenames,
+ * with a conservative contains-fallback for longer names — never fuzzy.
+ */
+export function matchCandidateEvidenceDocs(
+  candidate: Record<string, unknown>,
+  docs: Array<Record<string, unknown>>,
+): string[] {
+  const norm = (s: unknown): string =>
+    String(s ?? "").trim().replace(/\\/g, "/").toLowerCase();
+  const basename = (s: string): string => {
+    const b = s.split("/").pop() ?? s;
+    return b.replace(/^\d{4}-\d{2}-\d{2}[_\- ]*/, "");
+  };
+  const refs: string[] = [];
+  for (const v of [
+    ...(Array.isArray(candidate.filePaths) ? candidate.filePaths : []),
+    ...(Array.isArray(candidate.evidence) ? candidate.evidence : []),
+    ...(Array.isArray(candidate.documentTitles) ? candidate.documentTitles : []),
+  ]) {
+    const n = norm(basename(String(v ?? "")));
+    if (n && !refs.includes(n)) refs.push(n);
+  }
+  if (refs.length === 0) return [];
+  const out: string[] = [];
+  for (const doc of docs) {
+    if (!doc?._id) continue;
+    const id = String(doc._id);
+    if (out.includes(id)) continue;
+    const title = norm(basename(String(doc.title ?? "")));
+    const source = norm(basename(String(doc.sourceId ?? "")));
+    if (!title && !source) continue;
+    const matched = refs.some((r) => {
+      if (title && (r === title || title === r)) return true;
+      if (source && (r === source || source === r)) return true;
+      // Conservative contains-fallback for names ≥ 8 chars (e.g. a path
+      // fragment vs a title) — never matches short, ambiguous strings.
+      if (r.length >= 8 && title.length >= 8 && (r.includes(title) || title.includes(r))) {
+        return true;
+      }
+      return false;
+    });
+    if (matched) out.push(id);
+  }
+  return out;
+}
+
 /** Derived recovery-analytics shape the Revenue Recovery page renders. */
 export interface RecoveryAnalyticsResponse {
   recoveryPipeline: string[];

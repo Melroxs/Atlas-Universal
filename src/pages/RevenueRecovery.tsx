@@ -22,7 +22,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import { invalidateQueries, useAction, useMutation, useQuery } from "@/hooks/use-supabase";
+import { matchCandidateEvidenceDocs } from "@/lib/insurance/logic";
+import { getSupabaseClient } from "@/lib/supabase";
 import {
   AlertTriangle,
   ArrowRight,
@@ -237,6 +239,7 @@ export default function RevenueRecovery() {
   const createClaim = useMutation(api.insurance.claims.createClaim);
   const approveCandidate = useMutation(api.insurance.candidates.approveClaimCandidate);
   const rejectCandidate = useMutation(api.insurance.candidates.rejectClaimCandidate);
+  const attachEvidence = useMutation(api.insurance.claims.attachClaimEvidence);
   const reconstructClaims = useAction(api.insurance.candidates.reconstructClaims);
   const loadDemo = useMutation(api.insurance.demoData.loadDemoData);
   const removeDemo = useMutation(api.insurance.demoData.removeDemoData);
@@ -314,6 +317,7 @@ export default function RevenueRecovery() {
     setScanning(true);
     try {
       const res = await reconstructClaims();
+      invalidateQueries();
       const parts: string[] = [];
       if (res.created > 0) {
         parts.push(`created ${res.created} claim${res.created === 1 ? "" : "s"}`);
@@ -343,8 +347,53 @@ export default function RevenueRecovery() {
     setBusyCandidate(candidateId);
     try {
       const res = await approveCandidate({ candidateId: candidateId as never });
+      const claimId = res.claimId ?? null;
+      // The deployed approval RPC materializes the claim but does NOT attach
+      // the candidate's evidence documents. Link them here with the same
+      // deterministic matching the claim-discovery engine uses — only real
+      // documents are attached, and insurance_attach_claim_evidence is
+      // server-side deduped (safe to retry). Best-effort: a linking failure
+      // never fails the approval.
+      let linked = 0;
+      if (claimId) {
+        try {
+          const candidate = (candidates ?? []).find(
+            (c) => String(c._id) === String(candidateId),
+          );
+          const supabase = getSupabaseClient();
+          if (!supabase) throw new Error("Supabase is not configured.");
+          const { data: docs } = await supabase
+            .from("documents")
+            .select("_id, title, sourceId")
+            .limit(1000);
+          const matched = matchCandidateEvidenceDocs(
+            (candidate ?? {}) as Record<string, unknown>,
+            Array.isArray(docs) ? docs : [],
+          );
+          for (const docId of matched) {
+            try {
+              await attachEvidence({ claimId: claimId as never, documentId: docId as never });
+              linked++;
+            } catch (e) {
+              console.error(
+                "[atlas] attach candidate evidence failed:",
+                e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160),
+              );
+            }
+          }
+        } catch (e) {
+          console.error(
+            "[atlas] candidate evidence linking failed:",
+            e instanceof Error ? e.message.slice(0, 160) : String(e).slice(0, 160),
+          );
+        }
+      }
+      invalidateQueries();
       toast.success(res.created ? "Claim created from the potential claim" : "Evidence linked to the existing claim", {
-        description: "The potential claim is now approved and tracked in Revenue Recovery.",
+        description:
+          linked > 0
+            ? `The potential claim is now approved and linked to ${linked} evidence document${linked === 1 ? "" : "s"}.`
+            : "The potential claim is now approved and tracked in Revenue Recovery.",
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not approve the candidate");
@@ -357,6 +406,7 @@ export default function RevenueRecovery() {
     setBusyCandidate(candidateId);
     try {
       await rejectCandidate({ candidateId: candidateId as never });
+      invalidateQueries();
       toast.success("Potential claim rejected");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not reject the candidate");

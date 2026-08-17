@@ -19,6 +19,7 @@ import {
   buildRecoveryAnalytics,
   defaultClaimCounts,
   enrichClaimFromEvidence,
+  normalizeClaimListResponse,
   normalizeClaimPackageResponse,
   type ClaimSnapshot,
   type EvidenceDocLike,
@@ -677,8 +678,14 @@ export const api = {
   },
   insurance: {
     claims: {
+      // The deployed RPC returns rows wrapped as { claim, findings,
+      // supplements }; the pages read flat fields (c._id, c.customer,
+      // c.completeness, …). Normalize at this boundary so list rows carry the
+      // persisted claim id + derived aggregates — the production defect was
+      // undefined row fields navigating to /revenue-recovery/undefined →
+      // ClaimDetail “Claim not found”.
       listClaims: defT<ObjArray>("insurance_list_claims", "query", (d) =>
-        Array.isArray(d) ? d : [],
+        normalizeClaimListResponse(d) as unknown as ObjArray,
       ),
       // The deployed RPC returns the raw claim row + its supplements/findings/
       // evidence. The page renders the DERIVED package (completeness, model,
@@ -949,8 +956,28 @@ export const api = {
       ),
     },
     demoData: {
-      loadDemoData: def<Obj>("insurance_demo_load", "mutation"),
-      removeDemoData: def<Obj>("insurance_demo_remove", "mutation"),
+      // The `insurance_demo_load` RPC does not exist in the deployed schema
+      // (production regression: the Revenue Recovery “Load demo data” button
+      // 404'd). The deterministic demo loader already exists client-side —
+      // seed through the DEPLOYED RPCs (insurance_demo_remove +
+      // insurance_create_claim + insurance_update_claim +
+      // insurance_create_supplement + insurance_upsert_findings) instead.
+      loadDemoData: def<{ claims: number; demo: true }>(
+        "insurance_demo_load",
+        "client",
+        async () => {
+          const { loadDemoDataClient } = await import("@/lib/insurance/demo");
+          return loadDemoDataClient();
+        },
+      ),
+      removeDemoData: def<{ removed: number }>(
+        "insurance_demo_remove",
+        "client",
+        async () => {
+          const { removeDemoDataClient } = await import("@/lib/insurance/demo");
+          return removeDemoDataClient();
+        },
+      ),
     },
   },
   tools: {

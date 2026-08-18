@@ -27,11 +27,13 @@ import {
   CalendarDays,
   Check,
   ClipboardCheck,
+  Download,
   FileText,
   Flame,
   History,
   Landmark,
   Loader2,
+  Package,
   Radar,
   RefreshCw,
   ScrollText,
@@ -52,6 +54,7 @@ import {
   type RequirementEvidenceDocument,
   type WorkflowKey,
 } from "../../supabase/functions/conversation-converse/source/evidence-requirements.ts";
+import { PackageBuilder } from "@/components/package-builder";
 
 function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
@@ -119,6 +122,7 @@ export default function ClaimDetail() {
   const [creating, setCreating] = useState(false);
   const [supForm, setSupForm] = useState({ reason: "", amount: "", justification: "" });
   const [docSup, setDocSup] = useState<Id<"claimSupplements"> | null>(null);
+  const [pkgOpen, setPkgOpen] = useState(false);
   const [readinessWorkflow, setReadinessWorkflow] = useState<WorkflowKey>("supplement_readiness");
 
   /**
@@ -972,6 +976,24 @@ export default function ClaimDetail() {
             )}
           </Panel>
 
+          {/* Claim Package */}
+          <Panel
+            title="Claim Package"
+            description="Generate a professional package from the real claim data, evidence, and findings."
+          >
+            <div className="flex flex-col items-center gap-3 py-4">
+              <Package className="size-8 text-teal-600/40 dark:text-teal-300/40" />
+              <p className="max-w-xs text-center text-xs text-muted-foreground">
+                Assemble a professional claim package with executive summary, findings,
+                evidence index, and missing information — all grounded in real data.
+              </p>
+              <Button onClick={() => setPkgOpen(true)} className="gap-2">
+                <Package className="size-4" />
+                Generate Claim Package
+              </Button>
+            </div>
+          </Panel>
+
           {/* Reconciliation */}
           <Panel title="Reconciliation" description="Estimate vs supplements vs approved vs payment.">
             <div className="space-y-1.5 text-sm">
@@ -1049,6 +1071,14 @@ export default function ClaimDetail() {
         supplementId={docSup}
         open={docSup !== null}
         onClose={() => setDocSup(null)}
+      />
+
+      {/* Claim Package builder */}
+      <PackageBuilder
+        open={pkgOpen}
+        onClose={() => setPkgOpen(false)}
+        claimId={claimId}
+        evidenceDocs={evidenceDocs}
       />
     </div>
   );

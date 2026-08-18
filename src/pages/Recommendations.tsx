@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { PackageBuilder } from "@/components/package-builder";
 import {
   decisionStatusFor,
   transitionError,
@@ -22,6 +23,7 @@ import {
   FileText,
   Loader2,
   Network,
+  Package,
   Radar,
   ShieldCheck,
   Target,
@@ -49,6 +51,8 @@ export default function Recommendations() {
   const [tab, setTab] = useState("all");
   const [busy, setBusy] = useState<string | null>(null);
   const [detecting, setDetecting] = useState(false);
+  const [pkgRecId, setPkgRecId] = useState<string | null>(null);
+  const [pkgClaimId, setPkgClaimId] = useState<string | null>(null);
 
   const isManager = MANAGER_ROLES.includes(workspace?.membership?.role ?? "");
 
@@ -332,11 +336,35 @@ export default function Recommendations() {
                     {deciding && <Loader2 className="size-4 animate-spin text-teal-600 dark:text-teal-300" />}
                   </div>
                 )}
+
+                {/* Supplement Package for approved recommendations */}
+                {r.status === "approved" && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/50 pt-3">
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      onClick={() => {
+                        setPkgRecId(r._id);
+                        setPkgClaimId(null);
+                      }}
+                    >
+                      <Package className="size-3.5" />
+                      Generate Supplement Package
+                    </Button>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       )}
+      {/* Supplement Package builder */}
+      <PackageBuilder
+        open={pkgRecId !== null}
+        onClose={() => { setPkgRecId(null); setPkgClaimId(null); }}
+        claimId={pkgClaimId ?? ""}
+        recommendationId={pkgRecId ?? undefined}
+      />
     </div>
     </TooltipProvider>
   );

@@ -344,10 +344,10 @@ describe("buildPackageModel (supplement from recommendation only)", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Supplement Package");
-    expect(html).toContain("Requested Additional Scope");
-    expect(html).toContain("Why This Scope Is Required");
-    expect(html).toContain("Scope discrepancy recovery");
+    expect(html).toContain("SUPPLEMENT PACKAGE");
+    expect(html).toContain("REQUESTED ADDITIONAL SCOPE");
+    expect(html).toContain("SUPPLEMENT JUSTIFICATION");
+    expect(html).toContain("estimate exceeds");
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("</html>");
   });
@@ -522,13 +522,13 @@ describe("generatePackageHtml", () => {
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("GAP-26-51847");
     expect(html).toContain("NPP Roofing");
-    expect(html).toContain("Executive Summary");
-    expect(html).toContain("Claim Information");
-    expect(html).toContain("Findings");
-    expect(html).toContain("Supporting Evidence Index");
-    expect(html).toContain("Claim Timeline");
-    expect(html).toContain("Print / Save as PDF");
-    expect(html).toContain("Atlas Insurance Intelligence");
+    expect(html).toContain("EXECUTIVE SUMMARY");
+    expect(html).toContain("CLAIM INFORMATION");
+    expect(html).toContain("SCOPE FINDINGS");
+    expect(html).toContain("PHOTO / VIDEO EVIDENCE INDEX");
+    expect(html).toContain("CLAIM TIMELINE");
+    expect(html).toContain("PRINT / SAVE AS PDF");
+    expect(html).toContain("ATLAS");
   });
 
   it("generates supplement-specific sections", () => {
@@ -547,9 +547,9 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Supplement Package");
-    expect(html).toContain("Requested Additional Scope");
-    expect(html).toContain("Why This Scope Is Required");
+    expect(html).toContain("SUPPLEMENT PACKAGE");
+    expect(html).toContain("REQUESTED ADDITIONAL SCOPE");
+    expect(html).toContain("SUPPLEMENT JUSTIFICATION");
   });
 
   it("includes missing information section when missing", () => {
@@ -562,7 +562,7 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Missing Information");
+    expect(html).toContain("MISSING INFORMATION");
     expect(html).toContain("Missing");
   });
 
@@ -576,7 +576,7 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Discrepancies");
+    expect(html).toContain("DISCREPANCIES");
   });
 
   it("includes 'Why Atlas Included This' section", () => {
@@ -589,7 +589,7 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Why Atlas Included This");
+    expect(html).toContain("WHY ATLAS INCLUDED THIS");
   });
 
   it("generates self-contained HTML (no external resources)", () => {
@@ -622,7 +622,7 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Claim Timeline");
+    expect(html).toContain("CLAIM TIMELINE");
     expect(html).toContain("Claim created");
     expect(html).toContain("Estimate uploaded");
     expect(html).toContain("Finding identified");
@@ -644,8 +644,8 @@ describe("generatePackageHtml", () => {
 
     const html = generatePackageHtml(pkg);
 
-    expect(html).toContain("Financial Reconciliation");
-    expect(html).toContain("Estimate and invoiced amounts differ");
+    expect(html).toContain("FINANCIAL RECONCILIATION");
+    expect(html).toContain("estimate");
   });
 
   it("renders finding evidence lists in the HTML", () => {

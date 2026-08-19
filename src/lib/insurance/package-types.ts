@@ -22,6 +22,35 @@ export type PackageStatus =
   | "failed";
 
 // ---------------------------------------------------------------------------
+// Damage category (shown on cover page)
+// ---------------------------------------------------------------------------
+
+export interface DamageCategory {
+  label: string;
+  present: boolean;
+  details?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Supplement highlight
+// ---------------------------------------------------------------------------
+
+export interface SupplementHighlight {
+  text: string;
+}
+
+// ---------------------------------------------------------------------------
+// Financial summary card (for supplement cover)
+// ---------------------------------------------------------------------------
+
+export interface FinancialCard {
+  label: string;
+  value: number | null;
+  formatted: string;
+  emphasized?: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Package model (the structured output the preview renders)
 // ---------------------------------------------------------------------------
 
@@ -77,9 +106,23 @@ export interface PackageCoverPage {
   carrier: string | null;
   policyNumber: string | null;
   dateOfLoss: string | null;
+  causeOfLoss: string | null;
+  adjuster: string | null;
   companyName: string;
   generatedDate: string;
   generatedTimestamp: number;
+  /** URL or data-URI of the property/damage cover image (optional). */
+  coverImageUrl: string | null;
+  /** Supplement-specific cover fields */
+  dateOfOriginalEstimate: string | null;
+  dateOfSupplement: string | null;
+  supplementPackageNumber: string | null;
+}
+
+export interface PackageIndexEntry {
+  sectionNumber: number;
+  title: string;
+  page: number;
 }
 
 export interface PackageModel {
@@ -93,19 +136,52 @@ export interface PackageModel {
   storedHtmlPath?: string | null;
   storedZipPath?: string | null;
 
-  // Content
+  // Cover page
   coverPage: PackageCoverPage;
+
+  // Dynamic package index
+  packageIndex: PackageIndexEntry[];
+
+  // Executive summary
   executiveSummary: string;
+
+  // Claim information
   claimInformation: Array<{ label: string; value: string | null; state: string }>;
+
+  // Financial summary (cover page — claim packages)
+  financialSummary: FinancialCard[];
+
+  // Damage summary (cover page — claim packages)
+  damageSummary: DamageCategory[];
+
+  // Findings
   scopeFindings: PackageFinding[];
+
+  // Supplement-specific
   requestedAdditionalScope: string[];
   whyThisScopeIsRequired: string;
+  supplementHighlights: SupplementHighlight[];
+  supplementFinancialSummary: FinancialCard[];
+
+  // Evidence
   evidenceItems: PackageEvidenceItem[];
+
+  // Missing
   missingInformation: PackageMissingInfo[];
+
+  // Explanations
   explanations: PackageExplanation[];
+
+  // Discrepancies
   discrepancies: PackageDiscrepancy[];
+
+  // Timeline
   claimTimeline: Array<{ date: string; event: string; source: string }>;
+
+  // Reconciliation
   reconciliationNotes: string[];
+
+  // Disclaimer
   disclaimer: string;
 }
 
@@ -125,11 +201,13 @@ export interface PackageClaimInput {
   adjuster?: string | null;
   status?: string | null;
   estimateAmount?: number | null;
+  carrierEstimateAmount?: number | null;
   estimateLineItemCount?: number | null;
   invoicedAmount?: number | null;
   paymentAmount?: number | null;
   approvedAmount?: number | null;
   deductible?: number | null;
+  recoverableDepreciation?: number | null;
   expectedScope?: string[] | null;
   actualScope?: string[] | null;
   evidenceSummary?: string[] | null;
@@ -137,6 +215,8 @@ export interface PackageClaimInput {
   confidence?: number | null;
   createdAt?: number | null;
   updatedAt?: number | null;
+  /** Damage areas detected (roof, siding, interior, etc.) */
+  damageAreas?: Array<{ label: string; present: boolean; details?: string | null }> | null;
 }
 
 export interface PackageFindingInput {
@@ -213,8 +293,11 @@ export interface PackageCompleteness {
 
 export interface PackageReconciliation {
   estimate?: number;
+  carrierEstimate?: number;
   paid?: number;
   outstanding?: number;
+  deductible?: number;
+  recoverableDepreciation?: number;
   notes?: string[];
 }
 
@@ -240,12 +323,17 @@ export interface PackageBuildInput {
 // ---------------------------------------------------------------------------
 
 function money(n?: number | null): string {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "Not recorded";
+  if (typeof n !== "number" || !Number.isFinite(n)) return "Not Provided";
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function moneyInt(n?: number | null): string {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "Not Provided";
   return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 }
 
 function formatDate(n?: number | null): string {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "Not recorded";
+  if (typeof n !== "number" || !Number.isFinite(n)) return "Not Provided";
   return new Date(n).toLocaleDateString("en-US", {
     year: "numeric",
     month: "long",
@@ -259,43 +347,64 @@ function safeStr(v: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Default damage categories
+// ---------------------------------------------------------------------------
+
+const DEFAULT_DAMAGE_CATEGORIES = [
+  "Roof",
+  "Siding",
+  "Interior Water Damage",
+  "Gutters / Downspouts",
+  "Windows / Doors",
+  "Attic",
+  "Other",
+];
+
+// ---------------------------------------------------------------------------
 // Package builder — pure function
 // ---------------------------------------------------------------------------
 
 export function buildPackageModel(input: PackageBuildInput): PackageModel {
   const { claim, findings, evidenceDocs, supplements } = input;
+  const isSupplement = Boolean(input.recommendation);
 
-  // Cover page
+  // ---- Cover page ----
   const coverPage: PackageCoverPage = {
-    packageName: input.recommendation?.title
-      ? `Supplement Package — ${input.recommendation.title}`
-      : `Claim Package — ${claim.claimNumber ?? "No claim number"}`,
-    packageType: input.recommendation ? "supplement" : "claim",
+    packageName: isSupplement
+      ? `Supplement Package`
+      : `Claims Package`,
+    packageType: isSupplement ? "supplement" : "claim",
     claimNumber: safeStr(claim.claimNumber) ?? null,
     customer: safeStr(claim.customer) ?? null,
     property: safeStr(claim.property) ?? null,
     carrier: safeStr(claim.carrier) ?? null,
     policyNumber: safeStr(claim.policy) ?? null,
     dateOfLoss: typeof claim.dateOfLoss === "number" ? formatDate(claim.dateOfLoss) : null,
-    companyName: "Atlas Insurance Intelligence",
+    causeOfLoss: safeStr(claim.causeOfLoss) ?? null,
+    adjuster: safeStr(claim.adjuster) ?? null,
+    companyName: "Atlas Restoration & Consulting",
     generatedDate: new Date().toLocaleDateString("en-US", {
       year: "numeric",
       month: "long",
       day: "numeric",
     }),
     generatedTimestamp: Date.now(),
+    coverImageUrl: null,
+    dateOfOriginalEstimate: isSupplement ? formatDate(claim.updatedAt ?? claim.createdAt) : null,
+    dateOfSupplement: isSupplement ? formatDate(Date.now()) : null,
+    supplementPackageNumber: isSupplement ? `SUP-01` : null,
   };
 
-  // Claim information section
+  // ---- Claim information ----
   const claimInformation: PackageModel["claimInformation"] = [
     { label: "Claim Number", value: claim.claimNumber ?? null, state: claim.claimNumber ? "verified" : "missing" },
-    { label: "Insured / Customer", value: claim.customer ?? null, state: claim.customer ? "verified" : "missing" },
-    { label: "Property", value: claim.property ?? null, state: claim.property ? "verified" : "missing" },
-    { label: "Carrier", value: claim.carrier ?? null, state: claim.carrier ? "verified" : "missing" },
     { label: "Policy Number", value: claim.policy ?? null, state: claim.policy ? "verified" : "missing" },
-    { label: "Adjuster", value: claim.adjuster ?? null, state: claim.adjuster ? "verified" : "missing" },
+    { label: "Insured", value: claim.customer ?? null, state: claim.customer ? "verified" : "missing" },
+    { label: "Property Address", value: claim.property ?? null, state: claim.property ? "verified" : "missing" },
     { label: "Date of Loss", value: typeof claim.dateOfLoss === "number" ? formatDate(claim.dateOfLoss) : null, state: typeof claim.dateOfLoss === "number" ? "verified" : "missing" },
     { label: "Cause of Loss", value: claim.causeOfLoss ?? null, state: claim.causeOfLoss ? "verified" : "missing" },
+    { label: "Carrier", value: claim.carrier ?? null, state: claim.carrier ? "verified" : "missing" },
+    { label: "Adjuster", value: claim.adjuster ?? null, state: claim.adjuster ? "verified" : "missing" },
     { label: "Status", value: claim.status?.replace(/_/g, " ") ?? null, state: "verified" },
     { label: "Estimate", value: money(claim.estimateAmount), state: typeof claim.estimateAmount === "number" ? "verified" : "missing" },
     { label: "Payment Received", value: money(claim.paymentAmount), state: typeof claim.paymentAmount === "number" ? "verified" : "missing" },
@@ -304,7 +413,40 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
     { label: "Deductible", value: money(claim.deductible), state: typeof claim.deductible === "number" ? "verified" : "missing" },
   ];
 
-  // Scope findings — only open/active findings
+  // ---- Financial summary (claim cover) ----
+  const contractorEstimate = claim.estimateAmount ?? null;
+  const carrierEstimate = claim.carrierEstimateAmount ?? null;
+  const difference = (typeof contractorEstimate === "number" && typeof carrierEstimate === "number")
+    ? contractorEstimate - carrierEstimate
+    : null;
+  const recoverableDepreciation = claim.recoverableDepreciation ?? null;
+  const deductible = claim.deductible ?? null;
+  const requestedAmount = difference ?? null;
+
+  const financialSummary: FinancialCard[] = [
+    { label: "Contractor Estimate (RCV)", value: contractorEstimate, formatted: money(contractorEstimate) },
+    { label: "Carrier Estimate (RCV)", value: carrierEstimate, formatted: money(carrierEstimate) },
+    { label: "Difference (RCV)", value: difference, formatted: money(difference), emphasized: typeof difference === "number" && difference > 0 },
+    { label: "Recoverable Depreciation", value: recoverableDepreciation, formatted: money(recoverableDepreciation) },
+    { label: "Deductible", value: deductible, formatted: money(deductible) },
+    { label: "Requested Amount (RCV)", value: requestedAmount, formatted: money(requestedAmount), emphasized: true },
+  ];
+
+  // ---- Damage summary ----
+  const damageAreas = claim.damageAreas ?? null;
+  const damageSummary: DamageCategory[] = (damageAreas && damageAreas.length > 0)
+    ? damageAreas.map(d => ({ label: d.label, present: d.present, details: d.details }))
+    : // Infer from scope findings
+      DEFAULT_DAMAGE_CATEGORIES.map(label => {
+        const relevant = findings.some(f =>
+          f.title?.toLowerCase().includes(label.toLowerCase()) ||
+          f.description?.toLowerCase().includes(label.toLowerCase()) ||
+          (f.category?.toLowerCase().includes(label.toLowerCase()))
+        );
+        return { label, present: relevant };
+      });
+
+  // ---- Scope findings ----
   const scopeFindings: PackageFinding[] = findings
     .filter((f) => f.status !== "resolved" && f.status !== "dismissed")
     .map((f) => ({
@@ -319,7 +461,7 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
       recommendedNextStep: f.recommendedNextStep ?? "Review manually.",
     }));
 
-  // Evidence items
+  // ---- Evidence items ----
   const evidenceItems: PackageEvidenceItem[] = evidenceDocs
     .filter((d): d is PackageEvidenceDocInput & { _id: string } => Boolean(d._id))
     .map((d) => {
@@ -338,7 +480,7 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
       };
     });
 
-  // Missing information
+  // ---- Missing information ----
   const missingInformation: PackageMissingInfo[] = [];
   if (!claim.claimNumber) {
     missingInformation.push({ category: "Claim Identification", description: "No claim number on file", whyNeeded: "Required to track the claim with the carrier" });
@@ -352,13 +494,18 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
   if (!claim.carrier) {
     missingInformation.push({ category: "Carrier Information", description: "No carrier recorded", whyNeeded: "Required to route correspondence and track carrier decisions" });
   }
+  if (!claim.policy) {
+    missingInformation.push({ category: "Policy Information", description: "No policy number on file", whyNeeded: "Required to verify coverage and file documentation" });
+  }
   if (typeof claim.estimateAmount !== "number") {
     missingInformation.push({ category: "Estimate", description: "No estimate amount on file", whyNeeded: "Required to establish the financial baseline" });
   }
   if (typeof claim.paymentAmount !== "number") {
     missingInformation.push({ category: "Payment Records", description: "No payment records on file", whyNeeded: "Required for financial reconciliation" });
   }
-  // Check evidence gaps based on completeness
+  if (typeof contractorEstimate !== "number" && typeof carrierEstimate !== "number") {
+    missingInformation.push({ category: "Estimate Comparison", description: "Neither contractor nor carrier estimate available", whyNeeded: "Required to identify supplement opportunities" });
+  }
   if (input.completeness?.categories) {
     for (const cat of input.completeness.categories) {
       if (cat.status === "missing" || cat.status === "needs_review") {
@@ -371,7 +518,7 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
     }
   }
 
-  // Evidence-grounded explanations
+  // ---- Explanations ----
   const explanations: PackageExplanation[] = scopeFindings.map((f) => ({
     section: "Findings",
     finding: f.title,
@@ -381,7 +528,7 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
       : `Atlas identified this finding with ${Math.round(f.confidence * 100)}% confidence. ${f.description}`,
   }));
 
-  // Discrepancies (from completeness conflicted status)
+  // ---- Discrepancies ----
   const discrepancies: PackageDiscrepancy[] = [];
   if (input.completeness?.categories) {
     for (const cat of input.completeness.categories) {
@@ -397,7 +544,6 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
       }
     }
   }
-  // Estimate vs invoice discrepancy
   if (
     typeof claim.estimateAmount === "number" &&
     typeof claim.invoicedAmount === "number" &&
@@ -412,8 +558,22 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
       difference: `Difference of ${money(Math.abs(claim.estimateAmount - claim.invoicedAmount))}`,
     });
   }
+  if (
+    typeof contractorEstimate === "number" &&
+    typeof carrierEstimate === "number" &&
+    Math.abs(contractorEstimate - carrierEstimate) > 0.01
+  ) {
+    discrepancies.push({
+      field: "Contractor Estimate vs Carrier Estimate",
+      valueA: money(contractorEstimate),
+      sourceA: "Contractor estimate",
+      valueB: money(carrierEstimate),
+      sourceB: "Carrier estimate",
+      difference: `Difference of ${money(Math.abs(contractorEstimate - carrierEstimate))}`,
+    });
+  }
 
-  // Timeline
+  // ---- Timeline ----
   const claimTimeline: PackageModel["claimTimeline"] = [];
   if (typeof claim.createdAt === "number") {
     claimTimeline.push({ date: formatDate(claim.createdAt), event: "Claim created", source: "Atlas" });
@@ -425,17 +585,20 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
   }
   claimTimeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  // Reconciliation notes
+  // ---- Reconciliation notes ----
   const reconciliationNotes = input.reconciliation?.notes ?? [];
 
-  // Executive summary
+  // ---- Executive summary ----
   const executiveSummary =
     input.executiveSummary ??
     generateDeterministicSummary(claim, scopeFindings, evidenceItems, missingInformation);
 
-  // Supplement-specific sections
+  // ---- Supplement-specific sections ----
   const requestedAdditionalScope: string[] = [];
   let whyThisScopeIsRequired = "";
+  const supplementHighlights: SupplementHighlight[] = [];
+  const supplementFinancialSummary: FinancialCard[] = [];
+
   if (input.recommendation) {
     const rec = input.recommendation;
     requestedAdditionalScope.push(rec.summary ?? rec.title ?? "Additional scope requested");
@@ -444,11 +607,80 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
     if (input.supplementaryNarrative) {
       whyThisScopeIsRequired = input.supplementaryNarrative;
     }
+    // Generate highlights from findings
+    for (const f of scopeFindings) {
+      supplementHighlights.push({ text: f.title });
+      if (f.recommendedNextStep) {
+        supplementHighlights.push({ text: f.recommendedNextStep });
+      }
+    }
+    // Supplement financial summary
+    const revisedEstimate = contractorEstimate ?? null;
+    const additionalScope = difference ?? null;
+    const previouslyApproved = claim.approvedAmount ?? null;
+    const requestedSuppAmount = (typeof additionalScope === "number" && typeof previouslyApproved === "number")
+      ? additionalScope - previouslyApproved
+      : additionalScope;
+
+    supplementFinancialSummary.push(
+      { label: "Original Carrier Estimate (RCV):", value: carrierEstimate, formatted: money(carrierEstimate) },
+      { label: "Revised Contractor Estimate (RCV):", value: revisedEstimate, formatted: money(revisedEstimate) },
+      { label: "Additional / Changed Scope:", value: additionalScope, formatted: money(additionalScope) },
+      { label: "Less: Previously Approved:", value: previouslyApproved, formatted: previouslyApproved != null ? `(${money(previouslyApproved)})` : money(null) },
+      { label: "Requested Supplement Amount:", value: requestedSuppAmount, formatted: money(requestedSuppAmount), emphasized: true },
+    );
   } else {
-    // For claim packages, the scope is the existing documented scope
     for (const s of claim.expectedScope ?? []) {
       requestedAdditionalScope.push(s);
     }
+  }
+
+  // ---- Build dynamic package index ----
+  let pageNum = 1;
+  const packageIndex: PackageIndexEntry[] = [];
+  const addSection = (title: string, pageHint?: number) => {
+    const page = pageHint ?? pageNum;
+    packageIndex.push({ sectionNumber: packageIndex.length + 1, title, page });
+    if (!pageHint) pageNum++;
+  };
+
+  if (isSupplement) {
+    addSection("Supplement Cover Letter / Narrative");
+    addSection("Original Carrier Estimate (Summary)");
+    addSection("Contractor Revised Estimate (Summary)");
+    addSection("Carrier vs. Contractor Comparison");
+    addSection("Supplement Justification Matrix");
+    addSection("Photo / Evidence Index");
+    if (evidenceItems.length > 0) addSection("Measurements / Quantity Evidence");
+    addSection("Code / Manufacturer Support");
+    addSection("Revised Estimate — Line Item Detail");
+    if (scopeFindings.length > 0) addSection("Supplement Line Items Detail");
+    addSection("Financial Summary / Reconciliation");
+    if (explanations.length > 0) addSection("Contractor Narrative / Justification");
+    if (evidenceItems.length > 0) addSection("Supporting Documents Index");
+    addSection("Correspondence Related to Supplement");
+    addSection("QC Review Checklist");
+  } else {
+    addSection("Claim Cover Sheet");
+    addSection("FNOL / Loss Intake");
+    addSection("Policy & Claim Information");
+    addSection("Insured & Property Profile");
+    addSection("Loss Narrative");
+    if (evidenceItems.length > 0) addSection("Inspection Report");
+    if (scopeFindings.length > 0) addSection("Damage Findings (Room-by-Room)");
+    if (evidenceItems.length > 0) addSection("Photo / Video Evidence Index");
+    addSection("Measurements");
+    addSection("Diagrams");
+    addSection("Moisture / Drying Documentation");
+    addSection("Initial Scope of Work");
+    addSection("Contractor Estimate");
+    addSection("Carrier Estimate");
+    if (discrepancies.length > 0) addSection("Estimate Comparison");
+    addSection("Invoices / Bids / Receipts");
+    addSection("Correspondence Log");
+    addSection("Proof of Loss / Settlement Support");
+    if (evidenceItems.length > 0) addSection("Evidence Manifest");
+    addSection("Quality Control Checklist");
   }
 
   return {
@@ -458,11 +690,16 @@ export function buildPackageModel(input: PackageBuildInput): PackageModel {
     recommendationId: input.recommendation?._id ?? null,
     generatedAt: Date.now(),
     coverPage,
+    packageIndex,
     executiveSummary,
     claimInformation,
+    financialSummary,
+    damageSummary,
     scopeFindings,
     requestedAdditionalScope,
     whyThisScopeIsRequired,
+    supplementHighlights,
+    supplementFinancialSummary,
     evidenceItems,
     missingInformation,
     explanations,
@@ -497,7 +734,11 @@ function generateDeterministicSummary(
   );
 
   if (typeof claim.estimateAmount === "number") {
-    parts.push(`The current estimate totals ${money(claim.estimateAmount)}.`);
+    parts.push(`The current contractor estimate totals ${money(claim.estimateAmount)}.`);
+  }
+
+  if (typeof claim.carrierEstimateAmount === "number") {
+    parts.push(`The carrier estimate totals ${money(claim.carrierEstimateAmount)}.`);
   }
 
   if (typeof claim.paymentAmount === "number" && claim.paymentAmount > 0) {

@@ -4,17 +4,16 @@ import {
   isSupabaseConfigured,
   supabaseSendPasswordReset,
   supabaseSignIn,
-  supabaseSignUp,
 } from "@/lib/supabase";
 import { classifyAuthError } from "@/lib/auth-errors";
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import logo from "@/assets/logo.svg";
-import { ArrowLeft, Eye, EyeOff, KeyRound, LogIn, UserPlus } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, KeyRound, LogIn } from "lucide-react";
 
 // Static imports — ClerkProvider is mounted synchronously at the app root,
 // so these components are always safe to render inside the provider tree.
-import { SignIn, SignUp } from "@clerk/react";
+import { SignIn } from "@clerk/react";
 
 interface AuthProps {
   redirectAfterAuth?: string;
@@ -41,12 +40,12 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     redirectAfterAuth,
   );
 
-  const [mode, setMode] = useState<Mode>("signIn");
+  const [mode] = useState<Mode>("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
-  const [companyName, setCompanyName] = useState("");
+
   const [showPassword, setShowPassword] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -60,7 +59,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     }
   }, [authLoading, isAuthenticated, navigate, redirect]);
 
-  const afterSignUpUrl = "/setup";
+  const afterSignUpUrl = "/pilot-apply";
   const afterSignInUrl = redirect;
 
   // ---------- Supabase auth handlers ----------
@@ -71,22 +70,9 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
     setError(null);
     setNotice(null);
     try {
-      if (mode === "signUp") {
-        const { needsEmailConfirmation } = await supabaseSignUp({
-          email,
-          password,
-          name,
-        });
-        if (needsEmailConfirmation) {
-          setNotice(
-            `Almost there! We sent a confirmation link to ${email.trim()}. Click it to activate your account, then sign in.`,
-          );
-          setIsLoading(false);
-          return;
-        }
-      } else {
-        await supabaseSignIn(email, password);
-      }
+      // Sign-up is no longer self-service — users must request pilot access.
+      // This handler only processes sign-in.
+      await supabaseSignIn(email, password);
       navigate(redirect);
     } catch (err) {
       console.error("Auth error:", err);
@@ -144,48 +130,32 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 onClick={() => navigate("/")}
               />
               <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                {mode === "signIn" ? "Welcome to Atlas" : "Create your account"}
+                Welcome to Atlas
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {mode === "signIn"
-                  ? "Sign in to your workspace"
-                  : "Create your account and get started"}
+                Sign in to your workspace
               </p>
             </div>
 
-            {mode === "signIn" ? (                <SignIn
-                  routing="hash"
-                  signUpFallbackRedirectUrl="/auth#/sign-up"
-                  fallbackRedirectUrl={afterSignInUrl}
-                  appearance={{
-                    elements: {
-                      rootBox: "mx-auto",
-                      card: "shadow-none border border-border/70 bg-card",
-                    },
-                  }}
-                />
-            ) : (                <SignUp
-                  routing="hash"
-                  signInFallbackRedirectUrl="/auth#/sign-in"
-                  fallbackRedirectUrl={afterSignUpUrl}
-                  appearance={{
-                    elements: {
-                      rootBox: "mx-auto",
-                      card: "shadow-none border border-border/70 bg-card",
-                    },
-                  }}
-                />
-            )}
+            <SignIn
+              routing="hash"
+              signUpFallbackRedirectUrl="/pilot-apply"
+              fallbackRedirectUrl={afterSignInUrl}
+              appearance={{
+                elements: {
+                  rootBox: "mx-auto",
+                  card: "shadow-none border border-border/70 bg-card",
+                },
+              }}
+            />
 
-            <div className="mt-4 text-center">
+            <div className="mt-4 text-center space-y-2">
               <button
                 type="button"
-                onClick={() => setMode(mode === "signIn" ? "signUp" : "signIn")}
+                onClick={() => navigate("/pilot-apply")}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                {mode === "signIn"
-                  ? "Don't have an account? Create one"
-                  : "Already have an account? Sign in"}
+                Don't have access? Request pilot access
               </button>
             </div>
           </div>
@@ -227,9 +197,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             <p className="mt-1 text-sm text-muted-foreground">
               {resetting
                 ? "We'll email you a link to set a new password"
-                : mode === "signIn"
-                  ? "Sign in to your workspace"
-                  : "Create your account and workspace"}
+                : "Sign in to your workspace"}
             </p>
           </div>
 
@@ -266,56 +234,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
             </form>
           ) : (
             <>
-              <div className="flex gap-2 mb-4">
-                <button
-                  type="button"
-                  onClick={() => { setMode("signIn"); setError(null); setNotice(null); }}
-                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    mode === "signIn"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <LogIn className="mr-1 inline h-4 w-4" /> Sign in
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setMode("signUp"); setError(null); setNotice(null); }}
-                  className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    mode === "signUp"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <UserPlus className="mr-1 inline h-4 w-4" /> Create account
-                </button>
-              </div>
-
               <form onSubmit={handleSubmit} className="space-y-4">
-                {mode === "signUp" && (
-                  <>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Full name</label>
-                      <input
-                        type="text"
-                        placeholder="Alex Rivera"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Company / workspace name</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Northshore Restoration Inc."
-                        value={companyName}
-                        onChange={(e) => setCompanyName(e.target.value)}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
-                      />
-                    </div>
-                  </>
-                )}
                 <div className="space-y-1.5">
                   <label className="text-xs font-medium text-muted-foreground">Email</label>
                   <input
@@ -330,15 +249,13 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 <div className="space-y-1.5">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-medium text-muted-foreground">Password</label>
-                    {mode === "signIn" && (
-                      <button
-                        type="button"
-                        className="text-xs text-muted-foreground hover:text-foreground"
-                        onClick={() => setResetting(true)}
-                      >
-                        Forgot password?
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => setResetting(true)}
+                    >
+                      Forgot password?
+                    </button>
                   </div>
                   <div className="relative">
                     <input
@@ -348,7 +265,6 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                       onChange={(e) => setPassword(e.target.value)}
                       className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm pr-9"
                       required
-                      minLength={mode === "signUp" ? 6 : undefined}
                     />
                     <button
                       type="button"
@@ -369,7 +285,7 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                   className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                   disabled={isLoading || !supabaseClientConfigured || !email || !password}
                 >
-                  {isLoading ? "..." : mode === "signUp" ? <><UserPlus className="mr-2 inline h-4 w-4" /> Create account</> : <><LogIn className="mr-2 inline h-4 w-4" /> Sign in</>}
+                  {isLoading ? "..." : <><LogIn className="mr-2 inline h-4 w-4" /> Sign in</>}
                 </button>
 
                 <div className="relative">
@@ -392,10 +308,10 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
               <div className="mt-4 text-center">
                 <button
                   type="button"
-                  onClick={() => { setMode(mode === "signIn" ? "signUp" : "signIn"); setError(null); setNotice(null); }}
+                  onClick={() => navigate("/pilot-apply")}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                 >
-                  {mode === "signIn" ? "Don't have an account? Create one" : "Already have an account? Sign in"}
+                  Don't have access? Request pilot access
                 </button>
               </div>
             </>

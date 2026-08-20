@@ -170,6 +170,8 @@ export interface UserRow {
   emailVerificationTime?: number | null;
   isAnonymous?: boolean;
   role?: string | null;
+  account_status?: string | null;
+  platform_role?: string | null;
   [k: string]: any;
 }
 
@@ -1424,6 +1426,14 @@ pilotIntelligence: {
     listTestimonials: def<PilotTestimonialRow[]>("pilot_testimonials_list", "query"),
     createTestimonial: def<PilotTestimonialRow>("pilot_testimonials_create", "mutation"),
     getAnalytics: def<PilotAnalyticsShape>("pilot_analytics", "query"),
+  },
+  admin: {
+    listPilotApplications: def<ObjArray>("pilot_list_applications", "query"),
+    reviewPilotApplication: def<{ ok: boolean }>("pilot_review_application", "mutation"),
+    pilotApplicationStats: def<Obj>("pilot_application_stats", "query"),
+    provisionUser: def<Obj>("admin_provision_user", "mutation"),
+    listProvisions: def<ObjArray>("admin_list_provisions", "query"),
+    listAuditLog: def<ObjArray>("admin_list_audit_log", "query"),
   },
 } as const;
 

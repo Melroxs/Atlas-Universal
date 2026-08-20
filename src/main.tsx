@@ -2,6 +2,7 @@ import '@vly-ai/integrations';
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequireAccess } from "@/components/RequireAccess";
 import { AppShell } from "@/components/app-shell";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import { clerkPublishableKey, isClerkConfigured } from "@/lib/clerk-config";
@@ -42,12 +43,16 @@ const PilotInsights = lazy(() => import("./pages/PilotInsights.tsx"));
 const PilotOutcomes = lazy(() => import("./pages/PilotOutcomes.tsx"));
 const MailInbox = lazy(() => import("./pages/mail/MailInbox.tsx"));
 const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
+const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
+const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 
-/** Protected section: auth gate + workspace shell (workspace gate inside). */
+/** Protected section: auth gate + access gate + workspace shell. */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
-      <AppShell>{children}</AppShell>
+      <RequireAccess>
+        <AppShell>{children}</AppShell>
+      </RequireAccess>
     </RequireAuth>
   );
 }
@@ -379,6 +384,14 @@ createRoot(document.getElementById("root")!).render(
                       <MailSettings />
                     </ProtectedLayout>
                   }
+                />
+                <Route
+                  path="/pilot-apply"
+                  element={<PilotApply />}
+                />
+                <Route
+                  path="/access-denied"
+                  element={<AccessDenied />}
                 />
                 <Route path="*" element={<NotFound />} />
               </Routes>

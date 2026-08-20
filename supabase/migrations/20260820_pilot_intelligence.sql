@@ -240,13 +240,11 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_tenant_id uuid;
-  v_deleted boolean;
 BEGIN
   v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_companies WHERE id = p_id AND tenant_id = v_tenant_id;
-  GET DIAGNOSTICS v_deleted = FOUND;
-  RETURN v_deleted;
+  RETURN FOUND;
 END;
 $$;
 
@@ -303,13 +301,11 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_tenant_id uuid;
-  v_deleted boolean;
 BEGIN
   v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_sessions WHERE id = p_id AND tenant_id = v_tenant_id;
-  GET DIAGNOSTICS v_deleted = FOUND;
-  RETURN v_deleted;
+  RETURN FOUND;
 END;
 $$;
 
@@ -386,13 +382,11 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_tenant_id uuid;
-  v_deleted boolean;
 BEGIN
   v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_insights WHERE id = p_id AND tenant_id = v_tenant_id;
-  GET DIAGNOSTICS v_deleted = FOUND;
-  RETURN v_deleted;
+  RETURN FOUND;
 END;
 $$;
 
@@ -450,13 +444,11 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_tenant_id uuid;
-  v_deleted boolean;
 BEGIN
   v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_outcomes WHERE id = p_id AND tenant_id = v_tenant_id;
-  GET DIAGNOSTICS v_deleted = FOUND;
-  RETURN v_deleted;
+  RETURN FOUND;
 END;
 $$;
 

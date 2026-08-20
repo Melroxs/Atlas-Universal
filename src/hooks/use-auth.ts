@@ -1,30 +1,67 @@
-/**
- * Barrel hook that selects the auth implementation based on whether a valid
- * Clerk publishable key is configured.
- *
- * When Clerk IS configured, the Clerk implementation is loaded via a static
- * import (ClerkProvider is mounted synchronously at the app root, so there
- * is no provider/hook ordering concern).
- *
- * When Clerk is NOT configured, only Supabase auth is used.
- */
-
-import { isClerkConfigured } from "@/lib/clerk-config";
-
-// Static imports for both implementations. Only the active one's hooks
-// are actually invoked at runtime — the other code path is dead.
-import { useAuth as useAuthClerk } from "./use-auth-clerk";
-import { useAuth as useAuthSupabase } from "./use-auth-supabase";
+import { api } from "@/lib/api";
+import { useQuery } from "@/hooks/use-supabase";
+import {
+  type SupabaseAuthEvent,
+  onSupabaseAuthChange,
+  supabaseAnonymousSignIn,
+  supabaseSignOut,
+} from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 
 /**
- * Authentication state for Atlas.
+ * Authentication state backed entirely by Supabase Auth.
  *
- * When a valid Clerk publishable key is set, delegates to Clerk + Supabase bridge.
- * Otherwise, falls back to Supabase Auth directly.
+ * Usage:
+ *   const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
+ *
+ * `user` is the caller's row from the `profiles` table (mirrors the old
+ * Convex users table), or null when signed out / no profile row exists yet.
  */
 export function useAuth() {
-  if (isClerkConfigured) {
-    return useAuthClerk();
-  }
-  return useAuthSupabase();
+  const [session, setSession] = useState<Session | null>(null);
+  const [ready, setReady] = useState(false);
+  const [lastEvent, setLastEvent] = useState<SupabaseAuthEvent | null>(null);
+  const user = useQuery(
+    api.users.currentUser,
+    {},
+    { enabled: Boolean(session?.user) },
+  );
+
+  useEffect(() => {
+    const unsubscribe = onSupabaseAuthChange((next, event) => {
+      setSession(next);
+      if (event) setLastEvent(event);
+      setReady(true);
+    });
+    return unsubscribe;
+  }, []);
+
+  const isAuthenticated = Boolean(session?.user);
+  const isLoading = !ready || (isAuthenticated && user === undefined);
+
+  /** Sign in as a guest (anonymous Supabase identity). */
+  const signIn = async (provider?: string) => {
+    if (provider === "anonymous") {
+      await supabaseAnonymousSignIn();
+      return;
+    }
+    throw new Error(
+      "Direct sign-in must go through the Auth page (email/password or Guest).",
+    );
+  };
+
+  const signOut = async () => {
+    await supabaseSignOut();
+  };
+
+  return {
+    isLoading,
+    isAuthenticated,
+    user,
+    session,
+    lastEvent,
+    signIn,
+    signOut,
+  };
 }

@@ -419,6 +419,100 @@ export interface BusinessBrainShape extends Obj {
 // The registry
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Pilot Intelligence types
+// ---------------------------------------------------------------------------
+
+export interface PilotCompanyRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  contact_name?: string | null;
+  contact_email?: string | null;
+  contact_phone?: string | null;
+  website?: string | null;
+  company_type?: string | null;
+  company_size?: string | null;
+  claims_volume?: string | null;
+  status?: string;
+  notes?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PilotSessionRow {
+  id: string;
+  tenant_id: string;
+  company_id?: string | null;
+  session_type: string;
+  title?: string | null;
+  summary?: string | null;
+  notes?: string | null;
+  attendee?: string | null;
+  scheduled_at?: string | null;
+  duration_min?: number | null;
+  outcome?: string | null;
+  created_at: string;
+}
+
+export interface PilotInsightRow {
+  id: string;
+  tenant_id: string;
+  company_id?: string | null;
+  session_id?: string | null;
+  insight_type: string;
+  title: string;
+  description?: string | null;
+  priority?: string;
+  status?: string;
+  source?: string | null;
+  tags?: string[];
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface PilotOutcomeRow {
+  id: string;
+  tenant_id: string;
+  company_id?: string | null;
+  outcome_type: string;
+  title: string;
+  description?: string | null;
+  financial_impact?: number | null;
+  claim_id?: string | null;
+  recommendation_id?: string | null;
+  evidence_count?: number;
+  status?: string;
+  created_at: string;
+}
+
+export interface PilotTestimonialRow {
+  id: string;
+  tenant_id: string;
+  company_id?: string | null;
+  quote: string;
+  author_name?: string | null;
+  author_role?: string | null;
+  is_public?: boolean;
+  created_at: string;
+}
+
+export interface PilotAnalyticsShape {
+  totalCompanies: number;
+  activeCompanies: number;
+  totalSessions: number;
+  totalInsights: number;
+  openInsights: number;
+  totalOutcomes: number;
+  totalRevenueRecovery: number;
+  totalTestimonials: number;
+  insightsByType: Array<{ type: string; count: number }>;
+  insightsByPriority: Array<{ priority: string; count: number }>;
+  companiesByStatus: Array<{ status: string; count: number }>;
+  recentActivity: Obj[];
+}
+
+
 export const api = {
   users: {
     currentUser: def<UserRow | null>("users_current_user", "query"),
@@ -1311,6 +1405,25 @@ export const api = {
   seed: {
     seedDemoData: def<Obj>("seed_demo_data", "mutation"),
     seedDemoClaims: def<{ ok: boolean }>("seed_demo_claims", "mutation"),
+  },
+pilotIntelligence: {
+    listCompanies: def<PilotCompanyRow[]>("pilot_companies_list", "query"),
+    createCompany: def<PilotCompanyRow>("pilot_companies_create", "mutation"),
+    updateCompany: def<PilotCompanyRow>("pilot_companies_update", "mutation"),
+    deleteCompany: def<boolean>("pilot_companies_delete", "mutation"),
+    listSessions: def<PilotSessionRow[]>("pilot_sessions_list", "query"),
+    createSession: def<PilotSessionRow>("pilot_sessions_create", "mutation"),
+    deleteSession: def<boolean>("pilot_sessions_delete", "mutation"),
+    listInsights: def<PilotInsightRow[]>("pilot_insights_list", "query"),
+    createInsight: def<PilotInsightRow>("pilot_insights_create", "mutation"),
+    updateInsightStatus: def<PilotInsightRow>("pilot_insights_update_status", "mutation"),
+    deleteInsight: def<boolean>("pilot_insights_delete", "mutation"),
+    listOutcomes: def<PilotOutcomeRow[]>("pilot_outcomes_list", "query"),
+    createOutcome: def<PilotOutcomeRow>("pilot_outcomes_create", "mutation"),
+    deleteOutcome: def<boolean>("pilot_outcomes_delete", "mutation"),
+    listTestimonials: def<PilotTestimonialRow[]>("pilot_testimonials_list", "query"),
+    createTestimonial: def<PilotTestimonialRow>("pilot_testimonials_create", "mutation"),
+    getAnalytics: def<PilotAnalyticsShape>("pilot_analytics", "query"),
   },
 } as const;
 

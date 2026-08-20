@@ -682,7 +682,7 @@ export default function Landing() {
                 Sign in
               </button>
               <PrimaryCta onClick={toAuth} className="hidden sm:inline-flex">
-                Connect Your Company
+                Enter Atlas
               </PrimaryCta>
               <button
                 type="button"
@@ -735,7 +735,7 @@ export default function Landing() {
             >
               <motion.p variants={fadeUp} className="atlas-eyebrow mb-4 flex items-center gap-2">
                 <Sparkles className="size-3.5" />
-                The AI operating layer for business
+                AI Revenue Recovery for Contractors
               </motion.p>
               <motion.h1
                 variants={fadeUp}
@@ -748,14 +748,15 @@ export default function Landing() {
               </motion.h1>
               <motion.p variants={fadeUp} className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
                 Atlas connects the systems, documents, workflows, and knowledge your business
-                already uses — then turns them into one continuously queryable intelligence layer.
+                already uses — then turns scattered information into revenue opportunities and
+                professional claims or supplement packages you can actually use.
               </motion.p>
               <motion.p variants={fadeUp} className="mt-2 flex items-center gap-2 text-xs text-muted-foreground/80">
-                <span className="font-mono uppercase tracking-[0.14em]">Connect your data. Ask Atlas anything.</span>
+                <span className="font-mono uppercase tracking-[0.14em]">Connect your data. Atlas finds the opportunity.</span>
               </motion.p>
               <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3">
-                <PrimaryCta onClick={toAuth}>Connect Your Company</PrimaryCta>
-                <SecondaryCta href="#product">See How Atlas Works</SecondaryCta>
+                <PrimaryCta onClick={toAuth}>Enter Atlas</PrimaryCta>
+                <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
               </motion.div>
               <motion.div
                 variants={fadeUp}
@@ -763,8 +764,8 @@ export default function Landing() {
               >
                 {[
                   "Evidence-backed answers",
-                  "Provenance on every fact",
-                  "Tenant-isolated by default",
+                  "Revenue recovery intelligence",
+                  "Professional claim & supplement packages",
                 ].map((f) => (
                   <span key={f} className="flex items-center gap-1.5">
                     <Check className="size-3.5 text-teal-600 dark:text-teal-300" />
@@ -1657,11 +1658,11 @@ export default function Landing() {
                   organization a way to ask.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                  <PrimaryCta onClick={toAuth}>Connect Your Company</PrimaryCta>
-                  <SecondaryCta href="#ask">See Atlas in Action</SecondaryCta>
+                  <PrimaryCta onClick={toAuth}>Enter Atlas</PrimaryCta>
+                  <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
                 </div>
                 <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground/70">
-                  The AI operating layer for business
+                  The AI revenue recovery platform for contractors
                 </p>
               </div>
             </div>
@@ -1686,12 +1687,18 @@ export default function Landing() {
                   <span className="text-base font-semibold tracking-tight">Atlas</span>
                 </a>
                 <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">
-                  The AI operating layer for business. Connect the information your company already
-                  has — and ask one AI anything about your business, with answers grounded in your
-                  actual data.
+                  The AI revenue recovery platform for contractors. Atlas connects your company
+                  information, identifies potential revenue opportunities, and generates professional
+                  claim and supplement packages.
                 </p>
                 <div className="mt-4 flex items-center gap-2">
                   <ThemeToggle />
+                  <a
+                    href="/pilot"
+                    className="rounded-lg border border-border/70 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    Pilot Program
+                  </a>
                   <button
                     type="button"
                     onClick={toAuth}
@@ -1704,7 +1711,7 @@ export default function Landing() {
               {[
                 ["Product", [["Ask Atlas", "#ask"], ["Company model", "#model"], ["Connections", "#how"], ["Security", "#security"]]],
                 ["How it works", [["The problem", "#problem"], ["The pipeline", "#product"], ["Industries", "#industries"], ["The roadmap", "#evolution"]]],
-                ["Company", [["About", "#product"], ["Industries", "#industries"], ["Trust", "#security"], ["Contact", "#cta"]]],
+                ["Company", [["About", "#product"], ["Industries", "#industries"], ["Trust", "#security"], ["Pilot Program", "/pilot"]]],
               ].map(([head, links]) => (
                 <div key={head as string}>
                   <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">

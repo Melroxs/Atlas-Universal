@@ -1,5 +1,19 @@
 -- ==========================================================================
+-- ⚠️  SUPERSEDED — DO NOT APPLY
 -- Atlas Mail — Security hardening migration
+--
+-- This migration has been superseded by:
+--   20260820_atlas_mail_combined.sql
+--
+-- The combined migration contains all security columns, functions,
+-- and storage policies from this file plus all base tables and
+-- functions from 20260820_atlas_mail.sql.
+-- It was applied manually to the live database on 2026-08-20.
+--
+-- DO NOT re-run this migration. The combined migration is idempotent
+-- and safe to run against both clean and partially-applied databases.
+-- ==========================================================================
+--
 -- 1. Replace base64 "encryption" with genuine AES-GCM encrypted blob
 -- 2. Add connection health status
 -- 3. Add IMAP sync state for incremental sync

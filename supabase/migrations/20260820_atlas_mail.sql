@@ -1,5 +1,16 @@
 -- ==========================================================================
+-- ⚠️  SUPERSEDED — DO NOT APPLY
 -- Atlas Mail — Email client tables + RPC functions
+--
+-- This migration has been superseded by:
+--   20260820_atlas_mail_combined.sql
+--
+-- The combined migration contains all tables, functions, RLS, and security
+-- columns from both this file and 20260820_atlas_mail_security.sql.
+-- It was applied manually to the live database on 2026-08-20.
+--
+-- DO NOT re-run this migration. The combined migration is idempotent
+-- and safe to run against both clean and partially-applied databases.
 -- ==========================================================================
 
 -- ── email_accounts ──────────────────────────────────────────────────────

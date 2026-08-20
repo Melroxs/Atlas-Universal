@@ -1,63 +1,30 @@
-import { api } from "@/lib/api";
-import { useQuery } from "@/hooks/use-supabase";
-import { useAuth as useClerkAuth, useUser, useClerk } from "@clerk/clerk-react";
+/**
+ * Barrel hook that selects the auth implementation based on whether a valid
+ * Clerk publishable key is configured.
+ *
+ * When Clerk IS configured, the Clerk implementation is loaded via a static
+ * import (ClerkProvider is mounted synchronously at the app root, so there
+ * is no provider/hook ordering concern).
+ *
+ * When Clerk is NOT configured, only Supabase auth is used.
+ */
+
+import { isClerkConfigured } from "@/lib/clerk-config";
+
+// Static imports for both implementations. Only the active one's hooks
+// are actually invoked at runtime — the other code path is dead.
+import { useAuth as useAuthClerk } from "./use-auth-clerk";
+import { useAuth as useAuthSupabase } from "./use-auth-supabase";
 
 /**
- * Authentication state backed by Clerk.
+ * Authentication state for Atlas.
  *
- * Usage:
- *   const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
- *
- * `user` is the caller's row from the `profiles` table (mirrors the old
- * Convex users table), or null when signed out / no profile row exists yet.
- *
- * Clerk is the source of truth for identity. Supabase handles data + RLS.
+ * When a valid Clerk publishable key is set, delegates to Clerk + Supabase bridge.
+ * Otherwise, falls back to Supabase Auth directly.
  */
 export function useAuth() {
-  const {
-    isLoaded: clerkLoaded,
-    isSignedIn,
-    getToken,
-  } = useClerkAuth();
-  const { user: clerkUser } = useUser();
-  const { signOut: clerkSignOut } = useClerk();
-
-  // Profile from the Atlas database (Supabase). This gives us the workspace
-  // membership, role, and company info that Clerk doesn't store.
-  const profile = useQuery(
-    api.users.currentUser,
-    {},
-    { enabled: Boolean(isSignedIn && clerkLoaded) },
-  );
-
-  const isAuthenticated = Boolean(isSignedIn && clerkLoaded);
-  const isLoading = !clerkLoaded || (isAuthenticated && profile === undefined);
-
-  /**
-   * Sign in — delegates to the Auth page which renders Clerk's <SignIn />.
-   * This is called from components that need to trigger the Clerk modal.
-   */
-  const signIn = async (_provider?: string) => {
-    // The actual sign-in flow is handled by the Auth page's Clerk <SignIn />.
-    // This function exists for API compatibility with the old useAuth contract.
-    void _provider;
-  };
-
-  /**
-   * Sign out — clears the Clerk session and any Supabase session state.
-   */
-  const signOut = async () => {
-    await clerkSignOut();
-  };
-
-  return {
-    isLoading,
-    isAuthenticated,
-    user: profile,
-    session: null, // Clerk manages sessions; Supabase session is derived
-    clerkUser,
-    getToken,
-    signIn,
-    signOut,
-  };
+  if (isClerkConfigured) {
+    return useAuthClerk();
+  }
+  return useAuthSupabase();
 }

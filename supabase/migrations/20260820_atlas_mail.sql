@@ -947,8 +947,8 @@ $$;
 
 -- ── RPC: email_signatures_save ──────────────────────────────────────────
 create or replace function public.email_signatures_save(
-  p_id uuid default null,
   p_name text,
+  p_id uuid default null,
   p_signature_html text default null,
   p_signature_text text default null,
   p_is_default boolean default false
@@ -1025,8 +1025,8 @@ $$;
 
 -- ── RPC: email_labels_save ──────────────────────────────────────────────
 create or replace function public.email_labels_save(
-  p_id uuid default null,
   p_name text,
+  p_id uuid default null,
   p_color text default '#6b7280'
 )
 returns jsonb language plpgsql security definer as $$

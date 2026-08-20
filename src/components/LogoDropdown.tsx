@@ -1,4 +1,4 @@
-// simple logo dropdown component that can be used to go to the landing page or sign out for the user
+// Logo dropdown with Clerk UserButton integration
 
 import { Button } from "@/components/ui/button";
 import {
@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import logo from "@/assets/logo.svg";
 import { useAuth } from "@/hooks/use-auth";
+import { UserButton } from "@clerk/clerk-react";
 import { Home, LogOut } from "lucide-react";
 import { useNavigate } from "react-router";
 
@@ -30,6 +31,11 @@ export function LogoDropdown() {
     navigate("/");
   };
 
+  // When authenticated, show Clerk's UserButton for profile management
+  if (isAuthenticated) {
+    return <UserButton afterSignOutUrl="/" />;
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -48,18 +54,6 @@ export function LogoDropdown() {
           <Home className="mr-2 h-4 w-4" />
           Landing Page
         </DropdownMenuItem>
-        {isAuthenticated && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={handleSignOut}
-              className="cursor-pointer text-destructive focus:text-destructive"
-            >
-              <LogOut className="mr-2 h-4 w-4" />
-              Sign Out
-            </DropdownMenuItem>
-          </>
-        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

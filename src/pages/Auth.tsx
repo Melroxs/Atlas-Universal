@@ -19,6 +19,7 @@ import {
   supabaseSendPasswordReset,
   supabaseSignIn,
   supabaseSignUp,
+  supabaseUpdatePassword,
 } from "@/lib/supabase";
 import { useMutation } from "@/hooks/use-supabase";
 import logo from "@/assets/logo.svg";
@@ -56,7 +57,7 @@ function resolveRedirectAfterAuth(
 type Mode = "signIn" | "signUp";
 
 function Auth({ redirectAfterAuth }: AuthProps = {}) {
-  const { isLoading: authLoading, isAuthenticated, signIn } = useAuth();
+  const { isLoading: authLoading, isAuthenticated, signIn, lastEvent } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirect = resolveRedirectAfterAuth(
@@ -75,17 +76,28 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   // When signup fails because the email already has an account, offer a direct
   // path to the login flow instead of leaving the user at a dead end.
   const [existingAccount, setExistingAccount] = useState(false);
 
   const supabaseClientConfigured = isSupabaseConfigured();
 
+  // Detect Supabase PASSWORD_RECOVERY event (user clicked the recovery email
+  // link and the Supabase client extracted the session from the URL hash).
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (lastEvent === "PASSWORD_RECOVERY") {
+      setRecovering(true);
+    }
+  }, [lastEvent]);
+
+  useEffect(() => {
+    if (!authLoading && isAuthenticated && !recovering) {
       navigate(redirect);
     }
-  }, [authLoading, isAuthenticated, navigate, redirect]);
+  }, [authLoading, isAuthenticated, recovering, navigate, redirect]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -174,6 +186,37 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
       console.error("Password reset error:", err);
       setError(classifyAuthError(err));
       setExistingAccount(isExistingAccountError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleUpdatePassword = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      if (newPassword !== confirmPassword) {
+        throw new Error("Passwords do not match.");
+      }
+      if (newPassword.length < 6) {
+        throw new Error("Password must be at least 6 characters.");
+      }
+      await supabaseUpdatePassword(newPassword);
+      setNotice(
+        "Your password has been updated. Redirecting to Atlas…",
+      );
+      setRecovering(false);
+      setNewPassword("");
+      setConfirmPassword("");
+      // Give the user a moment to read the notice, then navigate.
+      setTimeout(() => navigate(redirect), 1500);
+    } catch (err) {
+      console.error("Password update error:", err);
+      setError(classifyAuthError(err));
     } finally {
       setIsLoading(false);
     }
@@ -323,19 +366,116 @@ function Auth({ redirectAfterAuth }: AuthProps = {}) {
                 />
               </div>
               <CardTitle className="text-xl">
-                {resetting ? "Reset your password" : "Welcome to Atlas"}
+                {recovering
+                  ? "Set your new password"
+                  : resetting
+                    ? "Reset your password"
+                    : "Welcome to Atlas"}
               </CardTitle>
               <CardDescription>
-                {resetting
-                  ? "We'll email you a link to set a new password"
-                  : mode === "signIn"
-                    ? "Sign in to your workspace"
-                    : "Create your account and workspace"}
+                {recovering
+                  ? "Your identity is verified. Choose a strong new password."
+                  : resetting
+                    ? "We'll email you a link to set a new password"
+                    : mode === "signIn"
+                      ? "Sign in to your workspace"
+                      : "Create your account and workspace"}
               </CardDescription>
               {statusBanner}
             </CardHeader>
 
-            {resetting ? (
+            {recovering ? (
+              <form onSubmit={handleUpdatePassword}>
+                <CardContent className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Enter your new password below.
+                  </p>
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="newPassword"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      New password
+                    </Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="newPassword"
+                        name="newPassword"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        className="pl-9 pr-9"
+                        disabled={isLoading}
+                        required
+                        minLength={6}
+                      />
+                      <button
+                        type="button"
+                        tabIndex={-1}
+                        onClick={() => setShowPassword((s) => !s)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground"
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label
+                      htmlFor="confirmPassword"
+                      className="text-xs font-medium text-muted-foreground"
+                    >
+                      Confirm new password
+                    </Label>
+                    <div className="relative">
+                      <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        id="confirmPassword"
+                        name="confirmPassword"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="pl-9"
+                        disabled={isLoading}
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
+                  {error && (
+                    <p className="mt-2 text-sm text-red-500">{error}</p>
+                  )}
+                  {notice && (
+                    <p className="mt-2 text-sm text-emerald-600 dark:text-emerald-300">
+                      {notice}
+                    </p>
+                  )}
+                </CardContent>
+                <CardFooter>
+                  <Button
+                    type="submit"
+                    className="w-full"
+                    disabled={isLoading || !newPassword || !confirmPassword}
+                  >
+                    {isLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <KeyRound className="mr-2 h-4 w-4" />
+                    )}
+                    Update password
+                  </Button>
+                </CardFooter>
+              </form>
+            ) : resetting ? (
               <form onSubmit={handleReset}>
                 <CardContent className="space-y-4">
                   {emailInput}

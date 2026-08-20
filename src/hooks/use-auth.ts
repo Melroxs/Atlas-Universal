@@ -1,6 +1,7 @@
 import { api } from "@/lib/api";
 import { useQuery } from "@/hooks/use-supabase";
 import {
+  type SupabaseAuthEvent,
   onSupabaseAuthChange,
   supabaseAnonymousSignIn,
   supabaseSignOut,
@@ -20,6 +21,7 @@ import type { Session } from "@supabase/supabase-js";
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+  const [lastEvent, setLastEvent] = useState<SupabaseAuthEvent | null>(null);
   const user = useQuery(
     api.users.currentUser,
     {},
@@ -27,8 +29,9 @@ export function useAuth() {
   );
 
   useEffect(() => {
-    const unsubscribe = onSupabaseAuthChange((next) => {
+    const unsubscribe = onSupabaseAuthChange((next, event) => {
       setSession(next);
+      if (event) setLastEvent(event);
       setReady(true);
     });
     return unsubscribe;
@@ -57,6 +60,7 @@ export function useAuth() {
     isAuthenticated,
     user,
     session,
+    lastEvent,
     signIn,
     signOut,
   };

@@ -148,7 +148,19 @@ export async function supabaseAnonymousSignIn(): Promise<User> {
 
 /** Send Supabase's password-reset email. Throws with an error code on failure. */
 export async function supabaseSendPasswordReset(email: string): Promise<void> {
-  const { error } = await getClient().auth.resetPasswordForEmail(email.trim());
+  const { error } = await getClient().auth.resetPasswordForEmail(email.trim(), {
+    redirectTo: `${window.location.origin}/auth`,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Update the current user's password (used during password-recovery flow).
+ * Must be called while the user has an active Supabase session established
+ * via the recovery link.
+ */
+export async function supabaseUpdatePassword(newPassword: string): Promise<void> {
+  const { error } = await getClient().auth.updateUser({ password: newPassword });
   if (error) throw error;
 }
 
@@ -168,17 +180,31 @@ export async function supabaseSignOut(): Promise<void> {
   }
 }
 
+/** Auth events surfaced by Supabase's onAuthStateChange. */
+export type SupabaseAuthEvent =
+  | "INITIAL_SESSION"
+  | "SIGNED_IN"
+  | "SIGNED_OUT"
+  | "PASSWORD_RECOVERY"
+  | "TOKEN_REFRESHED"
+  | "USER_UPDATED"
+  | "MFA_CHALLENGE_VERIFIED"
+  | string;
+
 /** Subscribe to auth state changes. Returns an unsubscribe function. */
 export function onSupabaseAuthChange(
-  callback: (session: Session | null) => void,
+  callback: (
+    session: Session | null,
+    event?: SupabaseAuthEvent,
+  ) => void,
 ): () => void {
   if (!isSupabaseConfigured()) return () => undefined;
   const supabase = getClient();
-  const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session);
+  const { data } = supabase.auth.onAuthStateChange((event, session) => {
+    callback(session, event);
   });
   void supabase.auth.getSession().then(({ data: sessionData }) => {
-    callback(sessionData.session ?? null);
+    callback(sessionData.session ?? null, "INITIAL_SESSION");
   });
   return () => data.subscription.unsubscribe();
 }

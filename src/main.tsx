@@ -4,20 +4,12 @@ import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { AppShell } from "@/components/app-shell";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
-import { ClerkProvider } from "@clerk/clerk-react";
+import { clerkPublishableKey, isClerkConfigured } from "@/lib/clerk-config";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
+import { ClerkProvider } from "@clerk/react";
 import "./index.css";
-
-// Clerk publishable key — public by design (ships in browser bundle).
-// Checks CLERK_PUBLISHABLE_KEY first, then VITE_CLERK_PUBLISHABLE_KEY for
-// Vite compatibility. Falls back to empty string when not configured, which
-// makes ClerkProvider render its children without auth (graceful degradation).
-const CLERK_PUBLISHABLE_KEY =
-  (import.meta.env.CLERK_PUBLISHABLE_KEY as string) ||
-  (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string) ||
-  "";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
@@ -146,12 +138,15 @@ function RouteSyncer() {
   return null;
 }
 
-
-/** Conditionally wraps children in ClerkProvider only when a key is configured. */
+/**
+ * Wraps children in ClerkProvider when a valid key is configured.
+ * Uses a synchronous import — no lazy loading, no Suspense boundary needed.
+ * When Clerk is not configured, renders children directly.
+ */
 function ClerkGate({ children }: { children: React.ReactNode }) {
-  if (!CLERK_PUBLISHABLE_KEY) return <>{children}</>;
+  if (!isClerkConfigured) return <>{children}</>;
   return (
-    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
+    <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
       {children}
     </ClerkProvider>
   );

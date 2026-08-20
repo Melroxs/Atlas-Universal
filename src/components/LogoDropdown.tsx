@@ -1,18 +1,19 @@
-// Logo dropdown with Clerk UserButton integration
+// Logo dropdown — works with both Clerk and Supabase auth modes
 
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import logo from "@/assets/logo.svg";
 import { useAuth } from "@/hooks/use-auth";
-import { UserButton } from "@clerk/clerk-react";
-import { Home, LogOut } from "lucide-react";
+import { isClerkConfigured } from "@/lib/clerk-config";
+import { Home } from "lucide-react";
 import { useNavigate } from "react-router";
+
+// Static import — ClerkProvider is mounted synchronously at the app root.
+import { UserButton } from "@clerk/react";
 
 export function LogoDropdown() {
   const { isAuthenticated, signOut } = useAuth();
@@ -31,15 +32,16 @@ export function LogoDropdown() {
     navigate("/");
   };
 
-  // When authenticated, show Clerk's UserButton for profile management
-  if (isAuthenticated) {
-    return <UserButton afterSignOutUrl="/" />;
+  // When authenticated and Clerk is configured, show Clerk's UserButton
+  if (isAuthenticated && isClerkConfigured) {
+    return <UserButton />;
   }
 
+  // When authenticated without Clerk, or signed out — show dropdown
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-10 w-10">
+        <button className="flex h-10 w-10 items-center justify-center rounded-md hover:bg-accent transition-colors">
           <img
             src={logo}
             alt="Logo"
@@ -47,13 +49,18 @@ export function LogoDropdown() {
             height={32}
             className="rounded-lg"
           />
-        </Button>
+        </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-48">
         <DropdownMenuItem onClick={handleGoHome} className="cursor-pointer">
           <Home className="mr-2 h-4 w-4" />
           Landing Page
         </DropdownMenuItem>
+        {isAuthenticated && (
+          <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer">
+            Sign Out
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

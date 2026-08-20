@@ -43,6 +43,11 @@ const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const PilotIntelligence = lazy(() => import("./pages/PilotIntelligence.tsx"));
+const PilotCompanies = lazy(() => import("./pages/PilotCompanies.tsx"));
+const PilotSessions = lazy(() => import("./pages/PilotSessions.tsx"));
+const PilotInsights = lazy(() => import("./pages/PilotInsights.tsx"));
+const PilotOutcomes = lazy(() => import("./pages/PilotOutcomes.tsx"));
 
 /** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -312,6 +317,46 @@ createRoot(document.getElementById("root")!).render(
                   element={
                     <ProtectedLayout>
                       <Settings />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/pilot-intelligence"
+                  element={
+                    <ProtectedLayout>
+                      <PilotIntelligence />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/pilot-intelligence/companies"
+                  element={
+                    <ProtectedLayout>
+                      <PilotCompanies />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/pilot-intelligence/sessions"
+                  element={
+                    <ProtectedLayout>
+                      <PilotSessions />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/pilot-intelligence/insights"
+                  element={
+                    <ProtectedLayout>
+                      <PilotInsights />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/pilot-intelligence/outcomes"
+                  element={
+                    <ProtectedLayout>
+                      <PilotOutcomes />
                     </ProtectedLayout>
                   }
                 />

@@ -34,11 +34,14 @@ import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   Brain,
+  Building2,
   Cable,
+  Calendar,
   Database,
   Landmark,
   LayoutGrid,
   Layers,
+  Lightbulb,
   LogOut,
   MessageSquareText,
   Radar,
@@ -106,6 +109,16 @@ const NAV_SECTIONS: Array<{
       { to: "/dashboard/settings", label: "Settings", icon: Settings2 },
     ],
   },
+  {
+    label: "Pilot",
+    items: [
+      { to: "/dashboard/pilot-intelligence", label: "Pilot Intelligence", icon: Radar },
+      { to: "/dashboard/pilot-intelligence/companies", label: "Pilot Companies", icon: Building2 },
+      { to: "/dashboard/pilot-intelligence/sessions", label: "Pilot Sessions", icon: Calendar },
+      { to: "/dashboard/pilot-intelligence/insights", label: "Pilot Insights", icon: Lightbulb },
+      { to: "/dashboard/pilot-intelligence/outcomes", label: "Pilot Outcomes", icon: Target },
+    ],
+  },
 ];
 
 const PAGE_TITLES: Record<string, string> = {
@@ -124,6 +137,11 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",
+  "/dashboard/pilot-intelligence": "Pilot Intelligence",
+  "/dashboard/pilot-intelligence/companies": "Pilot Companies",
+  "/dashboard/pilot-intelligence/sessions": "Pilot Sessions",
+  "/dashboard/pilot-intelligence/insights": "Pilot Insights",
+  "/dashboard/pilot-intelligence/outcomes": "Pilot Outcomes",
 };
 
 function initials(name?: string | null, email?: string | null): string {

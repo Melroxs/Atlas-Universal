@@ -158,7 +158,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN
     RETURN '[]'::jsonb;
   END IF;
@@ -190,7 +190,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN
     RAISE EXCEPTION 'No workspace found';
   END IF;
@@ -223,7 +223,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN
     RAISE EXCEPTION 'No workspace found';
   END IF;
@@ -254,7 +254,7 @@ AS $$
 DECLARE
   v_tenant_id uuid;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_companies WHERE id = p_id AND tenant_id = v_tenant_id;
   RETURN FOUND;
@@ -271,7 +271,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN '[]'::jsonb; END IF;
   SELECT jsonb_agg(row_to_json(ps) ORDER BY ps.created_at DESC)
   INTO v_result
@@ -302,7 +302,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'No workspace found'; END IF;
   INSERT INTO pilot_sessions (tenant_id, company_id, session_type, title, summary, notes, attendee, scheduled_at, duration_min, outcome)
   VALUES (v_tenant_id, p_company_id, p_session_type, p_title, p_summary, p_notes, p_attendee, p_scheduled_at, p_duration_min, p_outcome)
@@ -320,7 +320,7 @@ AS $$
 DECLARE
   v_tenant_id uuid;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_sessions WHERE id = p_id AND tenant_id = v_tenant_id;
   RETURN FOUND;
@@ -341,7 +341,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN '[]'::jsonb; END IF;
   SELECT jsonb_agg(row_to_json(pi) ORDER BY pi.created_at DESC)
   INTO v_result
@@ -372,7 +372,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'No workspace found'; END IF;
   INSERT INTO pilot_insights (tenant_id, company_id, session_id, insight_type, title, description, priority, source)
   VALUES (v_tenant_id, p_company_id, p_session_id, p_insight_type, p_title, p_description, p_priority, p_source)
@@ -391,7 +391,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'No workspace found'; END IF;
   UPDATE pilot_insights SET status = p_status, updated_at = now()
   WHERE id = p_id AND tenant_id = v_tenant_id
@@ -409,7 +409,7 @@ AS $$
 DECLARE
   v_tenant_id uuid;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_insights WHERE id = p_id AND tenant_id = v_tenant_id;
   RETURN FOUND;
@@ -429,7 +429,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN '[]'::jsonb; END IF;
   SELECT jsonb_agg(row_to_json(po) ORDER BY po.created_at DESC)
   INTO v_result
@@ -460,7 +460,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'No workspace found'; END IF;
   INSERT INTO pilot_outcomes (tenant_id, company_id, outcome_type, title, description, financial_impact, claim_id, recommendation_id, evidence_count)
   VALUES (v_tenant_id, p_company_id, p_outcome_type, p_title, p_description, p_financial_impact, p_claim_id, p_recommendation_id, p_evidence_count)
@@ -478,7 +478,7 @@ AS $$
 DECLARE
   v_tenant_id uuid;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN false; END IF;
   DELETE FROM pilot_outcomes WHERE id = p_id AND tenant_id = v_tenant_id;
   RETURN FOUND;
@@ -495,7 +495,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RETURN '[]'::jsonb; END IF;
   SELECT jsonb_agg(row_to_json(pt) ORDER BY pt.created_at DESC)
   INTO v_result
@@ -521,7 +521,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN RAISE EXCEPTION 'No workspace found'; END IF;
   INSERT INTO pilot_testimonials (tenant_id, company_id, quote, author_name, author_role, is_public)
   VALUES (v_tenant_id, p_company_id, p_quote, p_author_name, p_author_role, p_is_public)
@@ -540,7 +540,7 @@ DECLARE
   v_tenant_id uuid;
   v_result jsonb;
 BEGIN
-  v_tenant_id := (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1);
+  v_tenant_id := (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1);
   IF v_tenant_id IS NULL THEN
     RETURN jsonb_build_object(
       'totalCompanies', 0, 'activeCompanies', 0, 'totalSessions', 0,
@@ -593,22 +593,22 @@ ALTER TABLE pilot_testimonials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE pilot_activity ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "pilot_companies_tenant_isolation" ON pilot_companies
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));
 
 CREATE POLICY "pilot_applications_authenticated" ON pilot_applications
   FOR ALL USING (auth.uid() IS NOT NULL);
 
 CREATE POLICY "pilot_sessions_tenant_isolation" ON pilot_sessions
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));
 
 CREATE POLICY "pilot_insights_tenant_isolation" ON pilot_insights
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));
 
 CREATE POLICY "pilot_outcomes_tenant_isolation" ON pilot_outcomes
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));
 
 CREATE POLICY "pilot_testimonials_tenant_isolation" ON pilot_testimonials
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));
 
 CREATE POLICY "pilot_activity_tenant_isolation" ON pilot_activity
-  USING (tenant_id = (SELECT tenant_id FROM memberships WHERE user_id = auth.uid() LIMIT 1));
+  USING (tenant_id = (SELECT "tenantId" FROM memberships WHERE "userId" = auth.uid() LIMIT 1));

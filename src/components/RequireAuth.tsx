@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { isLoading, isAuthenticated, user } = useAuth();
+  const { isLoading, isAuthenticated } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -20,19 +20,6 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return (
       <Navigate
         to={`/auth?returnTo=${encodeURIComponent(returnTo)}`}
-        replace
-      />
-    );
-  }
-
-  // Check account status — super admins always pass; others need active status
-  const platformRole = user?.platform_role ?? "user";
-  const accountStatus = user?.account_status ?? "pending";
-
-  if (platformRole !== "super_admin" && accountStatus !== "active") {
-    return (
-      <Navigate
-        to="/access-denied"
         replace
       />
     );

@@ -6,14 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "build:edge": "node scripts/deploy-conversation-converse.mjs",
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
     "preview": "vite preview"
   },
   "dependencies": {
-    "@clerk/react": "^6.14.4",
     "@hookform/resolvers": "^5.2.2",
     "@jridgewell/trace-mapping": "^0.3.31",
     "@oslojs/crypto": "^1.0.1",

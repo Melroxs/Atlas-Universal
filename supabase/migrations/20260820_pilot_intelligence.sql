@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS pilot_companies (
   contact_email text,
   contact_phone text,
   website      text,
-  company_type text,          -- roofing, restoration, general, etc.
-  company_size text,          -- small, medium, large
-  claims_volume text,         -- low, medium, high
-  status       text DEFAULT 'prospect', -- prospect, active, churned, archived
+  company_type text,
+  company_size text,
+  claims_volume text,
+  status       text DEFAULT 'prospect',
   notes        text,
   created_at   timestamptz DEFAULT now(),
   updated_at   timestamptz DEFAULT now()
@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS pilot_companies (
 CREATE INDEX IF NOT EXISTS idx_pilot_companies_tenant ON pilot_companies(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_pilot_companies_status ON pilot_companies(tenant_id, status);
 
--- 02. Pilot Applications (links to existing pilot_applications if present)
+-- 02. Pilot Applications
 CREATE TABLE IF NOT EXISTS pilot_applications (
   id                uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   company_id        uuid REFERENCES pilot_companies(id) ON DELETE SET NULL,
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS pilot_applications (
   atlas_interest    jsonb DEFAULT '[]'::jsonb,
   biggest_problem   text,
   why_pilot         text,
-  status            text DEFAULT 'new', -- new, reviewing, accepted, waitlisted, declined
+  status            text DEFAULT 'new',
   created_at        timestamptz DEFAULT now(),
   reviewed_at       timestamptz,
   reviewed_by       uuid
@@ -51,19 +51,19 @@ CREATE TABLE IF NOT EXISTS pilot_applications (
 
 CREATE INDEX IF NOT EXISTS idx_pilot_applications_status ON pilot_applications(status);
 
--- 03. Pilot Sessions (onboarding calls, check-ins, demos, etc.)
+-- 03. Pilot Sessions
 CREATE TABLE IF NOT EXISTS pilot_sessions (
   id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id    uuid NOT NULL REFERENCES tenants(_id) ON DELETE CASCADE,
   company_id   uuid REFERENCES pilot_companies(id) ON DELETE SET NULL,
-  session_type text NOT NULL,   -- onboarding, checkin, demo, training, feedback, support
+  session_type text NOT NULL,
   title        text,
   summary      text,
   notes        text,
   attendee     text,
   scheduled_at timestamptz,
   duration_min integer,
-  outcome      text,            -- positive, neutral, needs_followup, negative
+  outcome      text,
   created_at   timestamptz DEFAULT now()
 );
 
@@ -71,18 +71,18 @@ CREATE INDEX IF NOT EXISTS idx_pilot_sessions_tenant ON pilot_sessions(tenant_id
 CREATE INDEX IF NOT EXISTS idx_pilot_sessions_company ON pilot_sessions(company_id);
 CREATE INDEX IF NOT EXISTS idx_pilot_sessions_type ON pilot_sessions(tenant_id, session_type);
 
--- 04. Pilot Insights (friction, features, bugs, feedback, workflow, objections)
+-- 04. Pilot Insights
 CREATE TABLE IF NOT EXISTS pilot_insights (
   id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id    uuid NOT NULL REFERENCES tenants(_id) ON DELETE CASCADE,
   company_id   uuid REFERENCES pilot_companies(id) ON DELETE SET NULL,
   session_id   uuid REFERENCES pilot_sessions(id) ON DELETE SET NULL,
-  insight_type text NOT NULL,   -- friction, feature_request, bug, positive_feedback, workflow, objection
+  insight_type text NOT NULL,
   title        text NOT NULL,
   description  text,
-  priority     text DEFAULT 'medium', -- low, medium, high, critical
-  status       text DEFAULT 'open',   -- open, acknowledged, in_progress, resolved, wont_fix
-  source       text,                  -- session, application, support, observation
+  priority     text DEFAULT 'medium',
+  status       text DEFAULT 'open',
+  source       text,
   tags         jsonb DEFAULT '[]'::jsonb,
   created_at   timestamptz DEFAULT now(),
   updated_at   timestamptz DEFAULT now()
@@ -93,19 +93,19 @@ CREATE INDEX IF NOT EXISTS idx_pilot_insights_type ON pilot_insights(tenant_id, 
 CREATE INDEX IF NOT EXISTS idx_pilot_insights_status ON pilot_insights(tenant_id, status);
 CREATE INDEX IF NOT EXISTS idx_pilot_insights_company ON pilot_insights(company_id);
 
--- 05. Pilot Outcomes (revenue recovery results, product outcomes)
+-- 05. Pilot Outcomes
 CREATE TABLE IF NOT EXISTS pilot_outcomes (
   id             uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id      uuid NOT NULL REFERENCES tenants(_id) ON DELETE CASCADE,
   company_id     uuid REFERENCES pilot_companies(id) ON DELETE SET NULL,
-  outcome_type   text NOT NULL,   -- revenue_recovery, supplement_generated, claim_generated, package_downloaded, workflow_completed, other
+  outcome_type   text NOT NULL,
   title          text NOT NULL,
   description    text,
-  financial_impact numeric,       -- dollar amount if applicable
+  financial_impact numeric,
   claim_id       uuid,
   recommendation_id uuid,
   evidence_count integer DEFAULT 0,
-  status         text DEFAULT 'confirmed', -- confirmed, pending, estimated
+  status         text DEFAULT 'confirmed',
   tags           jsonb DEFAULT '[]'::jsonb,
   created_at     timestamptz DEFAULT now()
 );
@@ -129,12 +129,12 @@ CREATE TABLE IF NOT EXISTS pilot_testimonials (
 
 CREATE INDEX IF NOT EXISTS idx_pilot_testimonials_tenant ON pilot_testimonials(tenant_id);
 
--- 07. Pilot Activity Log (timeline of all pilot events)
+-- 07. Pilot Activity Log
 CREATE TABLE IF NOT EXISTS pilot_activity (
   id           uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   tenant_id    uuid NOT NULL REFERENCES tenants(_id) ON DELETE CASCADE,
   company_id   uuid REFERENCES pilot_companies(id) ON DELETE SET NULL,
-  activity_type text NOT NULL, -- application, session, insight, outcome, testimonial, status_change
+  activity_type text NOT NULL,
   title        text NOT NULL,
   description  text,
   metadata     jsonb DEFAULT '{}'::jsonb,
@@ -170,11 +170,17 @@ BEGIN
 END;
 $$;
 
--- Create a pilot company
+-- Create a pilot company (required params first, optional last)
 CREATE OR REPLACE FUNCTION pilot_companies_create(
-  p_name text, p_contact_name text DEFAULT NULL, p_contact_email text DEFAULT NULL,
-  p_contact_phone text DEFAULT NULL, p_website text DEFAULT NULL, p_company_type text DEFAULT NULL,
-  p_company_size text DEFAULT NULL, p_claims_volume text DEFAULT NULL, p_notes text DEFAULT NULL
+  p_name text,
+  p_contact_name text DEFAULT NULL,
+  p_contact_email text DEFAULT NULL,
+  p_contact_phone text DEFAULT NULL,
+  p_website text DEFAULT NULL,
+  p_company_type text DEFAULT NULL,
+  p_company_size text DEFAULT NULL,
+  p_claims_volume text DEFAULT NULL,
+  p_notes text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -197,10 +203,17 @@ $$;
 
 -- Update a pilot company
 CREATE OR REPLACE FUNCTION pilot_companies_update(
-  p_id uuid, p_name text DEFAULT NULL, p_contact_name text DEFAULT NULL,
-  p_contact_email text DEFAULT NULL, p_contact_phone text DEFAULT NULL, p_website text DEFAULT NULL,
-  p_company_type text DEFAULT NULL, p_company_size text DEFAULT NULL, p_claims_volume text DEFAULT NULL,
-  p_status text DEFAULT NULL, p_notes text DEFAULT NULL
+  p_id uuid,
+  p_name text DEFAULT NULL,
+  p_contact_name text DEFAULT NULL,
+  p_contact_email text DEFAULT NULL,
+  p_contact_phone text DEFAULT NULL,
+  p_website text DEFAULT NULL,
+  p_company_type text DEFAULT NULL,
+  p_company_size text DEFAULT NULL,
+  p_claims_volume text DEFAULT NULL,
+  p_status text DEFAULT NULL,
+  p_notes text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -269,11 +282,16 @@ BEGIN
 END;
 $$;
 
--- Create a pilot session
+-- Create a pilot session (required params first, optional last)
 CREATE OR REPLACE FUNCTION pilot_sessions_create(
-  p_company_id uuid DEFAULT NULL, p_session_type text, p_title text DEFAULT NULL,
-  p_summary text DEFAULT NULL, p_notes text DEFAULT NULL, p_attendee text DEFAULT NULL,
-  p_scheduled_at timestamptz DEFAULT NULL, p_duration_min integer DEFAULT NULL,
+  p_session_type text,
+  p_company_id uuid DEFAULT NULL,
+  p_title text DEFAULT NULL,
+  p_summary text DEFAULT NULL,
+  p_notes text DEFAULT NULL,
+  p_attendee text DEFAULT NULL,
+  p_scheduled_at timestamptz DEFAULT NULL,
+  p_duration_min integer DEFAULT NULL,
   p_outcome text DEFAULT NULL
 )
 RETURNS jsonb
@@ -310,7 +328,11 @@ END;
 $$;
 
 -- List pilot insights
-CREATE OR REPLACE FUNCTION pilot_insights_list(p_insight_type text DEFAULT NULL, p_status text DEFAULT NULL, p_company_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pilot_insights_list(
+  p_insight_type text DEFAULT NULL,
+  p_status text DEFAULT NULL,
+  p_company_id uuid DEFAULT NULL
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -332,11 +354,15 @@ BEGIN
 END;
 $$;
 
--- Create a pilot insight
+-- Create a pilot insight (required params first, optional last)
 CREATE OR REPLACE FUNCTION pilot_insights_create(
-  p_company_id uuid DEFAULT NULL, p_session_id uuid DEFAULT NULL,
-  p_insight_type text, p_title text, p_description text DEFAULT NULL,
-  p_priority text DEFAULT 'medium', p_source text DEFAULT NULL
+  p_insight_type text,
+  p_title text,
+  p_company_id uuid DEFAULT NULL,
+  p_session_id uuid DEFAULT NULL,
+  p_description text DEFAULT NULL,
+  p_priority text DEFAULT 'medium',
+  p_source text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -391,7 +417,10 @@ END;
 $$;
 
 -- List pilot outcomes
-CREATE OR REPLACE FUNCTION pilot_outcomes_list(p_company_id uuid DEFAULT NULL, p_outcome_type text DEFAULT NULL)
+CREATE OR REPLACE FUNCTION pilot_outcomes_list(
+  p_company_id uuid DEFAULT NULL,
+  p_outcome_type text DEFAULT NULL
+)
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -412,11 +441,15 @@ BEGIN
 END;
 $$;
 
--- Create a pilot outcome
+-- Create a pilot outcome (required params first, optional last)
 CREATE OR REPLACE FUNCTION pilot_outcomes_create(
-  p_company_id uuid DEFAULT NULL, p_outcome_type text, p_title text,
-  p_description text DEFAULT NULL, p_financial_impact numeric DEFAULT NULL,
-  p_claim_id uuid DEFAULT NULL, p_recommendation_id uuid DEFAULT NULL,
+  p_outcome_type text,
+  p_title text,
+  p_company_id uuid DEFAULT NULL,
+  p_description text DEFAULT NULL,
+  p_financial_impact numeric DEFAULT NULL,
+  p_claim_id uuid DEFAULT NULL,
+  p_recommendation_id uuid DEFAULT NULL,
   p_evidence_count integer DEFAULT 0
 )
 RETURNS jsonb
@@ -472,10 +505,13 @@ BEGIN
 END;
 $$;
 
--- Create a pilot testimonial
+-- Create a pilot testimonial (required params first, optional last)
 CREATE OR REPLACE FUNCTION pilot_testimonials_create(
-  p_company_id uuid DEFAULT NULL, p_quote text, p_author_name text DEFAULT NULL,
-  p_author_role text DEFAULT NULL, p_is_public boolean DEFAULT false
+  p_quote text,
+  p_company_id uuid DEFAULT NULL,
+  p_author_name text DEFAULT NULL,
+  p_author_role text DEFAULT NULL,
+  p_is_public boolean DEFAULT false
 )
 RETURNS jsonb
 LANGUAGE plpgsql

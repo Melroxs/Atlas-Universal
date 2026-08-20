@@ -147,16 +147,23 @@ function RouteSyncer() {
 }
 
 
+/** Conditionally wraps children in ClerkProvider only when a key is configured. */
+function ClerkGate({ children }: { children: React.ReactNode }) {
+  if (!CLERK_PUBLISHABLE_KEY) return <>{children}</>;
+  return (
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/">
+      {children}
+    </ClerkProvider>
+  );
+}
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
-      <ClerkProvider
-        publishableKey={CLERK_PUBLISHABLE_KEY}
-        afterSignOutUrl="/"
-      >
+      <ClerkGate>
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="atlas-theme">
           <BrowserRouter>
             <RouteSyncer />
@@ -366,7 +373,7 @@ createRoot(document.getElementById("root")!).render(
           </BrowserRouter>
           <Toaster />
         </ThemeProvider>
-      </ClerkProvider>
+      </ClerkGate>
     </RootErrorBoundary>
   </StrictMode>,
 );

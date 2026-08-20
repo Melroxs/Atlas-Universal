@@ -40,6 +40,8 @@ const PilotCompanies = lazy(() => import("./pages/PilotCompanies.tsx"));
 const PilotSessions = lazy(() => import("./pages/PilotSessions.tsx"));
 const PilotInsights = lazy(() => import("./pages/PilotInsights.tsx"));
 const PilotOutcomes = lazy(() => import("./pages/PilotOutcomes.tsx"));
+const MailInbox = lazy(() => import("./pages/mail/MailInbox.tsx"));
+const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
 
 /** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -359,6 +361,22 @@ createRoot(document.getElementById("root")!).render(
                   element={
                     <ProtectedLayout>
                       <PilotOutcomes />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/mail"
+                  element={
+                    <ProtectedLayout>
+                      <MailInbox />
+                    </ProtectedLayout>
+                  }
+                />
+                <Route
+                  path="/dashboard/mail/settings"
+                  element={
+                    <ProtectedLayout>
+                      <MailSettings />
                     </ProtectedLayout>
                   }
                 />

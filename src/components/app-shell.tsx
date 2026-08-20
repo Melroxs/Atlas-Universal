@@ -53,6 +53,7 @@ import {
   Users,
   Workflow,
   Zap,
+  Mail,
 } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
@@ -110,6 +111,12 @@ const NAV_SECTIONS: Array<{
     ],
   },
   {
+    label: "Mail",
+    items: [
+      { to: "/dashboard/mail", label: "Atlas Mail", icon: Mail },
+    ],
+  },
+  {
     label: "Pilot",
     items: [
       { to: "/dashboard/pilot-intelligence", label: "Pilot Intelligence", icon: Radar },
@@ -142,6 +149,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/pilot-intelligence/sessions": "Pilot Sessions",
   "/dashboard/pilot-intelligence/insights": "Pilot Insights",
   "/dashboard/pilot-intelligence/outcomes": "Pilot Outcomes",
+  "/dashboard/mail": "Atlas Mail",
+  "/dashboard/mail/settings": "Mail Settings",
 };
 
 function initials(name?: string | null, email?: string | null): string {

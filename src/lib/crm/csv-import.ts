@@ -24,6 +24,8 @@ export interface MappedLead {
   jobTitle: string;
   source: string;
   notes: string;
+  /** Custom field values keyed by field ID: { fieldId: { value: any, fieldKey: string, fieldName: string, fieldType: string } } */
+  customFields: Record<string, { value: unknown; fieldKey: string; fieldName: string; fieldType: string }>;
   _raw: CSVRow;
   _rowIndex: number;
 }
@@ -31,6 +33,23 @@ export interface MappedLead {
 export interface ColumnMapping {
   csvColumn: string;
   atlasField: string;
+  /** Set when this column maps to a custom field */
+  customFieldId?: string;
+  /** True when this column maps to an existing or newly created custom field */
+  isCustom?: boolean;
+}
+
+/** Custom field definition from crm_custom_fields table */
+export interface CustomFieldDefinition {
+  id: string;
+  tenant_id: string;
+  name: string;
+  key: string;
+  field_type: string;
+  entity_type: string;
+  description?: string | null;
+  options?: string[] | null;
+  created_at: string;
 }
 
 export interface ValidationResult {
@@ -73,6 +92,113 @@ export const ATLAS_FIELDS = [
   { key: "source", label: "Source", required: false },
   { key: "notes", label: "Notes", required: false },
 ] as const;
+
+// ── Custom Field Support ───────────────────────────────────────────────
+
+/** Field type options available when creating a new custom field */
+export const CUSTOM_FIELD_TYPES = [
+  { key: "text", label: "Text" },
+  { key: "long_text", label: "Long Text" },
+  { key: "number", label: "Number" },
+  { key: "boolean", label: "Boolean" },
+  { key: "date", label: "Date" },
+  { key: "url", label: "URL" },
+  { key: "select", label: "Select" },
+  { key: "multi_select", label: "Multi-select" },
+] as const;
+
+/**
+ * Generate a safe snake_case key from a display name.
+ * - lowercase
+ * - spaces → underscores
+ * - strips non-alphanumeric chars (except underscores)
+ * - collapses multiple underscores
+ * - trims leading/trailing underscores
+ */
+export function generateFieldKey(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s_-]/g, "")
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+/**
+ * Ensure a field key is unique by appending a numeric suffix if needed.
+ */
+export function ensureUniqueKey(
+  baseKey: string,
+  existingKeys: Set<string>,
+): string {
+  let candidate = baseKey || "custom_field";
+  let counter = 1;
+  while (existingKeys.has(candidate)) {
+    counter++;
+    candidate = `${baseKey}_${counter}`;
+  }
+  return candidate;
+}
+
+/**
+ * Validate a custom field value against its field type.
+ * Returns null if valid, or an error message if invalid.
+ */
+export function validateCustomFieldValue(
+  value: string,
+  fieldType: string,
+  fieldName: string,
+): string | null {
+  if (!value || !value.trim()) return null; // empty is always valid
+
+  switch (fieldType) {
+    case "number":
+      if (isNaN(Number(value))) return `${fieldName} must be a number`;
+      return null;
+    case "boolean":
+      if (!/^(true|false|yes|no|1|0)$/i.test(value.trim()))
+        return `${fieldName} must be true/false/yes/no/1/0`;
+      return null;
+    case "url":
+      try {
+        new URL(value.trim());
+        return null;
+      } catch {
+        return `${fieldName} must be a valid URL`;
+      }
+    case "date":
+      if (isNaN(Date.parse(value))) return `${fieldName} must be a valid date`;
+      return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Parse a string value into the appropriate type for storage as JSONB.
+ */
+export function parseCustomFieldValue(value: string, fieldType: string): unknown {
+  if (!value || !value.trim()) return null;
+  const trimmed = value.trim();
+
+  switch (fieldType) {
+    case "number":
+      return Number(trimmed);
+    case "boolean":
+      return /^(true|yes|1)$/i.test(trimmed);
+    case "date":
+      return new Date(trimmed).toISOString();
+    case "multi_select":
+      return trimmed.split(/[,;]\s*/).map((s) => s.trim()).filter(Boolean);
+    case "select":
+    case "text":
+    case "long_text":
+    case "url":
+    default:
+      return trimmed;
+  }
+}
 
 // Common CSV header patterns → Atlas field mapping
 const AUTO_MAP_PATTERNS: Record<string, string[]> = {
@@ -151,15 +277,28 @@ function parseCSVLine(line: string): string[] {
 
 /**
  * Auto-suggest column mappings based on CSV headers.
+ * Optionally matches against existing custom field definitions.
  */
-export function suggestMappings(headers: string[]): ColumnMapping[] {
+export function suggestMappings(
+  headers: string[],
+  existingCustomFields: CustomFieldDefinition[] = [],
+): ColumnMapping[] {
   const mappings: ColumnMapping[] = [];
   const usedAtlasFields = new Set<string>();
+
+  // Build a lookup of existing custom fields by their normalized name/key
+  const customFieldByName = new Map<string, CustomFieldDefinition>();
+  const customFieldByKey = new Map<string, CustomFieldDefinition>();
+  for (const cf of existingCustomFields) {
+    customFieldByName.set(cf.name.toLowerCase().trim(), cf);
+    customFieldByKey.set(cf.key, cf);
+  }
 
   for (const header of headers) {
     const normalized = header.toLowerCase().trim();
     let matched = false;
 
+    // First: try to match against existing built-in Atlas fields
     for (const [atlasField, patterns] of Object.entries(AUTO_MAP_PATTERNS)) {
       if (usedAtlasFields.has(atlasField)) continue;
       if (patterns.some((p) => normalized.includes(p))) {
@@ -167,6 +306,36 @@ export function suggestMappings(headers: string[]): ColumnMapping[] {
         usedAtlasFields.add(atlasField);
         matched = true;
         break;
+      }
+    }
+
+    // Second: try to match against existing custom fields
+    if (!matched) {
+      const cfByName = customFieldByName.get(normalized);
+      if (cfByName) {
+        mappings.push({
+          csvColumn: header,
+          atlasField: "__custom__",
+          customFieldId: cfByName.id,
+          isCustom: true,
+        });
+        matched = true;
+      }
+    }
+
+    // Third: try partial match on custom field names (e.g. "Insurance Focus" matches "insurance focus (site says)")
+    if (!matched) {
+      for (const [, cf] of customFieldByName) {
+        if (cf.name.toLowerCase().trim().includes(normalized) || normalized.includes(cf.name.toLowerCase().trim())) {
+          mappings.push({
+            csvColumn: header,
+            atlasField: "__custom__",
+            customFieldId: cf.id,
+            isCustom: true,
+          });
+          matched = true;
+          break;
+        }
       }
     }
 
@@ -180,8 +349,19 @@ export function suggestMappings(headers: string[]): ColumnMapping[] {
 
 /**
  * Map CSV rows to Atlas leads using column mappings.
+ * Custom field mappings are captured in each lead's customFields record.
  */
-export function mapRowsToLeads(rows: CSVRow[], mappings: ColumnMapping[]): MappedLead[] {
+export function mapRowsToLeads(
+  rows: CSVRow[],
+  mappings: ColumnMapping[],
+  customFieldDefs: CustomFieldDefinition[] = [],
+): MappedLead[] {
+  // Build a lookup from custom field ID to definition
+  const cfDefById = new Map<string, CustomFieldDefinition>();
+  for (const cf of customFieldDefs) {
+    cfDefById.set(cf.id, cf);
+  }
+
   return rows.map((row, idx) => {
     const get = (field: string) => {
       const m = mappings.find((mp) => mp.atlasField === field);
@@ -191,6 +371,23 @@ export function mapRowsToLeads(rows: CSVRow[], mappings: ColumnMapping[]): Mappe
     const firstName = get("firstName");
     const lastName = get("lastName");
     const fullName = get("fullName") || [firstName, lastName].filter(Boolean).join(" ");
+
+    // Collect custom field values from the mapping
+    const customFields: MappedLead["customFields"] = {};
+    for (const m of mappings) {
+      if (m.isCustom && m.customFieldId) {
+        const def = cfDefById.get(m.customFieldId);
+        const rawValue = (row[m.csvColumn] ?? "").trim();
+        if (rawValue && def) {
+          customFields[m.customFieldId] = {
+            value: parseCustomFieldValue(rawValue, def.field_type),
+            fieldKey: def.key,
+            fieldName: def.name,
+            fieldType: def.field_type,
+          };
+        }
+      }
+    }
 
     return {
       firstName,
@@ -206,6 +403,7 @@ export function mapRowsToLeads(rows: CSVRow[], mappings: ColumnMapping[]): Mappe
       jobTitle: get("jobTitle"),
       source: get("source") || "csv_import",
       notes: get("notes"),
+      customFields,
       _raw: row,
       _rowIndex: idx,
     };
@@ -220,7 +418,7 @@ function normalizeUrl(url: string): string {
 }
 
 /**
- * Validate mapped leads.
+ * Validate mapped leads, including custom field value types.
  */
 export function validateLeads(leads: MappedLead[]): ValidationResult {
   const valid: MappedLead[] = [];
@@ -256,6 +454,16 @@ export function validateLeads(leads: MappedLead[]): ValidationResult {
     if (lead.companyName.length > 200) errors.push("Company name too long (max 200)");
     if (lead.email.length > 254) errors.push("Email too long");
     if (lead.notes.length > 5000) errors.push("Notes too long (max 5000)");
+
+    // Custom field type validation
+    for (const [, cf] of Object.entries(lead.customFields ?? {})) {
+      if (cf.value === null || cf.value === undefined || cf.value === "") continue;
+      const rawValue = String(cf.value);
+      const validationError = validateCustomFieldValue(rawValue, cf.fieldType, cf.fieldName);
+      if (validationError) {
+        errors.push(validationError);
+      }
+    }
 
     if (errors.length > 0) {
       invalid.push({ row: lead._raw, rowIndex: lead._rowIndex, errors });

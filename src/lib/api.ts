@@ -1447,6 +1447,13 @@ pilotIntelligence: {
     createTask: def<Obj>("crm_create_task", "mutation"),
     completeTask: def<{ ok: boolean }>("crm_complete_task", "mutation"),
     dashboardStats: def<Obj>("crm_dashboard_stats", "query"),
+    // Custom fields
+    listCustomFields: def<ObjArray>("crm_list_custom_fields", "query"),
+    createCustomField: def<Obj>("crm_create_custom_field", "mutation"),
+    deleteCustomField: def<{ ok: boolean }>("crm_delete_custom_field", "mutation"),
+    getCustomFieldValues: def<ObjArray>("crm_get_custom_field_values", "query"),
+    upsertCustomFieldValue: def<Obj>("crm_upsert_custom_field_value", "mutation"),
+    bulkUpsertCustomFieldValues: def<{ count: number }>("crm_bulk_upsert_custom_field_values", "mutation"),
   },
   email: {
     listTemplates: def<ObjArray>("email_list_templates", "query"),

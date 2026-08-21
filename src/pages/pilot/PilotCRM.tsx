@@ -54,7 +54,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CSVImportDialog } from "@/components/CSVImportDialog";
-import { type MappedLead } from "@/lib/crm/csv-import";
+import { type MappedLead, type CustomFieldDefinition } from "@/lib/crm/csv-import";
 
 const STAGES = [
   { key: "new", label: "New", color: "bg-blue-500" },
@@ -96,11 +96,16 @@ export default function PilotCRM() {
 
   const leads = useQuery(api.crm.listLeads);
   const tasks = useQuery(api.crm.listTasks);
+  const customFieldsRaw = useQuery(api.crm.listCustomFields);
   const createLead = useMutation(api.crm.createLead);
   const updateLead = useMutation(api.crm.updateLead);
   const deleteLead = useMutation(api.crm.deleteLead);
   const addActivity = useMutation(api.crm.addActivity);
   const createTask = useMutation(api.crm.createTask);
+  const createCustomField = useMutation(api.crm.createCustomField);
+  const bulkUpsertCfv = useMutation(api.crm.bulkUpsertCustomFieldValues);
+
+  const customFields = (customFieldsRaw ?? []) as unknown as CustomFieldDefinition[];
 
   const filteredLeads = (leads ?? []).filter((l: any) => {
     if (!search) return true;
@@ -193,10 +198,26 @@ export default function PilotCRM() {
     toast.success(`Updated ${selectedIds.size} leads to ${stage}`);
   };
 
+  const handleCreateCustomField = async (field: {
+    name: string;
+    key: string;
+    field_type: string;
+    entity_type: string;
+  }): Promise<CustomFieldDefinition> => {
+    const result = await createCustomField({
+      name: field.name,
+      key: field.key,
+      fieldType: field.field_type,
+      entityType: field.entity_type,
+    }) as unknown as CustomFieldDefinition;
+    invalidateQueries();
+    return result;
+  };
+
   const handleImportComplete = async (leads: MappedLead[], _batchId: string) => {
     for (const lead of leads) {
       try {
-        await createLead({
+        const createdLead = await createLead({
           companyName: lead.companyName,
           contactName: lead.fullName || undefined,
           contactEmail: lead.email || undefined,
@@ -204,7 +225,21 @@ export default function PilotCRM() {
           website: lead.website || undefined,
           source: lead.source || undefined,
           notes: lead.notes || undefined,
-        });
+        }) as unknown as { id: string };
+
+        // Upsert custom field values if any exist for this lead
+        const cfEntries = Object.entries(lead.customFields);
+        if (cfEntries.length > 0 && createdLead?.id) {
+          const values = cfEntries.map(([fieldId, cf]) => ({
+            fieldId,
+            value: cf.value,
+          }));
+          try {
+            await bulkUpsertCfv({ leadId: createdLead.id, values });
+          } catch {
+            // Custom field value upsert is best-effort
+          }
+        }
       } catch {
         // continue — individual failures shouldn't stop the batch
       }
@@ -408,6 +443,8 @@ export default function PilotCRM() {
           contact_email: l.contact_email,
           company_name: l.company_name,
         }))}
+        customFields={customFields}
+        onCreateCustomField={handleCreateCustomField}
       />
 
       {/* New Lead Dialog */}
@@ -663,6 +700,21 @@ function LeadDetail({
         )}
       </div>
 
+      {/* Custom Fields */}
+      {Array.isArray(lead.custom_field_values) && lead.custom_field_values.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">Custom Fields</p>
+          <div className="grid grid-cols-2 gap-2">
+            {lead.custom_field_values.map((cfv: any) => (
+              <div key={cfv.fieldId} className="text-sm">
+                <p className="text-[11px] text-muted-foreground">{cfv.fieldName}</p>
+                <p>{formatCustomFieldValue(cfv.value)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Add Activity */}
       <div className="space-y-2 rounded-lg border border-border/60 p-3">
         <p className="text-xs font-medium text-muted-foreground">
@@ -815,4 +867,13 @@ function FormField({
       />
     </div>
   );
+}
+
+/** Format a custom field value for display */
+function formatCustomFieldValue(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value)) return value.join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }

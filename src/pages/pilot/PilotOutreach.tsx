@@ -37,6 +37,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { generateOutreach, type LeadContext } from "@/lib/crm/ai-outreach";
 
 export default function PilotOutreach() {
   const [tab, setTab] = useState("outreach");
@@ -297,6 +298,9 @@ function ComposeView() {
   const templates = useQuery(api.email.listTemplates);
   const leads = useQuery(api.crm.listLeads);
   const [sending, setSending] = useState(false);
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [showAi, setShowAi] = useState(false);
   const [form, setForm] = useState({
     recipientEmail: "",
     recipientName: "",
@@ -343,9 +347,121 @@ function ComposeView() {
     }
   };
 
+  const handleAiGenerate = async () => {
+    if (!aiInstruction.trim()) {
+      toast.error("Tell Atlas what you want to say");
+      return;
+    }
+    setAiGenerating(true);
+    try {
+      // Build lead context from selected lead
+      const selectedLead = form.leadId
+        ? (leads ?? []).find((l: any) => l.id === form.leadId)
+        : null;
+
+      const leadContext: LeadContext = selectedLead
+        ? {
+            firstName: (selectedLead.contact_name ?? "").split(" ")[0] || "",
+            lastName: (selectedLead.contact_name ?? "").split(" ").slice(1).join(" ") || "",
+            fullName: selectedLead.contact_name || "",
+            companyName: selectedLead.company_name || "",
+            industry: selectedLead.contractor_type || "",
+            city: "",
+            state: "",
+            serviceArea: "",
+            website: selectedLead.website || "",
+            jobTitle: "",
+            notes: selectedLead.notes || "",
+            previousActivities: [],
+          }
+        : {
+            firstName: "",
+            lastName: "",
+            fullName: "",
+            companyName: "",
+            industry: "",
+            city: "",
+            state: "",
+            serviceArea: "",
+            website: "",
+            jobTitle: "",
+            notes: "",
+            previousActivities: [],
+          };
+
+      const result = await generateOutreach({
+        leadContext,
+        instruction: aiInstruction,
+        tone: "founder-led",
+        length: "medium",
+      });
+
+      setForm((p) => ({
+        ...p,
+        subject: result.subject,
+        body: result.body,
+      }));
+      toast.success("Outreach generated — review and edit below");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI generation failed");
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_300px]">
       <div className="space-y-4">
+        {/* AI Generation Panel */}
+        <div className="rounded-lg border border-teal-400/30 bg-teal-500/5 p-4">
+          <button
+            type="button"
+            onClick={() => setShowAi(!showAi)}
+            className="flex w-full items-center justify-between text-sm font-medium text-foreground"
+          >
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-teal-500" />
+              AI Outreach Generator
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {showAi ? "Collapse" : "Expand"}
+            </span>
+          </button>
+          {showAi && (
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Describe what you want to communicate. Atlas will generate a
+                subject and email body. Select a lead above to personalize it.
+              </p>
+              <textarea
+                value={aiInstruction}
+                onChange={(e) => setAiInstruction(e.target.value)}
+                placeholder="Introduce Atlas and explain we're selecting a small group of roofing contractors for our pilot. Keep it short and founder-led."
+                rows={3}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono"
+              />
+              <Button
+                size="sm"
+                disabled={aiGenerating || !aiInstruction.trim()}
+                onClick={handleAiGenerate}
+                className="bg-teal-600 hover:bg-teal-700"
+              >
+                {aiGenerating ? (
+                  <>
+                    <Loader2 className="mr-1 size-3 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="mr-1 size-3" />
+                    Generate Outreach
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+
         <div className="space-y-1.5">
           <Label className="text-xs">
             Recipient Email <span className="text-red-500">*</span>

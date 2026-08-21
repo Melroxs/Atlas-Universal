@@ -47,11 +47,14 @@ import {
   Star,
   Tag,
   Trash2,
+  Upload,
   User,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { CSVImportDialog } from "@/components/CSVImportDialog";
+import { type MappedLead } from "@/lib/crm/csv-import";
 
 const STAGES = [
   { key: "new", label: "New", color: "bg-blue-500" },
@@ -88,6 +91,8 @@ export default function PilotCRM() {
   const [showNewLead, setShowNewLead] = useState(false);
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const leads = useQuery(api.crm.listLeads);
   const tasks = useQuery(api.crm.listTasks);
@@ -158,6 +163,55 @@ export default function PilotCRM() {
     }
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredLeads.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredLeads.map((l: any) => l.id)));
+    }
+  };
+
+  const handleBulkStageChange = async (stage: string) => {
+    for (const id of selectedIds) {
+      try {
+        await updateLead({ leadId: id, pipelineStage: stage });
+      } catch {
+        // continue
+      }
+    }
+    setSelectedIds(new Set());
+    invalidateQueries();
+    toast.success(`Updated ${selectedIds.size} leads to ${stage}`);
+  };
+
+  const handleImportComplete = async (leads: MappedLead[], _batchId: string) => {
+    for (const lead of leads) {
+      try {
+        await createLead({
+          companyName: lead.companyName,
+          contactName: lead.fullName || undefined,
+          contactEmail: lead.email || undefined,
+          contactPhone: lead.phone || undefined,
+          website: lead.website || undefined,
+          source: lead.source || undefined,
+          notes: lead.notes || undefined,
+        });
+      } catch {
+        // continue — individual failures shouldn't stop the batch
+      }
+    }
+    invalidateQueries();
+  };
+
   const openDetail = (lead: any) => {
     setSelectedLead(lead);
     setShowDetail(true);
@@ -168,7 +222,33 @@ export default function PilotCRM() {
       <PageHeader
         title="CRM"
         description={`${leads?.length ?? 0} leads in pipeline`}
-        actions={<div className="flex items-center gap-2">
+        actions={        <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-2 mr-2">
+              <span className="text-xs text-muted-foreground">
+                {selectedIds.size} selected
+              </span>
+              <select
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs"
+                defaultValue=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleBulkStageChange(e.target.value);
+                    e.target.value = "";
+                  }
+                }}
+              >
+                <option value="" disabled>
+                  Move to...
+                </option>
+                {STAGES.map((s) => (
+                  <option key={s.key} value={s.key}>
+                    → {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <Button
             variant={view === "kanban" ? "default" : "outline"}
             size="sm"
@@ -182,6 +262,10 @@ export default function PilotCRM() {
             onClick={() => setView("list")}
           >
             List
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => setShowImport(true)}>
+            <Upload className="mr-1 size-3" />
+            Import CSV
           </Button>
           <Button size="sm" onClick={() => setShowNewLead(true)}>
             <Plus className="mr-1 size-3" />
@@ -276,6 +360,13 @@ export default function PilotCRM() {
                 className="flex items-center gap-4 rounded-xl border border-border/60 bg-card p-4 cursor-pointer hover:border-teal-400/30 transition-colors"
                 onClick={() => openDetail(lead)}
               >
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(lead.id)}
+                  onChange={() => toggleSelect(lead.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  className="size-3.5 shrink-0 accent-teal-600"
+                />
                 <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted/50 text-sm font-semibold">
                   {(lead.company_name ?? "?")[0]?.toUpperCase()}
                 </div>
@@ -306,6 +397,18 @@ export default function PilotCRM() {
           )}
         </div>
       )}
+
+      {/* CSV Import Dialog */}
+      <CSVImportDialog
+        open={showImport}
+        onClose={() => setShowImport(false)}
+        onImportComplete={handleImportComplete}
+        existingLeads={(leads ?? []).map((l: any) => ({
+          id: l.id,
+          contact_email: l.contact_email,
+          company_name: l.company_name,
+        }))}
+      />
 
       {/* New Lead Dialog */}
       <Dialog open={showNewLead} onOpenChange={setShowNewLead}>

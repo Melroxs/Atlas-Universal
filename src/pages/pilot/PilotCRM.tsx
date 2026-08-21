@@ -215,6 +215,12 @@ export default function PilotCRM() {
   };
 
   const handleImportComplete = async (leads: MappedLead[], _batchId: string) => {
+    let imported = 0;
+    let failed = 0;
+    let cfValuesImported = 0;
+    let cfValuesFailed = 0;
+    const errors: string[] = [];
+
     for (const lead of leads) {
       try {
         const createdLead = await createLead({
@@ -227,24 +233,43 @@ export default function PilotCRM() {
           notes: lead.notes || undefined,
         }) as unknown as { id: string };
 
-        // Upsert custom field values if any exist for this lead
-        const cfEntries = Object.entries(lead.customFields);
-        if (cfEntries.length > 0 && createdLead?.id) {
-          const values = cfEntries.map(([fieldId, cf]) => ({
-            fieldId,
-            value: cf.value,
-          }));
-          try {
-            await bulkUpsertCfv({ leadId: createdLead.id, values });
-          } catch {
-            // Custom field value upsert is best-effort
+        if (createdLead?.id) {
+          imported++;
+          // Upsert custom field values if any exist for this lead
+          const cfEntries = Object.entries(lead.customFields);
+          if (cfEntries.length > 0) {
+            const values = cfEntries.map(([fieldId, cf]) => ({
+              fieldId,
+              value: cf.value,
+            }));
+            try {
+              await bulkUpsertCfv({ leadId: createdLead.id, values });
+              cfValuesImported += values.length;
+            } catch (cfError) {
+              cfValuesFailed += values.length;
+              errors.push(`Custom fields for "${lead.companyName}": ${cfError instanceof Error ? cfError.message : "failed"}`);
+            }
           }
+        } else {
+          failed++;
+          errors.push(`"${lead.companyName}": no ID returned`);
         }
-      } catch {
-        // continue — individual failures shouldn't stop the batch
+      } catch (e) {
+        failed++;
+        errors.push(`"${lead.companyName}": ${e instanceof Error ? e.message : "unknown error"}`);
       }
     }
+
     invalidateQueries();
+
+    // Surface import results to the user
+    if (failed === 0) {
+      toast.success(`Imported ${imported} leads` + (cfValuesImported > 0 ? ` with ${cfValuesImported} custom field values` : ""));
+    } else if (imported === 0) {
+      toast.error(`Import failed — 0 leads imported. ${errors[0] ?? "Check console for details."}`);
+    } else {
+      toast.warning(`Imported ${imported} leads, ${failed} failed. ${errors.length > 0 ? errors[0] : ""}`);
+    }
   };
 
   const openDetail = (lead: any) => {

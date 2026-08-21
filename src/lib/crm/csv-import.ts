@@ -434,15 +434,14 @@ export function validateLeads(leads: MappedLead[]): ValidationResult {
       continue;
     }
 
-    // Required field validation
-    if (!lead.email) {
-      errors.push("Email is required");
-    } else if (!isValidEmail(lead.email)) {
-      errors.push(`Invalid email: ${lead.email}`);
-    }
-
+    // Required field validation — company name is always required;
+    // email is strongly recommended but not blocking for company-only imports
     if (!lead.companyName) {
       errors.push("Company name is required");
+    }
+
+    if (lead.email && !isValidEmail(lead.email)) {
+      errors.push(`Invalid email: ${lead.email}`);
     }
 
     // URL validation

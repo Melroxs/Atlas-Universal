@@ -207,12 +207,11 @@ describe("validateLeads", () => {
     expect(result.stats.validCount).toBe(0); // set after dedup
   });
 
-  it("rejects leads missing email", () => {
+  it("accepts leads missing email when company name is present", () => {
     const leads = [toMapped("ABC", "")];
     const result = validateLeads(leads);
-    expect(result.valid).toHaveLength(0);
-    expect(result.invalid).toHaveLength(1);
-    expect(result.invalid[0].errors[0]).toContain("Email is required");
+    expect(result.valid).toHaveLength(1);
+    expect(result.invalid).toHaveLength(0);
   });
 
   it("rejects leads with invalid email", () => {

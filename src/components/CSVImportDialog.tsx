@@ -150,13 +150,25 @@ export function CSVImportDialog({
   );
 
   const handleMappingChange = (csvColumn: string, atlasField: string) => {
-    setMappings((prev) =>
-      prev.map((m) =>
-        m.csvColumn === csvColumn
-          ? { csvColumn, atlasField, customFieldId: atlasField === "__custom__" ? undefined : undefined, isCustom: atlasField === "__custom__" }
-          : m,
-      ),
-    );
+    // Parse composite "__custom__:cf_id" values from the select dropdown
+    if (atlasField.startsWith("__custom__:")) {
+      const customFieldId = atlasField.split(":")[1];
+      setMappings((prev) =>
+        prev.map((m) =>
+          m.csvColumn === csvColumn
+            ? { ...m, csvColumn, atlasField: "__custom__", customFieldId, isCustom: true }
+            : m,
+        ),
+      );
+    } else {
+      setMappings((prev) =>
+        prev.map((m) =>
+          m.csvColumn === csvColumn
+            ? { ...m, csvColumn, atlasField, customFieldId: undefined, isCustom: false }
+            : m,
+        ),
+      );
+    }
   };
 
   const handleMappingToCustom = (csvColumn: string, customFieldId: string) => {

@@ -54,6 +54,8 @@ import {
   Workflow,
   Zap,
   Mail,
+  FileText,
+  Send,
 } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
@@ -119,11 +121,20 @@ const NAV_SECTIONS: Array<{
   {
     label: "Pilot",
     items: [
-      { to: "/dashboard/pilot-intelligence", label: "Pilot Intelligence", icon: Radar },
-      { to: "/dashboard/pilot-intelligence/companies", label: "Pilot Companies", icon: Building2 },
-      { to: "/dashboard/pilot-intelligence/sessions", label: "Pilot Sessions", icon: Calendar },
-      { to: "/dashboard/pilot-intelligence/insights", label: "Pilot Insights", icon: Lightbulb },
-      { to: "/dashboard/pilot-intelligence/outcomes", label: "Pilot Outcomes", icon: Target },
+      { to: "/dashboard/pilot", label: "Command Center", icon: Radar },
+      { to: "/dashboard/pilot/applications", label: "Applications", icon: FileText },
+      { to: "/dashboard/pilot/crm", label: "CRM", icon: Users },
+      { to: "/dashboard/pilot/outreach", label: "Outreach", icon: Send },
+    ],
+  },
+  {
+    label: "Pilot Intelligence",
+    items: [
+      { to: "/dashboard/pilot-intelligence", label: "Intelligence", icon: Radar },
+      { to: "/dashboard/pilot-intelligence/companies", label: "Companies", icon: Building2 },
+      { to: "/dashboard/pilot-intelligence/sessions", label: "Sessions", icon: Calendar },
+      { to: "/dashboard/pilot-intelligence/insights", label: "Insights", icon: Lightbulb },
+      { to: "/dashboard/pilot-intelligence/outcomes", label: "Outcomes", icon: Target },
     ],
   },
 ];
@@ -151,6 +162,10 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/pilot-intelligence/outcomes": "Pilot Outcomes",
   "/dashboard/mail": "Atlas Mail",
   "/dashboard/mail/settings": "Mail Settings",
+  "/dashboard/pilot": "Pilot Command Center",
+  "/dashboard/pilot/applications": "Pilot Applications",
+  "/dashboard/pilot/crm": "CRM",
+  "/dashboard/pilot/outreach": "Outreach Center",
 };
 
 function initials(name?: string | null, email?: string | null): string {

@@ -15,13 +15,17 @@ import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Building2,
   Check,
+  KeyRound,
   Loader2,
+  Mail,
   Plus,
   ServerCog,
+  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { getSupabaseClient } from "@/lib/supabase";
 
 const SIZES = ["1–10", "11–50", "51–200", "201–500", "501–2000", "2000+"];
 const INDUSTRIES = [
@@ -251,6 +255,9 @@ export default function Settings() {
         </div>
       </section>
 
+      {/* Account Security */}
+      <AccountSecurity />
+
       {/* Systems */}
       <section className="rounded-xl border border-border/70 bg-card/60 p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -366,5 +373,156 @@ export default function Settings() {
         Removing systems is available to workspace owners through the administrative console.
       </p>
     </div>
+  );
+}
+
+function AccountSecurity() {
+  const [passwordForm, setPasswordForm] = useState({
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [emailForm, setEmailForm] = useState({ newEmail: "" });
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [changingEmail, setChangingEmail] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!passwordForm.newPassword) {
+      toast.error("Password is required");
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    if (passwordForm.newPassword.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase not configured");
+      const { error } = await supabase.auth.updateUser({
+        password: passwordForm.newPassword,
+      });
+      if (error) throw error;
+      toast.success("Password updated");
+      setPasswordForm({ newPassword: "", confirmPassword: "" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update password");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  const handleChangeEmail = async () => {
+    if (!emailForm.newEmail) {
+      toast.error("New email is required");
+      return;
+    }
+    setChangingEmail(true);
+    try {
+      const supabase = getSupabaseClient();
+      if (!supabase) throw new Error("Supabase not configured");
+      const { error } = await supabase.auth.updateUser({
+        email: emailForm.newEmail,
+      });
+      if (error) throw error;
+      toast.success("Verification email sent. Check your inbox.");
+      setEmailForm({ newEmail: "" });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update email");
+    } finally {
+      setChangingEmail(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl border border-border/70 bg-card/60 p-5">
+      <h2 className="flex items-center gap-2 text-sm font-semibold">
+        <ShieldCheck className="size-4 text-teal-600 dark:text-teal-300" />
+        Account Security
+      </h2>
+
+      {/* Password */}
+      <div className="mt-4 space-y-3">
+        <h3 className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <KeyRound className="size-3.5" />
+          Change Password
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">New Password</Label>
+            <Input
+              type="password"
+              value={passwordForm.newPassword}
+              onChange={(e) =>
+                setPasswordForm((p) => ({ ...p, newPassword: e.target.value }))
+              }
+              placeholder="Min 8 characters"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Confirm Password</Label>
+            <Input
+              type="password"
+              value={passwordForm.confirmPassword}
+              onChange={(e) =>
+                setPasswordForm((p) => ({ ...p, confirmPassword: e.target.value }))
+              }
+              placeholder="Confirm new password"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={changingPassword}
+            onClick={handleChangePassword}
+          >
+            {changingPassword ? (
+              <Loader2 className="mr-1 size-3 animate-spin" />
+            ) : (
+              <KeyRound className="mr-1 size-3" />
+            )}
+            Update Password
+          </Button>
+        </div>
+      </div>
+
+      {/* Email */}
+      <div className="mt-5 space-y-3 border-t border-border/60 pt-5">
+        <h3 className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+          <Mail className="size-3.5" />
+          Change Email
+        </h3>
+        <p className="text-[11px] text-muted-foreground/70">
+          A verification email will be sent to confirm the change.
+        </p>
+        <div className="flex gap-3">
+          <Input
+            type="email"
+            value={emailForm.newEmail}
+            onChange={(e) => setEmailForm({ newEmail: e.target.value })}
+            placeholder="new-email@example.com"
+            className="max-w-sm"
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={changingEmail}
+            onClick={handleChangeEmail}
+          >
+            {changingEmail ? (
+              <Loader2 className="mr-1 size-3 animate-spin" />
+            ) : (
+              <Mail className="mr-1 size-3" />
+            )}
+            Update Email
+          </Button>
+        </div>
+      </div>
+    </section>
   );
 }

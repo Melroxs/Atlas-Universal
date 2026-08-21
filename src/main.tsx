@@ -43,6 +43,10 @@ const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
 const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
+const PilotHub = lazy(() => import("./pages/pilot/PilotHub.tsx"));
+const PilotApplications = lazy(() => import("./pages/pilot/PilotApplications.tsx"));
+const PilotCRM = lazy(() => import("./pages/pilot/PilotCRM.tsx"));
+const PilotOutreach = lazy(() => import("./pages/pilot/PilotOutreach.tsx"));
 
 /** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -348,6 +352,38 @@ createRoot(document.getElementById("root")!).render(
                 element={
                   <ProtectedLayout>
                     <PilotOutcomes />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot"
+                element={
+                  <ProtectedLayout>
+                    <PilotHub />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot/applications"
+                element={
+                  <ProtectedLayout>
+                    <PilotApplications />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot/crm"
+                element={
+                  <ProtectedLayout>
+                    <PilotCRM />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot/outreach"
+                element={
+                  <ProtectedLayout>
+                    <PilotOutreach />
                   </ProtectedLayout>
                 }
               />

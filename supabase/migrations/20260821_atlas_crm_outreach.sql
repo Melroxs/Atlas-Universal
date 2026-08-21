@@ -604,11 +604,11 @@ $$;
 -- ── Email Outreach ──────────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.email_create_outreach(
-  p_lead_id uuid DEFAULT NULL,
   p_recipient_email text,
-  p_recipient_name text DEFAULT NULL,
   p_subject text,
   p_body text,
+  p_lead_id uuid DEFAULT NULL,
+  p_recipient_name text DEFAULT NULL,
   p_template_id uuid DEFAULT NULL,
   p_outreach_type text DEFAULT 'manual'
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$

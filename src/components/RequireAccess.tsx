@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { evaluateAtlasAccess } from "@/lib/auth/access-gate";
 import { Loader2, ShieldAlert } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
@@ -6,11 +7,10 @@ import { Link } from "react-router";
 /**
  * Wraps children and only renders them when the user is:
  *   1. Authenticated (has a valid session)
- *   2. Has an "active" account status
- *   3. Has an approved membership
+ *   2. Authorized by the Atlas access gate (super_admin or active account)
  *
- * When the user is authenticated but not approved, shows an access-denied
- * page that directs them to request pilot access.
+ * Authorization is independent of authentication — there is deliberately NO
+ * provider-based bypass. A missing profile fails closed.
  */
 export function RequireAccess({ children }: { children: ReactNode }) {
   const { isLoading, isAuthenticated, user } = useAuth();
@@ -35,22 +35,14 @@ export function RequireAccess({ children }: { children: ReactNode }) {
     );
   }
 
-  // Check account status
-  const accountStatus = user?.account_status ?? "pending";
-  const platformRole = user?.platform_role ?? "user";
+  const decision = evaluateAtlasAccess(user);
 
-  // Super admins always have access
-  if (platformRole === "super_admin") {
-    return <>{children}</>;
-  }
-
-  // Active users with memberships have access
-  if (accountStatus === "active") {
+  if (decision.allowed) {
     return <>{children}</>;
   }
 
   // Suspended/revoked users
-  if (accountStatus === "suspended" || accountStatus === "revoked") {
+  if (decision.reason === "suspended" || decision.reason === "revoked") {
     return (
       <AccessDenied
         message="Your Atlas access has been suspended. Please contact support for assistance."
@@ -60,7 +52,8 @@ export function RequireAccess({ children }: { children: ReactNode }) {
     );
   }
 
-  // Pending users — show access denied with consultation CTA
+  // Pending / missing-profile / unknown users — access denied with
+  // consultation CTA. No internal authorization details are revealed.
   return (
     <AccessDenied
       message="Atlas access has not been approved for this account. Atlas is currently available through our pilot program. Request a consultation to get started."

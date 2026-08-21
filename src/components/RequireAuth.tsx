@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
+import { evaluateAtlasAccess } from "@/lib/auth/access-gate";
 import { Loader2 } from "lucide-react";
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router";
@@ -25,17 +26,15 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
 
-  // Check account status — super admins always pass; others need active status
-  const platformRole = user?.platform_role ?? "user";
-  const accountStatus = user?.account_status ?? "pending";
-
-  if (platformRole !== "super_admin" && accountStatus !== "active") {
-    return (
-      <Navigate
-        to="/access-denied"
-        replace
-      />
-    );
+  // Authorization is independent of authentication: a valid session does NOT
+  // imply an approved account. The gate fails closed — super_admin or an
+  // active account_status passes; pending/suspended/revoked/missing profiles
+  // are denied. There is deliberately NO provider-based bypass: whichever
+  // identity provider authenticated the user, Atlas authorization still
+  // applies.
+  const decision = evaluateAtlasAccess(user);
+  if (!decision.allowed) {
+    return <Navigate to="/access-denied" replace />;
   }
 
   return children;

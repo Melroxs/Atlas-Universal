@@ -45,6 +45,7 @@ const MailInbox = lazy(() => import("./pages/mail/MailInbox.tsx"));
 const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
 const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 
 /** Protected section: auth gate + access gate + workspace shell. */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -392,6 +393,10 @@ createRoot(document.getElementById("root")!).render(
                 <Route
                   path="/access-denied"
                   element={<AccessDenied />}
+                />
+                <Route
+                  path="/reset-password"
+                  element={<ResetPassword />}
                 />
                 <Route path="*" element={<NotFound />} />
               </Routes>

@@ -2,14 +2,11 @@ import '@vly-ai/integrations';
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { RequireAccess } from "@/components/RequireAccess";
 import { AppShell } from "@/components/app-shell";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
-import { clerkPublishableKey, isClerkConfigured } from "@/lib/clerk-config";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes, useLocation } from "react-router";
-import { ClerkProvider } from "@clerk/react";
 import "./index.css";
 
 // Lazy load route components for better code splitting
@@ -47,13 +44,11 @@ const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 
-/** Protected section: auth gate + access gate + workspace shell. */
+/** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
-      <RequireAccess>
-        <AppShell>{children}</AppShell>
-      </RequireAccess>
+      <AppShell>{children}</AppShell>
     </RequireAuth>
   );
 }
@@ -146,19 +141,6 @@ function RouteSyncer() {
   return null;
 }
 
-/**
- * Wraps children in ClerkProvider when a valid key is configured.
- * Uses a synchronous import — no lazy loading, no Suspense boundary needed.
- * When Clerk is not configured, renders children directly.
- */
-function ClerkGate({ children }: { children: React.ReactNode }) {
-  if (!isClerkConfigured) return <>{children}</>;
-  return (
-    <ClerkProvider publishableKey={clerkPublishableKey} afterSignOutUrl="/">
-      {children}
-    </ClerkProvider>
-  );
-}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -166,245 +148,243 @@ createRoot(document.getElementById("root")!).render(
       <ToolbarErrorBoundary>
         <VlyToolbar />
       </ToolbarErrorBoundary>
-      <ClerkGate>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="atlas-theme">
-          <BrowserRouter>
-            <RouteSyncer />
-            <Suspense fallback={<RouteLoading />}>
-              <Routes>
-                <Route path="/" element={<Landing />} />
-                <Route path="/pilot" element={<Pilot />} />
-                <Route
-                  path="/auth"
-                  element={<AuthPage redirectAfterAuth="/dashboard" />}
-                />
-                <Route
-                  path="/setup"
-                  element={
-                    <RequireAuth>
-                      <Setup />
-                    </RequireAuth>
-                  }
-                />
-                <Route
-                  path="/dashboard"
-                  element={
-                    <ProtectedLayout>
-                      <Dashboard />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/ask"
-                  element={
-                    <ProtectedLayout>
-                      <Ask />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/knowledge"
-                  element={
-                    <ProtectedLayout>
-                      <Knowledge />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/knowledge/archives/:id"
-                  element={
-                    <ProtectedLayout>
-                      <ArchiveDetail />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/knowledge/:id"
-                  element={
-                    <ProtectedLayout>
-                      <KnowledgeDetail />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/intelligence"
-                  element={
-                    <ProtectedLayout>
-                      <Intelligence />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/brain"
-                  element={
-                    <ProtectedLayout>
-                      <BusinessBrain />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/recommendations"
-                  element={
-                    <ProtectedLayout>
-                      <Recommendations />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/connections"
-                  element={
-                    <ProtectedLayout>
-                      <Connections />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/actions"
-                  element={
-                    <ProtectedLayout>
-                      <Actions />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/events"
-                  element={
-                    <ProtectedLayout>
-                      <Events />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/workflows"
-                  element={
-                    <ProtectedLayout>
-                      <Workflows />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/workflows/:id"
-                  element={
-                    <ProtectedLayout>
-                      <WorkflowDetail />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/revenue-recovery"
-                  element={
-                    <ProtectedLayout>
-                      <RevenueRecovery />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/revenue-recovery/:id"
-                  element={
-                    <ProtectedLayout>
-                      <ClaimDetail />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/team"
-                  element={
-                    <ProtectedLayout>
-                      <Team />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/audit"
-                  element={
-                    <ProtectedLayout>
-                      <Audit />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/settings"
-                  element={
-                    <ProtectedLayout>
-                      <Settings />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/pilot-intelligence"
-                  element={
-                    <ProtectedLayout>
-                      <PilotIntelligence />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/pilot-intelligence/companies"
-                  element={
-                    <ProtectedLayout>
-                      <PilotCompanies />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/pilot-intelligence/sessions"
-                  element={
-                    <ProtectedLayout>
-                      <PilotSessions />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/pilot-intelligence/insights"
-                  element={
-                    <ProtectedLayout>
-                      <PilotInsights />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/pilot-intelligence/outcomes"
-                  element={
-                    <ProtectedLayout>
-                      <PilotOutcomes />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/mail"
-                  element={
-                    <ProtectedLayout>
-                      <MailInbox />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/dashboard/mail/settings"
-                  element={
-                    <ProtectedLayout>
-                      <MailSettings />
-                    </ProtectedLayout>
-                  }
-                />
-                <Route
-                  path="/pilot-apply"
-                  element={<PilotApply />}
-                />
-                <Route
-                  path="/access-denied"
-                  element={<AccessDenied />}
-                />
-                <Route
-                  path="/reset-password"
-                  element={<ResetPassword />}
-                />
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Suspense>
-          </BrowserRouter>
-          <Toaster />
-        </ThemeProvider>
-      </ClerkGate>
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="atlas-theme">
+        <BrowserRouter>
+          <RouteSyncer />
+          <Suspense fallback={<RouteLoading />}>
+            <Routes>
+              <Route path="/" element={<Landing />} />
+              <Route path="/pilot" element={<Pilot />} />
+              <Route
+                path="/auth"
+                element={<AuthPage redirectAfterAuth="/dashboard" />}
+              />
+              <Route
+                path="/setup"
+                element={
+                  <RequireAuth>
+                    <Setup />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedLayout>
+                    <Dashboard />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/ask"
+                element={
+                  <ProtectedLayout>
+                    <Ask />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/knowledge"
+                element={
+                  <ProtectedLayout>
+                    <Knowledge />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/knowledge/archives/:id"
+                element={
+                  <ProtectedLayout>
+                    <ArchiveDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/knowledge/:id"
+                element={
+                  <ProtectedLayout>
+                    <KnowledgeDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/intelligence"
+                element={
+                  <ProtectedLayout>
+                    <Intelligence />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/brain"
+                element={
+                  <ProtectedLayout>
+                    <BusinessBrain />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/recommendations"
+                element={
+                  <ProtectedLayout>
+                    <Recommendations />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/connections"
+                element={
+                  <ProtectedLayout>
+                    <Connections />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/actions"
+                element={
+                  <ProtectedLayout>
+                    <Actions />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/events"
+                element={
+                  <ProtectedLayout>
+                    <Events />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/workflows"
+                element={
+                  <ProtectedLayout>
+                    <Workflows />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/workflows/:id"
+                element={
+                  <ProtectedLayout>
+                    <WorkflowDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/revenue-recovery"
+                element={
+                  <ProtectedLayout>
+                    <RevenueRecovery />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/revenue-recovery/:id"
+                element={
+                  <ProtectedLayout>
+                    <ClaimDetail />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/team"
+                element={
+                  <ProtectedLayout>
+                    <Team />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/audit"
+                element={
+                  <ProtectedLayout>
+                    <Audit />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/settings"
+                element={
+                  <ProtectedLayout>
+                    <Settings />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence"
+                element={
+                  <ProtectedLayout>
+                    <PilotIntelligence />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/companies"
+                element={
+                  <ProtectedLayout>
+                    <PilotCompanies />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/sessions"
+                element={
+                  <ProtectedLayout>
+                    <PilotSessions />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/insights"
+                element={
+                  <ProtectedLayout>
+                    <PilotInsights />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/outcomes"
+                element={
+                  <ProtectedLayout>
+                    <PilotOutcomes />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/mail"
+                element={
+                  <ProtectedLayout>
+                    <MailInbox />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/mail/settings"
+                element={
+                  <ProtectedLayout>
+                    <MailSettings />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/pilot-apply"
+                element={<PilotApply />}
+              />
+              <Route
+                path="/access-denied"
+                element={<AccessDenied />}
+              />
+              <Route
+                path="/reset-password"
+                element={<ResetPassword />}
+              />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+        <Toaster />
+      </ThemeProvider>
     </RootErrorBoundary>
   </StrictMode>,
 );

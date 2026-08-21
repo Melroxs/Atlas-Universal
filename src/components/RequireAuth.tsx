@@ -29,9 +29,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // Authorization is independent of authentication: a valid session does NOT
   // imply an approved account. The gate fails closed — super_admin or an
   // active account_status passes; pending/suspended/revoked/missing profiles
-  // are denied. There is deliberately NO provider-based bypass: whichever
-  // identity provider authenticated the user, Atlas authorization still
-  // applies.
+  // are denied. There is deliberately NO provider-based bypass.
   const decision = evaluateAtlasAccess(user);
   if (!decision.allowed) {
     return <Navigate to="/access-denied" replace />;

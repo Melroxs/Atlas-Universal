@@ -146,10 +146,21 @@ export async function supabaseAnonymousSignIn(): Promise<User> {
   return data.user;
 }
 
-/** Send Supabase's password-reset email. Throws with an error code on failure. */
+/**
+ * Send Supabase's password-reset email.
+ *
+ * The `redirectTo` ensures the recovery link opens the correct production URL
+ * rather than the Supabase Dashboard Site URL (which may be localhost during
+ * development). The Site URL in the Supabase Dashboard must also be updated
+ * to the production domain.
+ */
 export async function supabaseSendPasswordReset(email: string): Promise<void> {
+  const appOrigin = typeof window !== "undefined"
+    ? window.location.origin
+    : "https://atlas-ai-os.com";
+
   const { error } = await getClient().auth.resetPasswordForEmail(email.trim(), {
-    redirectTo: `${window.location.origin}/auth`,
+    redirectTo: `${appOrigin}/reset-password`,
   });
   if (error) throw error;
 }

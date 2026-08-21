@@ -372,7 +372,10 @@ $$;
 
 -- ── 12. DEFAULT NEW SIGNUPS TO PENDING ──────────────────────────────────
 -- Ensure new Supabase auth users get 'pending' status by default.
--- The existing trigger creates profiles with no account_status — update it.
+-- NOTE: "emailVerificationTime" is a BIGINT epoch-ms column — the confirmed-at
+-- timestamp MUST be converted (the previous version passed the timestamptz
+-- directly, which threw a type error and broke ALL new user creation with
+-- "Database error creating new user").
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
@@ -381,7 +384,9 @@ BEGIN
     NEW.id,
     coalesce(NEW.raw_user_meta_data->>'full_name', split_part(NEW.email, '@', 1)),
     NEW.email,
-    NEW.email_confirmed_at,
+    case when NEW.email_confirmed_at is not null
+      then (extract(epoch from NEW.email_confirmed_at) * 1000)::bigint
+      else null end,
     false,
     'user',
     'pending',

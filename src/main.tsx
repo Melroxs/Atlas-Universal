@@ -11,6 +11,7 @@ import "./index.css";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
+const Pilot = lazy(() => import("./pages/Pilot.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Setup = lazy(() => import("./pages/Setup.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
@@ -32,6 +33,16 @@ const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const PilotIntelligence = lazy(() => import("./pages/PilotIntelligence.tsx"));
+const PilotCompanies = lazy(() => import("./pages/PilotCompanies.tsx"));
+const PilotSessions = lazy(() => import("./pages/PilotSessions.tsx"));
+const PilotInsights = lazy(() => import("./pages/PilotInsights.tsx"));
+const PilotOutcomes = lazy(() => import("./pages/PilotOutcomes.tsx"));
+const MailInbox = lazy(() => import("./pages/mail/MailInbox.tsx"));
+const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
+const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
+const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 
 /** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -143,6 +154,7 @@ createRoot(document.getElementById("root")!).render(
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />
+              <Route path="/pilot" element={<Pilot />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}
@@ -298,6 +310,74 @@ createRoot(document.getElementById("root")!).render(
                     <Settings />
                   </ProtectedLayout>
                 }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence"
+                element={
+                  <ProtectedLayout>
+                    <PilotIntelligence />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/companies"
+                element={
+                  <ProtectedLayout>
+                    <PilotCompanies />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/sessions"
+                element={
+                  <ProtectedLayout>
+                    <PilotSessions />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/insights"
+                element={
+                  <ProtectedLayout>
+                    <PilotInsights />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/pilot-intelligence/outcomes"
+                element={
+                  <ProtectedLayout>
+                    <PilotOutcomes />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/mail"
+                element={
+                  <ProtectedLayout>
+                    <MailInbox />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/mail/settings"
+                element={
+                  <ProtectedLayout>
+                    <MailSettings />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/pilot-apply"
+                element={<PilotApply />}
+              />
+              <Route
+                path="/access-denied"
+                element={<AccessDenied />}
+              />
+              <Route
+                path="/reset-password"
+                element={<ResetPassword />}
               />
               <Route path="*" element={<NotFound />} />
             </Routes>

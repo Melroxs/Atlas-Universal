@@ -464,8 +464,8 @@ END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.crm_create_task(
-  p_lead_id uuid DEFAULT NULL,
   p_title text,
+  p_lead_id uuid DEFAULT NULL,
   p_description text DEFAULT NULL,
   p_task_type text DEFAULT 'follow_up',
   p_priority text DEFAULT 'normal',

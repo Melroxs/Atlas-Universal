@@ -1,5 +1,6 @@
 import { api } from "@/lib/api";
 import { useQuery, useMutation } from "@/hooks/use-supabase";
+import { provisionUserViaEdge } from "@/lib/actions/provision-user";
 import { PageHeader } from "@/components/atlas-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import { Shield, Search, Users, RefreshCw } from "lucide-react";
+import { Shield, Search, Users, RefreshCw, UserPlus } from "lucide-react";
 import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Navigate } from "react-router";
@@ -83,6 +84,13 @@ export default function UsersAccess() {
   const [editingUser, setEditingUser] = useState<UserRow | null>(null);
   const [editRole, setEditRole] = useState("");
   const [editStatus, setEditStatus] = useState("");
+  const [editCompany, setEditCompany] = useState("");
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRole, setInviteRole] = useState("customer_user");
+  const [inviteStatus, setInviteStatus] = useState("active");
+  const [inviteCompany, setInviteCompany] = useState("");
 
   const users = useQuery(
     api.admin.listUsers,
@@ -96,7 +104,7 @@ export default function UsersAccess() {
 
   const updateUserRole = useMutation(api.admin.updateUserRole);
   const updateUserStatus = useMutation(api.admin.updateUserStatus);
-
+  const updateUserCompany = useMutation(api.admin.updateUserCompany);
   const handleUpdateRole = useCallback(async () => {
     if (!editingUser || !editRole) return;
     try {
@@ -119,6 +127,58 @@ export default function UsersAccess() {
     }
   }, [editingUser, editStatus, updateUserStatus]);
 
+  const handleUpdateCompany = useCallback(async () => {
+    if (!editingUser) return;
+    try {
+      await updateUserCompany({ userId: editingUser._id, newCompany: editCompany || null });
+      toast.success(editCompany ? `Company updated to ${editCompany}` : "Company cleared");
+      setEditingUser(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update company");
+    }
+  }, [editingUser, editCompany, updateUserCompany]);
+
+  const handleInvite = useCallback(async () => {
+    if (!inviteEmail) {
+      toast.error("Email is required");
+      return;
+    }
+    try {
+      const result = await provisionUserViaEdge({
+        email: inviteEmail,
+        name: inviteName || undefined,
+        role: inviteRole,
+        status: inviteStatus,
+        companyName: inviteCompany || undefined,
+      });
+      if (!result.ok) {
+        toast.error(result.error || "Failed to provision user");
+        return;
+      }
+      if (result.warning) {
+        toast.warning(result.message || "User created with warnings", {
+          description: result.warning,
+        });
+      } else {
+        toast.success(result.message || "User provisioned successfully", {
+          description: result.invitation_sent
+            ? `Invitation email sent to ${inviteEmail}`
+            : result.action === "existing_user_provisioned"
+              ? "Existing user has been provisioned"
+              : undefined,
+        });
+      }
+      setShowInvite(false);
+      setInviteEmail("");
+      setInviteName("");
+      setInviteRole("customer_user");
+      setInviteStatus("active");
+      setInviteCompany("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to provision user");
+    }
+  }, [inviteEmail, inviteName, inviteRole, inviteStatus, inviteCompany]);
+
   if (myRole !== "super_admin" && myRole !== "atlas_admin") {
     return <Navigate to="/dashboard" replace />;
   }
@@ -130,7 +190,16 @@ export default function UsersAccess() {
       <PageHeader
         title="Users & Access"
         description="Manage Atlas users, roles, and account status"
-        actions={<Shield className="size-5 text-muted-foreground" />}
+        actions={
+          <Button
+            size="sm"
+            onClick={() => setShowInvite(true)}
+            className="gap-2"
+          >
+            <UserPlus className="size-4" />
+            Add User
+          </Button>
+        }
       />
 
       {/* Filters */}
@@ -245,6 +314,7 @@ export default function UsersAccess() {
                         setEditingUser(u as UserRow);
                         setEditRole((u as UserRow).platform_role ?? "user");
                         setEditStatus((u as UserRow).account_status ?? "pending");
+                        setEditCompany((u as UserRow).company_name ?? "");
                       }}
                     >
                       Edit
@@ -261,13 +331,104 @@ export default function UsersAccess() {
         {userList.length} user{userList.length === 1 ? "" : "s"} found
       </p>
 
-      {/* Edit dialog */}
+      {/* Invite / Add User dialog */}
+      <Dialog open={showInvite} onOpenChange={setShowInvite}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add User</DialogTitle>
+            <DialogDescription>
+              Provision a new user or activate an existing Supabase Auth user into Atlas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email *</label>
+              <Input
+                type="email"
+                placeholder="user@company.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input
+                placeholder="Jane Smith"
+                value={inviteName}
+                onChange={(e) => setInviteName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Company</label>
+              <Input
+                placeholder="ABC Roofing"
+                value={inviteCompany}
+                onChange={(e) => setInviteCompany(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Role</label>
+              <Select value={inviteRole} onValueChange={setInviteRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {myRole === "super_admin"
+                    ? ROLES.map((r) => (
+                        <SelectItem key={r.value} value={r.value}>
+                          {r.label}
+                        </SelectItem>
+                      ))
+                    : ROLES.filter((r) => !["super_admin", "atlas_admin"].includes(r.value)).map(
+                        (r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ),
+                      )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Status</label>
+              <Select value={inviteStatus} onValueChange={setInviteStatus}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUSES.map((s) => (
+                    <SelectItem key={s.value} value={s.value}>
+                      {s.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowInvite(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleInvite} disabled={!inviteEmail}>
+              Provision User
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit user dialog */}
       <Dialog open={!!editingUser} onOpenChange={(open) => !open && setEditingUser(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
             <DialogDescription>
-              Update role or status for {editingUser?.name ?? editingUser?.email ?? "this user"}
+              Update role, status, or company for {editingUser?.name ?? editingUser?.email ?? "this user"}
             </DialogDescription>
           </DialogHeader>
 
@@ -311,11 +472,27 @@ export default function UsersAccess() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Company</label>
+              <Input
+                placeholder="Company name"
+                value={editCompany}
+                onChange={(e) => setEditCompany(e.target.value)}
+              />
+            </div>
           </div>
 
-          <DialogFooter className="flex gap-2">
+          <DialogFooter className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => setEditingUser(null)}>
               Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleUpdateCompany}
+              disabled={editCompany === (editingUser?.company_name ?? "")}
+            >
+              Update Company
             </Button>
             <Button
               variant="destructive"

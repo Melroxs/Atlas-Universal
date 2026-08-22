@@ -1443,6 +1443,7 @@ pilotIntelligence: {
     updateUserCompany: def<{ ok: boolean }>("admin_update_user_company", "mutation"),
     listTenants: def<ObjArray>("admin_list_tenants", "query"),
     createTenant: def<{ ok: boolean }>("admin_create_tenant", "mutation"),
+    inviteUser: def<{ ok: boolean; user_id?: string; action?: string; message?: string }>("admin_invite_user", "mutation"),
   },
   crm: {
     listLeads: def<ObjArray>("crm_list_leads", "query"),

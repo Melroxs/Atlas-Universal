@@ -1,29 +1,61 @@
 /**
- * Atlas access gate — the single, testable authorization decision.
+ * Atlas access gate — the single, testable authorization decision layer.
  *
- * This is the EXACT logic the production RequireAuth/RequireAccess guards
- * enforce, extracted as a pure function so the authorization matrix can be
+ * This is the EXACT logic the production RequireAuth/RequireAccess/RequireInternalAuth
+ * guards enforce, extracted as a pure function so the authorization matrix can be
  * regression-tested directly (see access-gate.test.ts).
  *
  * The model:
- *   - super_admin  → always allowed (platform owner)
- *   - active       → allowed (approved pilot user)
- *   - suspended / revoked / pending / unknown → denied
- *   - missing profile (null) → denied (fail-closed: unknown users must never
- *     silently become authorized)
+ *   Roles (platform_role):
+ *     super_admin     → full platform access
+ *     atlas_admin     → Atlas + CRM + Mail + Users (no Pilot admin)
+ *     customer_admin  → customer dashboard + company settings
+ *     customer_user   → customer dashboard only
+ *     pilot_user      → pilot experience only
+ *     user            → default (treated as customer_user)
+ *
+ *   Account status (account_status):
+ *     active          → allowed
+ *     pending         → denied (pilot gating)
+ *     suspended       → denied
+ *     revoked         → denied
+ *     null/missing    → denied (fail-closed)
  */
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export type AtlasRole =
+  | "super_admin"
+  | "atlas_admin"
+  | "customer_admin"
+  | "customer_user"
+  | "pilot_user"
+  | "user";
+
+export type AtlasAccountStatus = "active" | "pending" | "suspended" | "revoked";
 
 export type AtlasAccessDecision =
   | { allowed: true; reason: "super_admin" | "active" }
   | {
       allowed: false;
-      reason: "missing_profile" | "pending" | "suspended" | "revoked" | "unknown_status";
+      reason:
+        | "missing_profile"
+        | "pending"
+        | "suspended"
+        | "revoked"
+        | "unknown_status";
     };
 
 export interface AccessProfileLike {
   account_status?: string | null;
   platform_role?: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Core access evaluation
+// ---------------------------------------------------------------------------
 
 /**
  * Decide Atlas access from a profile row. `null` (no profile row) fails
@@ -37,12 +69,12 @@ export function evaluateAtlasAccess(
     return { allowed: false, reason: "missing_profile" };
   }
 
-  const platformRole = profile.platform_role ?? "user";
+  const platformRole = normalizeRole(profile.platform_role);
   if (platformRole === "super_admin") {
     return { allowed: true, reason: "super_admin" };
   }
 
-  const accountStatus = profile.account_status ?? "pending";
+  const accountStatus = normalizeStatus(profile.account_status);
   switch (accountStatus) {
     case "active":
       return { allowed: true, reason: "active" };
@@ -54,5 +86,123 @@ export function evaluateAtlasAccess(
       return { allowed: false, reason: "revoked" };
     default:
       return { allowed: false, reason: "unknown_status" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Role normalization
+// ---------------------------------------------------------------------------
+
+const VALID_ROLES: AtlasRole[] = [
+  "super_admin",
+  "atlas_admin",
+  "customer_admin",
+  "customer_user",
+  "pilot_user",
+  "user",
+];
+
+export function normalizeRole(raw?: string | null): AtlasRole {
+  const r = (raw ?? "user").toLowerCase().trim();
+  if ((VALID_ROLES as string[]).includes(r)) return r as AtlasRole;
+  return "user";
+}
+
+const VALID_STATUSES: AtlasAccountStatus[] = [
+  "active",
+  "pending",
+  "suspended",
+  "revoked",
+];
+
+export function normalizeStatus(raw?: string | null): AtlasAccountStatus {
+  const s = (raw ?? "pending").toLowerCase().trim();
+  if ((VALID_STATUSES as string[]).includes(s)) return s as AtlasAccountStatus;
+  return "pending";
+}
+
+// ---------------------------------------------------------------------------
+// Permission helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Is this role an internal Atlas operator (not a customer)?
+ */
+export function isInternalRole(role: AtlasRole): boolean {
+  return role === "super_admin" || role === "atlas_admin";
+}
+
+/**
+ * Can this role access the Pilot admin section?
+ * Only super_admin has Pilot admin access.
+ */
+export function canAccessPilotAdmin(role: AtlasRole): boolean {
+  return role === "super_admin";
+}
+
+/**
+ * Can this role access the CRM section?
+ * super_admin and atlas_admin.
+ */
+export function canAccessCRM(role: AtlasRole): boolean {
+  return role === "super_admin" || role === "atlas_admin";
+}
+
+/**
+ * Can this role access the Mail/outreach section?
+ * super_admin and atlas_admin.
+ */
+export function canAccessMail(role: AtlasRole): boolean {
+  return role === "super_admin" || role === "atlas_admin";
+}
+
+/**
+ * Can this role access the Users & Access admin section?
+ * super_admin and atlas_admin.
+ */
+export function canAccessUserAdmin(role: AtlasRole): boolean {
+  return role === "super_admin" || role === "atlas_admin";
+}
+
+/**
+ * Can this role manage other users (change roles, suspend, etc.)?
+ * Only super_admin can assign admin-level roles.
+ * atlas_admin can manage customer roles only.
+ */
+export function canManageUsers(role: AtlasRole): boolean {
+  return role === "super_admin" || role === "atlas_admin";
+}
+
+/**
+ * Can this role assign admin-level roles (super_admin, atlas_admin)?
+ * Only super_admin.
+ */
+export function canAssignAdminRoles(role: AtlasRole): boolean {
+  return role === "super_admin";
+}
+
+/**
+ * Can this role access the normal Atlas customer dashboard?
+ * Everyone except unauthenticated/pending users.
+ */
+export function canAccessAtlasDashboard(role: AtlasRole): boolean {
+  return true; // All roles with an active account can see the dashboard
+}
+
+/**
+ * Given a role, what is the default landing path after login?
+ */
+export function getDefaultLandingPath(role: AtlasRole): string {
+  switch (role) {
+    case "super_admin":
+    case "atlas_admin":
+      return "/dashboard";
+    case "customer_admin":
+    case "customer_user":
+      return "/dashboard";
+    case "pilot_user":
+      return "/dashboard/pilot";
+    default:
+      return "/dashboard";
   }
 }

@@ -32,7 +32,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // are denied. There is deliberately NO provider-based bypass.
   const decision = evaluateAtlasAccess(user);
   if (!decision.allowed) {
-    return <Navigate to="/access-denied" replace />;
+    return (
+      <Navigate
+        to={`/access-denied?reason=${decision.reason}`}
+        replace
+      />
+    );
   }
 
   return children;

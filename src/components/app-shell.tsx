@@ -1,6 +1,7 @@
 import { AtlasAssistant } from "@/components/atlas-assistant";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import { canAccessPilotAdmin, canAccessCRM, canAccessMail, isInternalRole } from "@/lib/auth/access-gate";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -113,6 +114,12 @@ const NAV_SECTIONS: Array<{
     ],
   },
   {
+    label: "Admin",
+    items: [
+      { to: "/dashboard/users", label: "Users & Access", icon: Users },
+    ],
+  },
+  {
     label: "Mail",
     items: [
       { to: "/dashboard/mail", label: "Atlas Mail", icon: Mail },
@@ -166,6 +173,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/pilot/applications": "Pilot Applications",
   "/dashboard/pilot/crm": "CRM",
   "/dashboard/pilot/outreach": "Outreach Center",
+  "/dashboard/users": "Users & Access",
 };
 
 function initials(name?: string | null, email?: string | null): string {
@@ -181,7 +189,7 @@ function initials(name?: string | null, email?: string | null): string {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, role } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const workspace = useQuery(api.tenants.getMyWorkspace);
@@ -270,7 +278,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent>
-          {NAV_SECTIONS.map((section) => (
+          {NAV_SECTIONS.filter((section) => {
+            // Filter nav sections by role
+            if (section.label === "Mail") return canAccessMail(role);
+            if (section.label === "Pilot") return canAccessPilotAdmin(role);
+            if (section.label === "Pilot Intelligence") return canAccessPilotAdmin(role);
+            if (section.label === "CRM") return canAccessCRM(role);
+            // Operations, Intelligence, Atlas, Workspace are visible to all authenticated users
+            return true;
+          }).map((section) => (
             <SidebarGroup key={section.label}>
               <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
               <SidebarMenu>

@@ -2,6 +2,7 @@ import '@vly-ai/integrations';
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
+import { RequireInternalAuth } from "@/components/RequireInternalAuth";
 import { AppShell } from "@/components/app-shell";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
@@ -47,6 +48,7 @@ const PilotHub = lazy(() => import("./pages/pilot/PilotHub.tsx"));
 const PilotApplications = lazy(() => import("./pages/pilot/PilotApplications.tsx"));
 const PilotCRM = lazy(() => import("./pages/pilot/PilotCRM.tsx"));
 const PilotOutreach = lazy(() => import("./pages/pilot/PilotOutreach.tsx"));
+const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 
 /** Protected section: auth gate + workspace shell (workspace gate inside). */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -319,7 +321,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot-intelligence"
                 element={
                   <ProtectedLayout>
-                    <PilotIntelligence />
+                    <RequireInternalAuth section="pilot">
+                      <PilotIntelligence />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -327,7 +331,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot-intelligence/companies"
                 element={
                   <ProtectedLayout>
-                    <PilotCompanies />
+                    <RequireInternalAuth section="pilot">
+                      <PilotCompanies />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -335,7 +341,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot-intelligence/sessions"
                 element={
                   <ProtectedLayout>
-                    <PilotSessions />
+                    <RequireInternalAuth section="pilot">
+                      <PilotSessions />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -343,7 +351,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot-intelligence/insights"
                 element={
                   <ProtectedLayout>
-                    <PilotInsights />
+                    <RequireInternalAuth section="pilot">
+                      <PilotInsights />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -351,7 +361,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot-intelligence/outcomes"
                 element={
                   <ProtectedLayout>
-                    <PilotOutcomes />
+                    <RequireInternalAuth section="pilot">
+                      <PilotOutcomes />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -359,7 +371,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot"
                 element={
                   <ProtectedLayout>
-                    <PilotHub />
+                    <RequireInternalAuth section="pilot">
+                      <PilotHub />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -367,7 +381,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot/applications"
                 element={
                   <ProtectedLayout>
-                    <PilotApplications />
+                    <RequireInternalAuth section="pilot">
+                      <PilotApplications />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -375,7 +391,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot/crm"
                 element={
                   <ProtectedLayout>
-                    <PilotCRM />
+                    <RequireInternalAuth section="crm">
+                      <PilotCRM />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -383,7 +401,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/pilot/outreach"
                 element={
                   <ProtectedLayout>
-                    <PilotOutreach />
+                    <RequireInternalAuth section="pilot">
+                      <PilotOutreach />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -391,7 +411,9 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/mail"
                 element={
                   <ProtectedLayout>
-                    <MailInbox />
+                    <RequireInternalAuth section="mail">
+                      <MailInbox />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />
@@ -399,7 +421,19 @@ createRoot(document.getElementById("root")!).render(
                 path="/dashboard/mail/settings"
                 element={
                   <ProtectedLayout>
-                    <MailSettings />
+                    <RequireInternalAuth section="mail">
+                      <MailSettings />
+                    </RequireInternalAuth>
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/users"
+                element={
+                  <ProtectedLayout>
+                    <RequireInternalAuth section="users">
+                      <UsersAccess />
+                    </RequireInternalAuth>
                   </ProtectedLayout>
                 }
               />

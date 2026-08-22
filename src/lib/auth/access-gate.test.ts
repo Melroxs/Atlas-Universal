@@ -1,9 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { evaluateAtlasAccess } from "./access-gate";
+import {
+  evaluateAtlasAccess,
+  normalizeRole,
+  normalizeStatus,
+  isInternalRole,
+  canAccessPilotAdmin,
+  canAccessCRM,
+  canAccessMail,
+  canAccessUserAdmin,
+  canManageUsers,
+  canAssignAdminRoles,
+  getDefaultLandingPath,
+} from "./access-gate";
 
 /**
  * Regression tests for the Atlas access gate — the exact decision enforced by
- * RequireAuth/RequireAccess on every protected route.
+ * RequireAuth/RequireAccess/RequireInternalAuth on every protected route.
  *
  * Guards the production regression where an authenticated-but-unapproved user
  * was (a) incorrectly denied when their profile was active, and later (b)
@@ -25,6 +37,34 @@ describe("evaluateAtlasAccess", () => {
 
   it("allows an active regular user", () => {
     expect(evaluateAtlasAccess({ platform_role: "user", account_status: "active" })).toEqual({
+      allowed: true,
+      reason: "active",
+    });
+  });
+
+  it("allows an active atlas_admin", () => {
+    expect(evaluateAtlasAccess({ platform_role: "atlas_admin", account_status: "active" })).toEqual({
+      allowed: true,
+      reason: "active",
+    });
+  });
+
+  it("allows an active customer_admin", () => {
+    expect(evaluateAtlasAccess({ platform_role: "customer_admin", account_status: "active" })).toEqual({
+      allowed: true,
+      reason: "active",
+    });
+  });
+
+  it("allows an active customer_user", () => {
+    expect(evaluateAtlasAccess({ platform_role: "customer_user", account_status: "active" })).toEqual({
+      allowed: true,
+      reason: "active",
+    });
+  });
+
+  it("allows an active pilot_user", () => {
+    expect(evaluateAtlasAccess({ platform_role: "pilot_user", account_status: "active" })).toEqual({
       allowed: true,
       reason: "active",
     });
@@ -87,5 +127,143 @@ describe("evaluateAtlasAccess", () => {
         account_status: "active",
       }).allowed,
     ).toBe(true); // YC Demo
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Role normalization tests
+// ---------------------------------------------------------------------------
+describe("normalizeRole", () => {
+  it("normalizes known roles", () => {
+    expect(normalizeRole("super_admin")).toBe("super_admin");
+    expect(normalizeRole("atlas_admin")).toBe("atlas_admin");
+    expect(normalizeRole("customer_admin")).toBe("customer_admin");
+    expect(normalizeRole("customer_user")).toBe("customer_user");
+    expect(normalizeRole("pilot_user")).toBe("pilot_user");
+    expect(normalizeRole("user")).toBe("user");
+  });
+
+  it("defaults unknown roles to 'user'", () => {
+    expect(normalizeRole("tenant_admin")).toBe("user");
+    expect(normalizeRole("random")).toBe("user");
+    expect(normalizeRole("")).toBe("user");
+    expect(normalizeRole(null)).toBe("user");
+    expect(normalizeRole(undefined)).toBe("user");
+  });
+
+  it("handles case insensitivity", () => {
+    expect(normalizeRole("SUPER_ADMIN")).toBe("super_admin");
+    expect(normalizeRole("User")).toBe("user");
+  });
+});
+
+describe("normalizeStatus", () => {
+  it("normalizes known statuses", () => {
+    expect(normalizeStatus("active")).toBe("active");
+    expect(normalizeStatus("pending")).toBe("pending");
+    expect(normalizeStatus("suspended")).toBe("suspended");
+    expect(normalizeStatus("revoked")).toBe("revoked");
+  });
+
+  it("defaults unknown statuses to 'pending'", () => {
+    expect(normalizeStatus("unknown")).toBe("pending");
+    expect(normalizeStatus("")).toBe("pending");
+    expect(normalizeStatus(null)).toBe("pending");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Permission helper tests
+// ---------------------------------------------------------------------------
+describe("isInternalRole", () => {
+  it("returns true for super_admin and atlas_admin", () => {
+    expect(isInternalRole("super_admin")).toBe(true);
+    expect(isInternalRole("atlas_admin")).toBe(true);
+  });
+
+  it("returns false for customer/pilot/user roles", () => {
+    expect(isInternalRole("customer_admin")).toBe(false);
+    expect(isInternalRole("customer_user")).toBe(false);
+    expect(isInternalRole("pilot_user")).toBe(false);
+    expect(isInternalRole("user")).toBe(false);
+  });
+});
+
+describe("canAccessPilotAdmin", () => {
+  it("allows only super_admin", () => {
+    expect(canAccessPilotAdmin("super_admin")).toBe(true);
+    expect(canAccessPilotAdmin("atlas_admin")).toBe(false);
+    expect(canAccessPilotAdmin("customer_admin")).toBe(false);
+    expect(canAccessPilotAdmin("user")).toBe(false);
+  });
+});
+
+describe("canAccessCRM", () => {
+  it("allows super_admin and atlas_admin", () => {
+    expect(canAccessCRM("super_admin")).toBe(true);
+    expect(canAccessCRM("atlas_admin")).toBe(true);
+  });
+
+  it("denies customer and pilot roles", () => {
+    expect(canAccessCRM("customer_admin")).toBe(false);
+    expect(canAccessCRM("user")).toBe(false);
+  });
+});
+
+describe("canAccessMail", () => {
+  it("allows super_admin and atlas_admin", () => {
+    expect(canAccessMail("super_admin")).toBe(true);
+    expect(canAccessMail("atlas_admin")).toBe(true);
+  });
+
+  it("denies customer and pilot roles", () => {
+    expect(canAccessMail("customer_user")).toBe(false);
+    expect(canAccessMail("pilot_user")).toBe(false);
+  });
+});
+
+describe("canAccessUserAdmin", () => {
+  it("allows super_admin and atlas_admin", () => {
+    expect(canAccessUserAdmin("super_admin")).toBe(true);
+    expect(canAccessUserAdmin("atlas_admin")).toBe(true);
+  });
+
+  it("denies customer roles", () => {
+    expect(canAccessUserAdmin("customer_admin")).toBe(false);
+    expect(canAccessUserAdmin("user")).toBe(false);
+  });
+});
+
+describe("canManageUsers", () => {
+  it("allows super_admin and atlas_admin", () => {
+    expect(canManageUsers("super_admin")).toBe(true);
+    expect(canManageUsers("atlas_admin")).toBe(true);
+  });
+
+  it("denies customer and pilot roles", () => {
+    expect(canManageUsers("customer_user")).toBe(false);
+    expect(canManageUsers("pilot_user")).toBe(false);
+  });
+});
+
+describe("canAssignAdminRoles", () => {
+  it("allows only super_admin", () => {
+    expect(canAssignAdminRoles("super_admin")).toBe(true);
+    expect(canAssignAdminRoles("atlas_admin")).toBe(false);
+    expect(canAssignAdminRoles("user")).toBe(false);
+  });
+});
+
+describe("getDefaultLandingPath", () => {
+  it("returns /dashboard for admin and customer roles", () => {
+    expect(getDefaultLandingPath("super_admin")).toBe("/dashboard");
+    expect(getDefaultLandingPath("atlas_admin")).toBe("/dashboard");
+    expect(getDefaultLandingPath("customer_admin")).toBe("/dashboard");
+    expect(getDefaultLandingPath("customer_user")).toBe("/dashboard");
+    expect(getDefaultLandingPath("user")).toBe("/dashboard");
+  });
+
+  it("returns /dashboard/pilot for pilot_user", () => {
+    expect(getDefaultLandingPath("pilot_user")).toBe("/dashboard/pilot");
   });
 });

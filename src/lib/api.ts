@@ -1435,6 +1435,14 @@ pilotIntelligence: {
     provisionUser: def<Obj>("admin_provision_user", "mutation"),
     listProvisions: def<ObjArray>("admin_list_provisions", "query"),
     listAuditLog: def<ObjArray>("admin_list_audit_log", "query"),
+    // User management
+    listUsers: def<ObjArray>("admin_list_users", "query"),
+    getUser: def<Obj | null>("admin_get_user", "query"),
+    updateUserRole: def<{ ok: boolean }>("admin_update_user_role", "mutation"),
+    updateUserStatus: def<{ ok: boolean }>("admin_update_user_status", "mutation"),
+    updateUserCompany: def<{ ok: boolean }>("admin_update_user_company", "mutation"),
+    listTenants: def<ObjArray>("admin_list_tenants", "query"),
+    createTenant: def<{ ok: boolean }>("admin_create_tenant", "mutation"),
   },
   crm: {
     listLeads: def<ObjArray>("crm_list_leads", "query"),

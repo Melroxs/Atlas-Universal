@@ -1,9 +1,58 @@
 import { useAuth } from "@/hooks/use-auth";
 import { ShieldAlert } from "lucide-react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
+
+const DENIAL_MESSAGES: Record<string, { title: string; message: string; cta: string; href: string }> = {
+  pending: {
+    title: "Access Pending",
+    message:
+      "Your Atlas account has been created, but access has not yet been approved. Atlas is currently available through our pilot program.",
+    cta: "Request Pilot Access",
+    href: "/pilot-apply",
+  },
+  missing_profile: {
+    title: "Account Not Provisioned",
+    message:
+      "Your Atlas account has been created, but access has not yet been provisioned. Please contact your Atlas administrator.",
+    cta: "Contact Support",
+    href: "/",
+  },
+  suspended: {
+    title: "Account Suspended",
+    message:
+      "Your Atlas access has been suspended. Please contact support for assistance.",
+    cta: "Contact Support",
+    href: "/",
+  },
+  revoked: {
+    title: "Access Revoked",
+    message:
+      "Your Atlas access has been revoked. Please contact support for assistance.",
+    cta: "Contact Support",
+    href: "/",
+  },
+  unknown_status: {
+    title: "Access Not Approved",
+    message:
+      "Your account status could not be determined. Please contact your Atlas administrator.",
+    cta: "Contact Support",
+    href: "/",
+  },
+};
+
+const DEFAULT_DENIED = {
+  title: "Access Not Approved",
+  message:
+    "Your account is authenticated, but it has not been approved for Atlas access. Atlas is currently available through our pilot program.",
+  cta: "Request Pilot Access",
+  href: "/pilot-apply",
+};
 
 export default function AccessDenied() {
   const { signOut } = useAuth();
+  const [searchParams] = useSearchParams();
+  const reason = searchParams.get("reason") ?? "pending";
+  const config = DENIAL_MESSAGES[reason] ?? DEFAULT_DENIED;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background p-6">
@@ -13,20 +62,18 @@ export default function AccessDenied() {
         </div>
         <div className="space-y-2">
           <h1 className="text-xl font-semibold tracking-tight text-foreground">
-            Access Not Approved
+            {config.title}
           </h1>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Your account is authenticated, but it has not been approved for
-            Atlas access. Atlas is currently available through our pilot
-            program.
+            {config.message}
           </p>
         </div>
         <div className="flex flex-col gap-3 items-center">
           <Link
-            to="/pilot-apply"
+            to={config.href}
             className="inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
           >
-            Request Pilot Access
+            {config.cta}
           </Link>
           <button
             type="button"

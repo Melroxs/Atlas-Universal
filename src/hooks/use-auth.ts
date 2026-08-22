@@ -8,15 +8,19 @@ import {
 } from "@/lib/supabase";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
+import { normalizeRole, normalizeStatus, type AtlasRole, type AtlasAccountStatus } from "@/lib/auth/access-gate";
 
 /**
  * Authentication state backed entirely by Supabase Auth.
  *
  * Usage:
- *   const { isLoading, isAuthenticated, user, signIn, signOut } = useAuth();
+ *   const { isLoading, isAuthenticated, user, role, accountStatus, signIn, signOut } = useAuth();
  *
  * `user` is the caller's row from the `profiles` table (mirrors the old
  * Convex users table), or null when signed out / no profile row exists yet.
+ *
+ * `role` and `accountStatus` are derived from the profile row, normalized
+ * to canonical Atlas values.
  */
 export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
@@ -40,6 +44,10 @@ export function useAuth() {
   const isAuthenticated = Boolean(session?.user);
   const isLoading = !ready || (isAuthenticated && user === undefined);
 
+  // Derive role and account status from profile
+  const role: AtlasRole = normalizeRole(user?.platform_role);
+  const accountStatus: AtlasAccountStatus = normalizeStatus(user?.account_status);
+
   /** Sign in as a guest (anonymous Supabase identity). */
   const signIn = async (provider?: string) => {
     if (provider === "anonymous") {
@@ -59,6 +67,8 @@ export function useAuth() {
     isLoading,
     isAuthenticated,
     user,
+    role,
+    accountStatus,
     session,
     lastEvent,
     signIn,

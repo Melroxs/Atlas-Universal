@@ -50,6 +50,8 @@ import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
   new: "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
+  pending:
+    "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400",
   reviewing:
     "border-yellow-500/30 bg-yellow-500/10 text-yellow-600 dark:text-yellow-400",
   approved:
@@ -61,11 +63,11 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   new: "New",
+  pending: "Pending",
   reviewing: "Reviewing",
   approved: "Approved",
   rejected: "Rejected",
   waitlist: "Waitlist",
-  pending: "Pending",
 };
 
 export default function PilotApplications() {
@@ -143,7 +145,7 @@ export default function PilotApplications() {
 
       {/* Stats Row */}
       <div className="flex flex-wrap gap-3">
-        {(["new", "reviewing", "approved", "rejected", "waitlist"] as const).map(
+        {(["new", "pending", "reviewing", "approved", "rejected", "waitlist"] as const).map(
           (status) => (
             <button
               key={status}

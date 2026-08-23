@@ -70,7 +70,7 @@ export default function PilotHub() {
   );
   const applications = useQuery(
     api.admin.listPilotApplications,
-    stats ? { status: "new", limit: 5 } : "skip",
+    stats ? { limit: 5 } : "skip",
   );
 
   const isLoading = stats === undefined;

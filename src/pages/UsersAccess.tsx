@@ -32,7 +32,6 @@ import { toast } from "sonner";
 import { Shield, Search, Users, RefreshCw, UserPlus } from "lucide-react";
 import { useState, useCallback } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { Navigate } from "react-router";
 
 const ROLES = [
   { value: "super_admin", label: "Super Admin", color: "destructive" },
@@ -179,9 +178,8 @@ export default function UsersAccess() {
     }
   }, [inviteEmail, inviteName, inviteRole, inviteStatus, inviteCompany]);
 
-  if (myRole !== "super_admin" && myRole !== "atlas_admin") {
-    return <Navigate to="/dashboard" replace />;
-  }
+  // NOTE: Route-level access control is handled by RequireInternalAuth.
+  // This component no longer redirects — it trusts the route guard.
 
   const userList = Array.isArray(users) ? users : [];
 

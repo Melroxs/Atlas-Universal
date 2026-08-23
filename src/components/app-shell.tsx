@@ -1,7 +1,7 @@
 import { AtlasAssistant } from "@/components/atlas-assistant";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessPilotAdmin, canAccessCRM, canAccessMail, isInternalRole } from "@/lib/auth/access-gate";
+import { canAccessPilotAdmin, canAccessCRM, canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -280,6 +280,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <SidebarContent>
           {NAV_SECTIONS.filter((section) => {
             // Filter nav sections by role
+            if (section.label === "Admin") return canAccessUserAdmin(role);
             if (section.label === "Mail") return canAccessMail(role);
             if (section.label === "Pilot") return canAccessPilotAdmin(role);
             if (section.label === "Pilot Intelligence") return canAccessPilotAdmin(role);

@@ -1,15 +1,23 @@
 // supabase/functions/admin-provision-user/index.ts
 //
 // Server-side user provisioning using the Supabase Auth Admin API.
-// This function uses the service-role key (stored as a Supabase secret)
-// to create/invite Supabase Auth users and provision their Atlas profiles.
+// This function uses SUPABASE_SECRET_KEYS['default'] (the modern built-in
+// service-role key) to create/invite Supabase Auth users and provision
+// their Atlas profiles.
+//
+// SUPABASE_SECRET_KEYS is a built-in Edge Function env var — a JSON dictionary
+// containing all secret keys for the project. The 'default' entry holds the
+// service_role key, which bypasses RLS for admin operations.
 //
 // The service-role key is NEVER exposed to the browser — it lives only
-// in this Edge Function's environment via `supabase secrets set`.
+// in this Edge Function's runtime via Supabase's built-in secret injection.
 //
 // Deploy:
 //   supabase functions deploy admin-provision-user
-//   supabase secrets set SERVICE_ROLE_KEY=<your-service-role-key>
+//
+// No manual secret setup required — SUPABASE_SECRET_KEYS is injected automatically.
+// If SITE_URL is needed, set it via:
+//   supabase secrets set SITE_URL=https://atlasmvp.freebuff.app
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -27,7 +35,62 @@ serve(async (req: Request) => {
   }
 
   try {
-    // Create a Supabase client with the caller's JWT (for auth verification)
+    // ── 1. Parse SUPABASE_SECRET_KEYS (modern built-in env var) ──────────
+    const secretKeysRaw = Deno.env.get("SUPABASE_SECRET_KEYS");
+    if (!secretKeysRaw) {
+      console.error("SUPABASE_SECRET_KEYS not available");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    let secretKeys: Record<string, string>;
+    try {
+      secretKeys = JSON.parse(secretKeysRaw);
+    } catch {
+      console.error("Failed to parse SUPABASE_SECRET_KEYS");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const serviceRoleKey = secretKeys["default"];
+    if (!serviceRoleKey) {
+      console.error("SUPABASE_SECRET_KEYS['default'] not found");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── 2. Parse SUPABASE_PUBLISHABLE_KEYS for the anon key ──────────────
+    const publishableKeysRaw = Deno.env.get("SUPABASE_PUBLISHABLE_KEYS");
+    let anonKey: string;
+
+    if (publishableKeysRaw) {
+      try {
+        const publishableKeys = JSON.parse(publishableKeysRaw);
+        anonKey = publishableKeys["default"] ?? "";
+      } catch {
+        // Fall back to legacy
+        anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+      }
+    } else {
+      // Legacy fallback — SUPABASE_ANON_KEY is still available
+      anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    }
+
+    if (!anonKey) {
+      console.error("No anon/publishable key available");
+      return new Response(
+        JSON.stringify({ error: "Server configuration error" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── 3. Create a client with the caller's JWT (for auth verification) ──
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(
@@ -39,7 +102,7 @@ serve(async (req: Request) => {
     // Client with the caller's JWT — used to verify the caller is an admin
     const supabaseUser = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
+      anonKey,
       { global: { headers: { Authorization: authHeader } } },
     );
 
@@ -80,7 +143,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // Parse the request body
+    // ── 4. Parse the request body ────────────────────────────────────────
     const { email, name, role, status, companyName } = await req.json();
 
     if (!email || typeof email !== "string") {
@@ -101,13 +164,16 @@ serve(async (req: Request) => {
       );
     }
 
-    // Create a service-role client for Auth Admin operations
+    // ── 5. Create a service-role client for Auth Admin operations ────────
+    // This bypasses RLS — used only for admin API calls (inviteUserByEmail,
+    // listUsers). The service-role key comes from SUPABASE_SECRET_KEYS,
+    // which is a Supabase-managed built-in env var.
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SERVICE_ROLE_KEY") ?? "",
+      serviceRoleKey,
     );
 
-    // Step 1: Check if the user already exists in Supabase Auth
+    // ── 6. Check if the user already exists in Supabase Auth ─────────────
     const { data: existingUsers, error: listError } =
       await supabaseAdmin.auth.admin.listUsers({
         filter: `email = "${email}"`,
@@ -133,14 +199,14 @@ serve(async (req: Request) => {
       authUserId = existingUser.id;
       action = "existing_user_provisioned";
     } else {
-      // Step 2: Create a new Supabase Auth user with invitation
-      // Using inviteUserByEmail which sends a magic link / invitation email
+      // ── 7. Create a new Supabase Auth user with invitation ─────────────
+      const siteUrl = Deno.env.get("SITE_URL") || "https://atlasmvp.freebuff.app";
       const { data: inviteData, error: inviteError } =
         await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
           data: {
             full_name: name || email.split("@")[0],
           },
-          redirectTo: `${Deno.env.get("SITE_URL") || "https://atlasmvp.freebuff.app"}/auth`,
+          redirectTo: `${siteUrl}/auth`,
         });
 
       if (inviteError) {
@@ -164,7 +230,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // Step 3: Provision the Atlas profile via RPC
+    // ── 8. Provision the Atlas profile via RPC ───────────────────────────
     const { data: rpcResult, error: rpcError } = await supabaseUser.rpc(
       "admin_invite_user",
       {
@@ -192,7 +258,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // Step 4: Return success
+    // ── 9. Return success ────────────────────────────────────────────────
     const message =
       action === "new_user_invited"
         ? `Invitation email sent to ${email}. User will receive a link to set their password and access Atlas.`

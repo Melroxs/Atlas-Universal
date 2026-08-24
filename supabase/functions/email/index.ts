@@ -239,10 +239,10 @@ interface AuthUserWithRole extends AuthUser {
 async function verifyAdminAuth(req: Request): Promise<AuthUserWithRole> {
   const user = await verifyAuth(req);
 
-  // Look up Atlas profile
+  // Look up Atlas profile for role
   const profiles = await supabaseQuery(
     "profiles",
-    "platform_role, tenant_id",
+    "platform_role",
     `_id=eq.${user.id}&limit=1`,
   );
   if (!profiles.length) {
@@ -251,11 +251,19 @@ async function verifyAdminAuth(req: Request): Promise<AuthUserWithRole> {
 
   const profile = profiles[0] as Record<string, unknown>;
   const role = (profile.platform_role as string) ?? "user";
-  const tenantId = profile.tenant_id as string;
 
   if (role !== "super_admin" && role !== "atlas_admin") {
     throw new Error("Unauthorized: insufficient privileges");
   }
+
+  // Get tenant from memberships table (camelCase columns match the schema)
+  const membersUrl = `${getSupabaseUrl()}/rest/v1/memberships?select=%22tenantId%22&%22userId%22=eq.${user.id}&status=eq.active&limit=1`;
+  const membersResp = await fetch(membersUrl, { headers: supabaseHeaders() });
+  const memberships = membersResp.ok ? await membersResp.json() : [];
+  if (!memberships.length) {
+    throw new Error("Unauthorized: no active workspace membership");
+  }
+  const tenantId = (memberships[0] as Record<string, unknown>).tenantId as string;
 
   return { ...user, role, tenantId };
 }

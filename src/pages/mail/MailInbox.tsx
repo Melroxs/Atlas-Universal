@@ -27,6 +27,7 @@ import {
   listSignatures,
   createEmailAccount,
   setupAccountCredentials,
+  MailEdgeError,
 } from "@/lib/mail/api";
 import type {
   EmailAccount,
@@ -237,7 +238,16 @@ function SetupScreen({ onSetup }: { onSetup: () => void }) {
         setStep("error");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Connection failed");
+      // Show user-friendly error messages from MailEdgeError
+      // Never expose internal details, credentials, or infrastructure
+      if (e instanceof MailEdgeError) {
+        setError(e.message);
+      } else if (e instanceof Error) {
+        // Generic fallback — don't expose raw error messages
+        setError("Unable to connect. Please verify your credentials and try again.");
+      } else {
+        setError("An unexpected error occurred. Please try again.");
+      }
       setStep("error");
     }
   };

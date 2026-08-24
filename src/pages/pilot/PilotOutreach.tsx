@@ -607,7 +607,7 @@ function ComposeView() {
         <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Mail className="size-3" />
-            <span>Sending as: <strong className="text-foreground">Melissa October &lt;melissa@atlas-ai-os.com&gt;</strong></span>
+            <span>Sending as: <strong className="text-foreground">Configured sender (atlas-ai-os.com)</strong></span>
             <Badge variant="outline" className="ml-auto text-[10px]">Resend</Badge>
           </div>
         </div>

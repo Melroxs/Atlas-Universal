@@ -219,7 +219,7 @@ async function logOutreachActivity(
 
 function getSenderConfig() {
   return {
-    email: Deno.env.get("RESEND_SENDER_EMAIL") || "melissa@atlas-ai-os.com",
+    email: Deno.env.get("RESEND_SENDER_EMAIL") || "pilot@atlas-ai-os.com",
     name: Deno.env.get("RESEND_SENDER_NAME") || "Melissa October",
   };
 }

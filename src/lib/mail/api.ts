@@ -370,6 +370,84 @@ export async function setMessageLabels(
 
 // ── Edge Function operations (IMAP/SMTP) ────────────────────────────────
 
+/**
+ * Classifies Edge Function errors into user-friendly categories.
+ * Never exposes credentials, encryption keys, or internal details.
+ */
+export class MailEdgeError extends Error {
+  category: "auth" | "authorization" | "function_unavailable" | "imap" | "smtp" | "encryption" | "database" | "unknown";
+  imapError?: string;
+  smtpError?: string;
+
+  constructor(
+    message: string,
+    category: MailEdgeError["category"] = "unknown",
+    imapError?: string,
+    smtpError?: string,
+  ) {
+    super(message);
+    this.name = "MailEdgeError";
+    this.category = category;
+    this.imapError = imapError;
+    this.smtpError = smtpError;
+  }
+}
+
+function classifyEdgeError(
+  raw: string,
+  httpStatus?: number,
+): { message: string; category: MailEdgeError["category"] } {
+  const lower = raw.toLowerCase();
+
+  if (httpStatus === 404 || lower.includes("not found") || lower.includes("function not found")) {
+    return {
+      message: "Mail service is not available. Please try again later.",
+      category: "function_unavailable",
+    };
+  }
+  if (httpStatus === 401 || lower.includes("unauthorized")) {
+    return {
+      message: "Your session has expired. Please sign in again.",
+      category: "auth",
+    };
+  }
+  if (lower.includes("insufficient privileges") || lower.includes("no atlas profile")) {
+    return {
+      message: "You do not have permission to configure mail.",
+      category: "authorization",
+    };
+  }
+  if (lower.includes("imap")) {
+    return {
+      message: raw.startsWith("IMAP error") ? raw : `IMAP: ${raw}`,
+      category: "imap",
+    };
+  }
+  if (lower.includes("smtp")) {
+    return {
+      message: raw.startsWith("SMTP error") ? raw : `SMTP: ${raw}`,
+      category: "smtp",
+    };
+  }
+  if (lower.includes("encryption_key") || lower.includes("encryption is not configured")) {
+    return {
+      message: "Mail encryption is not configured. Contact your Atlas administrator.",
+      category: "encryption",
+    };
+  }
+  if (lower.includes("decrypt")) {
+    return {
+      message: "Failed to read stored credentials. The mailbox may need to be reconnected.",
+      category: "encryption",
+    };
+  }
+  // Generic infrastructure error
+  return {
+    message: "Unable to connect to the mail service. Please try again later.",
+    category: "unknown",
+  };
+}
+
 async function invokeEmailEdge(
   action: string,
   params: Record<string, unknown>,
@@ -379,10 +457,20 @@ async function invokeEmailEdge(
   const { data, error } = await supabase.functions.invoke("email", {
     body: { action, ...params },
   });
-  if (error) throw error;
+
+  // Handle supabase-js invocation errors (network, 404, etc.)
+  if (error) {
+    const status = (error as Record<string, unknown>).status as number | undefined;
+    const rawMsg = error.message || String(error);
+    const { message, category } = classifyEdgeError(rawMsg, status);
+    throw new MailEdgeError(message, category);
+  }
+
+  // Handle Edge Function structured response
   const payload = data as { data?: unknown; error?: string } | null;
   if (payload && typeof payload === "object" && payload.error) {
-    throw new Error(payload.error);
+    const { message, category } = classifyEdgeError(payload.error);
+    throw new MailEdgeError(message, category);
   }
   if (payload && typeof payload === "object" && "data" in payload) {
     return payload.data;

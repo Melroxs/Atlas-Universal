@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS public.email_messages (
   message_id          text,  -- RFC 2822 Message-ID
   thread_id           text,
   in_reply_to         text,
-  references          text[] DEFAULT '{}',
+  message_references  text[] DEFAULT '{}',
 
   from_address        text,
   from_name           text,
@@ -114,7 +114,7 @@ CREATE TABLE IF NOT EXISTS public.email_drafts (
 
   thread_id       text,
   in_reply_to     text,
-  references      text[] DEFAULT '{}',
+  message_references text[] DEFAULT '{}',
 
   to_addresses    jsonb DEFAULT '[]',
   cc_addresses    jsonb DEFAULT '[]',
@@ -531,7 +531,7 @@ CREATE OR REPLACE FUNCTION public.email_drafts_save(
   p_id uuid DEFAULT NULL,
   p_thread_id text DEFAULT NULL,
   p_in_reply_to text DEFAULT NULL,
-  p_references text DEFAULT NULL,
+  p_message_references text DEFAULT NULL,
   p_to_addresses text DEFAULT '[]',
   p_cc_addresses text DEFAULT '[]',
   p_bcc_addresses text DEFAULT '[]',
@@ -547,9 +547,9 @@ BEGIN
     UPDATE public.email_drafts SET
       thread_id = COALESCE(p_thread_id, thread_id),
       in_reply_to = COALESCE(p_in_reply_to, in_reply_to),
-      references = COALESCE(
-        CASE WHEN p_references IS NOT NULL THEN string_to_array(replace(replace(replace(p_references, '[', ''), ']', ''), '"', ''), ',') END,
-        references
+      message_references = COALESCE(
+        CASE WHEN p_message_references IS NOT NULL THEN string_to_array(replace(replace(replace(p_message_references, '[', ''), ']', ''), '"', ''), ',') END,
+        message_references
       ),
       to_addresses = COALESCE(p_to_addresses::jsonb, to_addresses),
       cc_addresses = COALESCE(p_cc_addresses::jsonb, cc_addresses),
@@ -564,12 +564,12 @@ BEGIN
     RETURNING row_to_json(email_drafts.*) INTO v_draft;
   ELSE
     INSERT INTO public.email_drafts (
-      tenant_id, account_id, thread_id, in_reply_to, references,
+      tenant_id, account_id, thread_id, in_reply_to, message_references,
       to_addresses, cc_addresses, bcc_addresses,
       subject, text_body, html_body, attachments, signature_id
     ) VALUES (
       public.my_tenant_id(), p_account_id, p_thread_id, p_in_reply_to,
-      CASE WHEN p_references IS NOT NULL THEN string_to_array(replace(replace(replace(p_references, '[', ''), ']', ''), '"', ''), ',') END,
+      CASE WHEN p_message_references IS NOT NULL THEN string_to_array(replace(replace(replace(p_message_references, '[', ''), ']', ''), '"', ''), ',') END,
       p_to_addresses::jsonb, p_cc_addresses::jsonb, p_bcc_addresses::jsonb,
       p_subject, p_text_body, p_html_body, p_attachments::jsonb, p_signature_id
     )

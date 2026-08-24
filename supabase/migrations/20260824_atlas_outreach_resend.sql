@@ -173,8 +173,8 @@ $$;
 CREATE OR REPLACE FUNCTION public.outreach_records_create(
   p_lead_id uuid,
   p_recipient_email text,
-  p_recipient_name text DEFAULT NULL,
-  p_recipient_company text DEFAULT NULL,
+  p_recipient_name text,
+  p_recipient_company text,
   p_subject text,
   p_body text,
   p_html_body text DEFAULT NULL,

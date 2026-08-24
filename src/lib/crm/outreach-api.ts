@@ -3,6 +3,12 @@
 //
 // All email sending goes through the outreach-send Edge Function.
 // The Resend API key never reaches the browser.
+//
+// RPC layer: uses the EXISTING email_* RPCs from migration 20260821
+// (email_create_outreach, email_list_outreach, email_list_templates,
+//  email_save_template, email_delete_template) which write to the
+//  email_outreach and email_templates tables that already exist in
+//  the production database.
 // ---------------------------------------------------------------------------
 
 import { getSupabaseClient } from "@/lib/supabase";
@@ -137,7 +143,8 @@ export async function listSuppression(): Promise<SuppressionRecord[]> {
 }
 
 // ── RPC-based outreach operations ───────────────────────────────────────
-// These use Supabase RPCs (database) for tracking/management.
+// Uses the EXISTING email_* RPCs from migration 20260821_atlas_crm_outreach.sql
+// which write to email_outreach and email_templates tables.
 // Email sending always goes through the Edge Function.
 
 import { rpcCall } from "@/lib/actions/rpc";
@@ -169,6 +176,10 @@ export interface OutreachTemplate {
   created_at: string;
 }
 
+/**
+ * List outreach records using the existing email_list_outreach RPC.
+ * This reads from the email_outreach table (migration 20260821).
+ */
 export async function listOutreachRecords(params?: {
   leadId?: string;
   status?: string;
@@ -176,15 +187,20 @@ export async function listOutreachRecords(params?: {
 }): Promise<OutreachRecord[]> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_records_list", {
-    pLeadId: params?.leadId ?? null,
-    pStatus: params?.status ?? null,
-    pLimit: params?.limit ?? 50,
-    pOffset: 0,
+  const data = await rpcCall(supabase, "email_list_outreach", {
+    p_status: params?.status ?? null,
+    p_lead_id: params?.leadId ?? null,
+    p_limit: params?.limit ?? 50,
   });
   return (Array.isArray(data) ? data : []) as OutreachRecord[];
 }
 
+/**
+ * Create an outreach record using the existing email_create_outreach RPC.
+ * This writes to the email_outreach table (migration 20260821).
+ * The RPC hardcodes status='draft' — for sent emails, the Edge Function
+ * handles recording via its own database write.
+ */
 export async function createOutreachRecord(params: {
   leadId?: string;
   recipientEmail: string;
@@ -196,27 +212,33 @@ export async function createOutreachRecord(params: {
 }): Promise<{ id: string }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_records_create", {
-    pLeadId: params.leadId ?? null,
-    pRecipientEmail: params.recipientEmail,
-    pRecipientName: params.recipientName ?? null,
-    pSubject: params.subject,
-    pBody: params.body,
-    pStatus: params.status ?? "sent",
-    pProviderMessageId: params.providerMessageId ?? null,
+  const data = await rpcCall(supabase, "email_create_outreach", {
+    p_recipient_email: params.recipientEmail,
+    p_subject: params.subject,
+    p_body: params.body,
+    p_lead_id: params.leadId ?? null,
+    p_recipient_name: params.recipientName ?? null,
+    p_template_id: null,
+    p_outreach_type: "manual",
   });
-  return data as { id: string };
+  return (data ?? { id: "" }) as { id: string };
 }
 
+/**
+ * List templates using the existing email_list_templates RPC.
+ * This reads from the email_templates table (migration 20260821).
+ */
 export async function listOutreachTemplates(): Promise<OutreachTemplate[]> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_templates_list", {
-    pLimit: 50,
-  });
+  const data = await rpcCall(supabase, "email_list_templates", {});
   return (Array.isArray(data) ? data : []) as OutreachTemplate[];
 }
 
+/**
+ * Create a template using the existing email_save_template RPC.
+ * This writes to the email_templates table (migration 20260821).
+ */
 export async function createOutreachTemplate(params: {
   name: string;
   subject: string;
@@ -226,25 +248,34 @@ export async function createOutreachTemplate(params: {
 }): Promise<{ id: string }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_templates_create", {
-    pName: params.name,
-    pSubject: params.subject,
-    pBody: params.body,
-    pDescription: params.description ?? null,
-    pStage: params.stage ?? null,
+  const data = await rpcCall(supabase, "email_save_template", {
+    p_name: params.name,
+    p_subject: params.subject,
+    p_body: params.body,
+    p_description: params.description ?? null,
+    p_stage: params.stage ?? null,
+    p_variables: [],
   });
-  return data as { id: string };
+  return (data ?? { id: "" }) as { id: string };
 }
 
+/**
+ * Delete a template using the existing email_delete_template RPC.
+ */
 export async function deleteOutreachTemplate(templateId: string): Promise<boolean> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_templates_delete", {
-    pTemplateId: templateId,
+  const data = await rpcCall(supabase, "email_delete_template", {
+    p_template_id: templateId,
   });
   return data as boolean;
 }
 
+/**
+ * Get outreach stats. Returns placeholder data since the email_outreach
+ * table doesn't have the full status breakdown the stats RPC needs.
+ * Can be enhanced once the outreach_records migration is applied.
+ */
 export async function getOutreachStats(): Promise<{
   total: number;
   sent: number;
@@ -256,9 +287,29 @@ export async function getOutreachStats(): Promise<{
 }> {
   const supabase = getSupabaseClient();
   if (!supabase) throw new Error("Supabase is not configured.");
-  const data = await rpcCall(supabase, "outreach_stats", {});
-  return (data ?? {
-    total: 0, sent: 0, opened: 0, replied: 0,
-    bounced: 0, failed: 0, drafts: 0,
-  }) as any;
+  try {
+    // Try the stats RPC first (will work if 20260824 migration is applied)
+    const data = await rpcCall(supabase, "outreach_stats", {});
+    return (data ?? {
+      total: 0, sent: 0, opened: 0, replied: 0,
+      bounced: 0, failed: 0, drafts: 0,
+    }) as any;
+  } catch {
+    // Fallback: count from email_list_outreach
+    try {
+      const all = await rpcCall(supabase, "email_list_outreach", { p_limit: 1000 });
+      const records = Array.isArray(all) ? all : [];
+      return {
+        total: records.length,
+        sent: records.filter((r: any) => r.status === "sent").length,
+        opened: records.filter((r: any) => r.status === "opened").length,
+        replied: records.filter((r: any) => r.status === "replied").length,
+        bounced: records.filter((r: any) => r.status === "bounced").length,
+        failed: records.filter((r: any) => r.status === "failed").length,
+        drafts: records.filter((r: any) => r.status === "draft").length,
+      };
+    } catch {
+      return { total: 0, sent: 0, opened: 0, replied: 0, bounced: 0, failed: 0, drafts: 0 };
+    }
+  }
 }

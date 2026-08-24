@@ -336,6 +336,7 @@ function ComposeView() {
         toast.success("Draft saved");
       } else {
         // Actually send the email via Resend
+        // The Edge Function logs the activity to crm_activities internally
         const result = await sendOutreachEmail({
           to: form.recipientEmail,
           subject: form.subject,
@@ -344,17 +345,6 @@ function ComposeView() {
           leadName: form.recipientName || undefined,
           outreachType: form.templateId ? "template" : "manual",
           templateId: form.templateId || undefined,
-        });
-
-        // Record the send in the database
-        await createOutreachRecord({
-          recipientEmail: form.recipientEmail,
-          recipientName: form.recipientName || undefined,
-          subject: form.subject,
-          body: form.body,
-          leadId: form.leadId || undefined,
-          status: result.testMode ? "sent-test" : "sent",
-          providerMessageId: result.messageId,
         });
 
         if (result.testMode) {

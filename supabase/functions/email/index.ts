@@ -927,7 +927,7 @@ async function handleSyncFolder(
         is_read: msg.is_read ?? false,
         is_starred: msg.is_starred ?? false,
         folder,
-        references: Array.isArray(msg.references)
+        message_references: Array.isArray(msg.references)
           ? msg.references
           : [],
         uid_validity: uidValidity,

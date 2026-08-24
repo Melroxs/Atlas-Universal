@@ -275,7 +275,7 @@ export async function saveDraft(
     id: draft.id ?? null,
     threadId: draft.thread_id ?? null,
     inReplyTo: draft.in_reply_to ?? null,
-    references: draft.references ? JSON.stringify(draft.references) : null,
+    p_messageReferences: draft.references ? JSON.stringify(draft.references) : null,
     toAddresses: JSON.stringify(draft.to_addresses ?? []),
     ccAddresses: JSON.stringify(draft.cc_addresses ?? []),
     bccAddresses: JSON.stringify(draft.bcc_addresses ?? []),

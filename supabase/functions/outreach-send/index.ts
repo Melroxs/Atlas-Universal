@@ -17,6 +17,7 @@
 // ── CORS ────────────────────────────────────────────────────────────────
 
 const ATLAS_ALLOWED_ORIGINS = [
+  "https://atlas-ai-os.com",
   "https://atlasmvp.freebuff.app",
   "https://atlasuniversalos.freebuff.app",
 ];

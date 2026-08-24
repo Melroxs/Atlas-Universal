@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   ArrowRight,
+  CheckCircle2,
   Copy,
   FileText,
   Loader2,
@@ -34,10 +35,12 @@ import {
   Send,
   Sparkles,
   Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { generateOutreach, type LeadContext } from "@/lib/crm/ai-outreach";
+import { sendOutreachEmail, createOutreachRecord } from "@/lib/crm/outreach-api";
 
 export default function PilotOutreach() {
   const [tab, setTab] = useState("outreach");
@@ -310,26 +313,71 @@ function ComposeView() {
     templateId: "",
   });
 
+  const [sendResult, setSendResult] = useState<{ status: "success" | "error" | "test"; message: string; messageId?: string } | null>(null);
+
   const handleSend = async (asDraft = true) => {
     if (!form.recipientEmail || !form.subject || !form.body) {
       toast.error("Recipient, subject, and body are required");
       return;
     }
     setSending(true);
+    setSendResult(null);
     try {
-      await createOutreach({
-        recipientEmail: form.recipientEmail,
-        recipientName: form.recipientName || undefined,
-        subject: form.subject,
-        body: form.body,
-        leadId: form.leadId || undefined,
-        templateId: form.templateId || undefined,
-        outreachType: form.templateId ? "manual" : "manual",
-      });
-      toast.success(asDraft ? "Draft saved" : "Outreach created");
+      if (asDraft) {
+        // Save as draft — no email sent
+        await createOutreachRecord({
+          recipientEmail: form.recipientEmail,
+          recipientName: form.recipientName || undefined,
+          subject: form.subject,
+          body: form.body,
+          leadId: form.leadId || undefined,
+          status: "draft",
+        });
+        toast.success("Draft saved");
+      } else {
+        // Actually send the email via Resend
+        const result = await sendOutreachEmail({
+          to: form.recipientEmail,
+          subject: form.subject,
+          body: form.body,
+          leadId: form.leadId || undefined,
+          leadName: form.recipientName || undefined,
+          outreachType: form.templateId ? "template" : "manual",
+          templateId: form.templateId || undefined,
+        });
+
+        // Record the send in the database
+        await createOutreachRecord({
+          recipientEmail: form.recipientEmail,
+          recipientName: form.recipientName || undefined,
+          subject: form.subject,
+          body: form.body,
+          leadId: form.leadId || undefined,
+          status: result.testMode ? "sent-test" : "sent",
+          providerMessageId: result.messageId,
+        });
+
+        if (result.testMode) {
+          setSendResult({
+            status: "test",
+            message: `Test email sent! In production mode, this would deliver to ${form.recipientEmail}.`,
+            messageId: result.messageId,
+          });
+          toast.info("Test email sent (test mode is active)");
+        } else {
+          setSendResult({
+            status: "success",
+            message: `Email sent to ${form.recipientEmail}${result.messageId ? ` (ID: ${result.messageId.slice(0, 8)}...)` : ""}`,
+            messageId: result.messageId,
+          });
+          toast.success("Email sent successfully!");
+        }
+      }
       invalidateQueries();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
+      const msg = e instanceof Error ? e.message : "Failed to send email";
+      setSendResult({ status: "error", message: msg });
+      toast.error(msg);
     } finally {
       setSending(false);
     }
@@ -528,6 +576,42 @@ function ComposeView() {
             className="font-mono text-sm"
           />
         </div>
+        {/* Send result banner */}
+        {sendResult && (
+          <div className={`rounded-lg border p-3 text-sm ${
+            sendResult.status === "success"
+              ? "border-green-500/30 bg-green-500/5 text-green-700 dark:text-green-300"
+              : sendResult.status === "test"
+                ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+                : "border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-300"
+          }`}>
+            <div className="flex items-start gap-2">
+              {sendResult.status === "success" ? (
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
+              ) : sendResult.status === "test" ? (
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <AlertCircle className="mt-0.5 size-4 shrink-0" />
+              )}
+              <div>
+                <p>{sendResult.message}</p>
+                {sendResult.messageId && (
+                  <p className="mt-1 text-xs opacity-70 font-mono">Provider ID: {sendResult.messageId}</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Sender info */}
+        <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Mail className="size-3" />
+            <span>Sending as: <strong className="text-foreground">Melissa October &lt;melissa@atlas-ai-os.com&gt;</strong></span>
+            <Badge variant="outline" className="ml-auto text-[10px]">Resend</Badge>
+          </div>
+        </div>
+
         <div className="flex gap-3">
           <Button
             variant="outline"
@@ -539,7 +623,7 @@ function ComposeView() {
           </Button>
           <Button disabled={sending} onClick={() => handleSend(false)}>
             <Send className="mr-1 size-3" />
-            Send
+            {sending ? "Sending..." : "Send via Resend"}
           </Button>
         </div>
       </div>

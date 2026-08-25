@@ -17,7 +17,7 @@
 //
 // No manual secret setup required — SUPABASE_SECRET_KEYS is injected automatically.
 // If SITE_URL is needed, set it via:
-//   supabase secrets set SITE_URL=https://atlasmvp.freebuff.app
+//   supabase secrets set SITE_URL=https://atlas-ai-os.com
 
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -217,7 +217,7 @@ serve(async (req: Request) => {
       action = "existing_user_provisioned";
     } else {
       // ── 7. Create a new Supabase Auth user with invitation ─────────────
-      const siteUrl = Deno.env.get("SITE_URL") || "https://atlasmvp.freebuff.app";
+      const siteUrl = Deno.env.get("SITE_URL") || "https://atlas-ai-os.com";
       const { data: inviteData, error: inviteError } =
         await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
           data: {

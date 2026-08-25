@@ -58,7 +58,7 @@ import {
   FileText,
   Send,
 } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
 
 const NAV_SECTIONS: Array<{
@@ -205,6 +205,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const claimInvites = useMutation(api.tenants.claimInvites);
   const runDueSyncs = useAction(api.connectionsSync.runDueSyncs);
 
+  // Track whether we just claimed invites so invited users aren't redirected
+  // to /setup before their workspace data loads.
+  const [justClaimedInvites, setJustClaimedInvites] = useState(false);
+  const hasClaimed = useRef(false);
+
   // Idempotent: ensure the pack catalog exists, claim any invites, and let
   // background syncs pick up connected sources that are due for a refresh.
   // Connections sync is optional infrastructure — a failure (edge function
@@ -212,7 +217,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   // blocks the app.
   useEffect(() => {
     void seedIntelligence();
-    void claimInvites();
+    void claimInvites().then((result) => {
+      const claimed = (result as { claimed?: number })?.claimed ?? 0;
+      if (claimed > 0 && !hasClaimed.current) {
+        hasClaimed.current = true;
+        setJustClaimedInvites(true);
+        // Clear the flag after a short delay to allow workspace data to reload
+        setTimeout(() => setJustClaimedInvites(false), 3000);
+      }
+    });
     void runDueSyncs().catch((e) => {
       console.warn(
         "[atlas] background connections sync unavailable (non-blocking):",
@@ -232,18 +245,23 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  if (
-    workspace === null ||
-    workspace.profile === null ||
-    workspace.profile.onboardingComplete !== true
-  ) {
-    return <Navigate to="/setup" replace />;
+  // For invited users who just claimed their invite, allow a brief grace
+  // period before enforcing the onboarding check (workspace data may not
+  // have reloaded yet).
+  if (!justClaimedInvites) {
+    if (
+      workspace === null ||
+      workspace.profile === null ||
+      workspace.profile.onboardingComplete !== true
+    ) {
+      return <Navigate to="/setup" replace />;
+    }
   }
 
   const openRecs = recCounts?.open ?? 0;
   const companyName =
-    workspace.profile.companyName || workspace.tenant?.name || "Workspace";
-  const memberRole = workspace.membership?.role;
+    (workspace?.profile?.companyName) || workspace?.tenant?.name || "Workspace";
+  const memberRole = workspace?.membership?.role;
 
   const handleSignOut = async () => {
     await signOut();

@@ -311,33 +311,34 @@ function HeroVisual() {
               Company intelligence layer
             </p>
             <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-              People · projects · customers · policies · workflows · financials — one continuously
-              updated model.
+              Claims · estimates · photos · policies · documentation — one continuously
+              updated revenue model.
             </p>
           </div>
           <div className="rounded-xl border border-border/70 bg-background/60 p-3">
             <div className="flex items-center gap-2">
               <MessageSquareText className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
               <p className="text-[11px] font-medium text-foreground/90">
-                “What changed across the company this week?”
+                “What revenue opportunities did we miss this week?”
               </p>
             </div>
             <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-              Two projects entered invoicing, one carrier approval is pending, and cash-flow
-              forecast updated.{" "}
-              <span className="text-emerald-600 dark:text-emerald-300">3 sources · high confidence</span>
+              Three claims have unsubmitted supplements, two estimates have scope gaps,
+              and one carrier deadline is approaching.{" "}
+              <span className="text-emerald-600 dark:text-emerald-300">3 sources · revenue opportunity identified</span>
             </p>
           </div>
           <div className="rounded-xl border border-border/70 bg-background/60 p-3">
             <div className="flex items-center gap-2">
               <Mic2 className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
               <p className="text-[11px] font-medium text-foreground/90">
-                Voice · “What does our policy require?”
+                Voice · “What does the carrier require for this supplement?”
               </p>
             </div>
             <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
-              Per your Payment Policy §3, net-30 invoices require a signed authorization on file…{" "}
-              <span className="text-violet-600 dark:text-violet-300">[1] Payment Policy</span>
+              Per the carrier requirement, supplements must include signed authorization and
+              dated completion photos…{" "}
+              <span className="text-violet-600 dark:text-violet-300">[1] Carrier Supplement Requirements</span>
             </p>
           </div>
         </div>
@@ -384,7 +385,7 @@ function FragmentationVisual() {
         </span>
       </div>
       <p className="mt-5 border-t border-border/60 pt-4 text-center text-sm italic text-muted-foreground">
-        “The result: information is everywhere, but understanding is nowhere.”
+        “The result: revenue opportunities vanish before anyone realizes they existed.”
       </p>
     </Reveal>
   );
@@ -735,27 +736,27 @@ export default function Landing() {
             >
               <motion.p variants={fadeUp} className="atlas-eyebrow mb-4 flex items-center gap-2">
                 <Sparkles className="size-3.5" />
-                AI Revenue Recovery for Contractors
+                Revenue Recovery + Prevention
               </motion.p>
               <motion.h1
                 variants={fadeUp}
                 className="text-4xl font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.4rem]"
               >
-                Your company, finally{" "}
+                Recover the revenue{" "}
                 <span className="bg-gradient-to-r from-teal-600 via-cyan-600 to-teal-600 bg-clip-text text-transparent dark:from-teal-300 dark:via-cyan-300 dark:to-teal-300">
-                  understandable to AI.
+                  your company is missing.
                 </span>
               </motion.h1>
               <motion.p variants={fadeUp} className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-                Atlas connects the systems, documents, workflows, and knowledge your business
-                already uses — then turns scattered information into revenue opportunities and
-                professional claims or supplement packages you can actually use.
+                Atlas finds missed revenue opportunities inside your claims and workflows,
+                helps build the evidence to support them, and helps your team act — from
+                the beginning of a claim through final payment.
               </motion.p>
               <motion.p variants={fadeUp} className="mt-2 flex items-center gap-2 text-xs text-muted-foreground/80">
-                <span className="font-mono uppercase tracking-[0.14em]">Connect your data. Atlas finds the opportunity.</span>
+                <span className="font-mono uppercase tracking-[0.14em]">Recover what was missed. Prevent what would have been missed.</span>
               </motion.p>
               <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3">
-                <PrimaryCta onClick={toAuth}>Enter Atlas</PrimaryCta>
+                <PrimaryCta onClick={toAuth}>See Atlas in Action</PrimaryCta>
                 <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
               </motion.div>
               <motion.div
@@ -763,8 +764,8 @@ export default function Landing() {
                 className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground"
               >
                 {[
-                  "Evidence-backed answers",
-                  "Revenue recovery intelligence",
+                  "Evidence-backed revenue recovery",
+                  "Identifies missed scope & documentation",
                   "Professional claim & supplement packages",
                 ].map((f) => (
                   <span key={f} className="flex items-center gap-1.5">
@@ -806,7 +807,8 @@ export default function Landing() {
               )}
             </div>
             <p className="text-xs text-muted-foreground/80">
-              Atlas is the intelligence layer that sits above the software stack you already run.
+              Atlas is the revenue recovery layer that sits above your existing software — identifying missed
+              opportunities and preventing them from being missed in the first place.
             </p>
           </div>
         </section>
@@ -817,8 +819,8 @@ export default function Landing() {
         <section id="problem" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
           <SectionHead
             eyebrow="The problem"
-            title="Your business runs on dozens of systems. Your intelligence shouldn't."
-            lead="Businesses have accumulated software over time. Each tool contains part of the truth — but no single system understands the entire company."
+            title="Revenue gets lost in the gaps."
+            lead="Scope gets missed. Evidence gets buried. Documentation is incomplete. Changes aren't captured. Important details live across documents, photos, estimates, conversations, emails, and employee knowledge."
           />
           <div className="mt-12 grid items-start gap-8 lg:grid-cols-[1.15fr_1fr]">
             <FragmentationVisual />
@@ -826,13 +828,13 @@ export default function Landing() {
               <h3 className="text-lg font-semibold tracking-tight">The cost of fragmentation</h3>
               <ul className="mt-5 space-y-3.5">
                 {[
-                  [Search, "People spend time searching for information."],
-                  [Repeat, "Teams duplicate work that already exists somewhere."],
-                  [FileText, "Important context stays trapped inside documents."],
-                  [Users, "Decisions depend on individual employees and their memory."],
-                  [EyeOff, "Management lacks a unified operational picture."],
-                  [ShieldAlert, "Regulatory obligations are difficult to monitor."],
-                  [Database, "Valuable information disappears into disconnected systems."],
+                  [Search, "Scope gets missed across documents and conversations."],
+                  [Repeat, "Evidence sits buried in photos, estimates, and emails."],
+                  [FileText, "Documentation is incomplete when it matters most."],
+                  [Users, "Changes aren't captured before deadlines pass."],
+                  [EyeOff, "Important details live in employee memory, not systems."],
+                  [ShieldAlert, "By the time gaps surface, recovery becomes difficult."],
+                  [Database, "Revenue opportunities disappear into disconnected workflows."],
                 ].map(([Icon, text]) => {
                   const I = Icon as typeof Search;
                   return (
@@ -859,8 +861,8 @@ export default function Landing() {
           <div className="mx-auto w-full max-w-6xl px-5">
             <SectionHead
               eyebrow="Introducing Atlas"
-              title="Atlas connects the company — not just the software."
-              lead="Atlas sits above your existing technology stack. It connects the systems and information your business already uses, understands what that information means, and creates a continuously updated model of your company."
+              title="Revenue recovery shouldn't begin after revenue is lost."
+              lead="Atlas can be used from the beginning of a claim to continuously understand the evidence, scope, documentation, and events surrounding the work — identifying opportunities that were already missed and preventing opportunities from being missed in the first place."
             />
             <div className="mt-14 grid items-start gap-12 lg:grid-cols-2">
               <motion.div
@@ -907,17 +909,18 @@ export default function Landing() {
                 <div className="atlas-grid-fine rounded-2xl border border-border/70 bg-card/70 p-6 shadow-xl shadow-black/10 dark:shadow-black/30">
                   <Quote className="size-5 text-teal-600/60 dark:text-teal-300/60" />
                   <p className="mt-3 text-lg leading-8 text-foreground">
-                    “Your company already has the data.{" "}
-                    <span className="text-teal-600 dark:text-teal-300">Atlas makes the company
-                    understandable.</span>”
+                    “Revenue recovery shouldn't start after the money is
+                    <span className="text-teal-600 dark:text-teal-300"> left behind.</span>”
                   </p>
                   <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                    You don't move your business into Atlas. Atlas learns your business from the
-                    information it already has — and keeps learning as new information arrives.
+                    Atlas captures your company's evidence, decisions, and outcomes — then uses
+                    that intelligence to identify missed revenue and prevent future revenue
+                    leakage. The earlier Atlas enters the workflow, the more it can prevent
+                    rather than simply recover later.
                   </p>
                   <div className="mt-6 grid grid-cols-2 gap-3">
                     {[
-                      ["9", "pipeline stages, one path for every source"],
+                      ["9", "pipeline stages, from evidence to recovery"],
                       ["1", "knowledge layer for the whole company"],
                       ["0", "systems you have to replace"],
                       ["100%", "of answers traceable to sources"],
@@ -941,9 +944,9 @@ export default function Landing() {
         {/* ------------------------------------------------------------------ */}
         <section id="how" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
           <SectionHead
-            eyebrow="Keep your software. Add intelligence."
+            eyebrow="Keep your software. Start recovering revenue."
             title="You don't have to replace your stack"
-            lead="Atlas works with the systems your business already uses. Files upload directly; cloud systems connect through real connectors as they ship. Nothing here claims to be connected unless it actually is."
+            lead="Atlas works with the systems your business already uses. Files upload directly; cloud systems connect through real connectors as they ship. The sooner your evidence enters Atlas, the sooner it can recover revenue you're missing."
           />
           <Reveal className="mt-12">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -993,9 +996,9 @@ export default function Landing() {
         <section id="model" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
           <div className="mx-auto w-full max-w-6xl px-5">
             <SectionHead
-              eyebrow="The Atlas intelligence model"
-              title="Atlas doesn't just ingest data. It learns the context around it."
-              lead="Answers change with context. Atlas builds its model of your company from what your company is, how your industry works, and what applies where you operate."
+            eyebrow="The Atlas intelligence model"
+            title="Atlas doesn't just ingest data. It learns the revenue context."
+            lead="Revenue opportunities depend on context — what was documented, what was missed, what the policy requires, and what happened on site. Atlas builds a model of your company that understands all of it, so missed revenue can be identified and future revenue can be protected."
             />
             <Reveal className="mt-12">
               <div className="rounded-2xl border border-border/70 bg-card/60 p-6">
@@ -1036,7 +1039,7 @@ export default function Landing() {
                     Company intelligence model
                   </p>
                   <p className="mt-1.5 text-xs text-muted-foreground">
-                    The reference context Atlas reasons against — not a document chatbot.
+                    The reference context Atlas uses to identify and prevent revenue leakage.
                   </p>
                 </div>
               </div>
@@ -1046,12 +1049,13 @@ export default function Landing() {
               <Reveal>
                 <p className="atlas-eyebrow mb-3">The company model</p>
                 <h3 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                  Atlas builds a living model of your company.
+                  Atlas builds a living model of your company's revenue landscape.
                 </h3>
                 <p className="mt-4 text-sm leading-7 text-muted-foreground">
-                  Every document, system, workflow, person, project, customer, policy, transaction,
-                  and decision contributes context to the company model. New information updates
-                  the model — it isn't rebuilt from scratch.
+                  Every document, estimate, photo, conversation, workflow, policy, and decision
+                  contributes context to the company model. New information updates the model
+                  continuously — so revenue opportunities are identified while the work is
+                  happening, not only after the money has been left behind.
                 </p>
                 <ul className="mt-6 space-y-3">
                   {[
@@ -1084,8 +1088,8 @@ export default function Landing() {
         <section id="ask" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
           <SectionHead
             eyebrow="Ask Atlas"
-            title="Ask your company anything."
-            lead="No dashboards to build. No database queries. No hunting through folders. Just ask — Atlas searches across every connected and uploaded source and answers with evidence."
+            title="Find missed revenue with a single question."
+            lead="No dashboards to build. No database queries. No hunting through folders. Ask Atlas about a claim, a project, or a policy — and get an evidence-backed answer that surfaces what was missed, what needs attention, and what the documentation supports."
           />
           <Reveal className="mt-12">
             <div className="mx-auto max-w-3xl rounded-2xl border border-border/70 bg-card/70 p-6 shadow-xl shadow-black/10 dark:shadow-black/30">
@@ -1103,15 +1107,15 @@ export default function Landing() {
               </div>
               <div className="mt-6 space-y-7">
                 <AskExchange
-                  question="“Which customers have active projects and unpaid invoices?”"
-                  answer="I found 7 customers with active projects and outstanding invoices totaling $184,200 — all amounts drawn from your customer, project, and invoice records."
-                  sources={["Customer database", "Invoice records", "Project records"]}
+                  question="“What revenue opportunities are we missing on active claims?”"
+                  answer="I found 7 claims with scope gaps totaling $184,200 — including 3 where supplemental documentation was never submitted and 4 with scope items missing from the original estimate."
+                  sources={["Claims records", "Estimate files", "Supplement history"]}
                   confidence="High · 94%"
                 />
                 <div className="border-t border-border/60 pt-7">
                   <AskExchange
-                    question="“What does our SOP require when a project reaches this stage?”"
-                    answer="Per your Project Completion SOP §4, the project must have a signed authorization, dated completion photos, and a final drying log before invoicing."
+                    question="“What documentation does our SOP require before submitting this supplement?”"
+                    answer="Per your Supplement SOP §4, this supplement requires signed authorization, dated completion photos, and a final drying log — without which the carrier will deny or underpay."
                     badge="FACT"
                     citation="[1] Project Completion SOP §4"
                     sources={["Project Completion SOP"]}
@@ -1120,9 +1124,9 @@ export default function Landing() {
                 </div>
               </div>
               <div className="mt-6 rounded-xl border border-border/60 bg-background/50 p-3 text-[11px] leading-5 text-muted-foreground">
-                <span className="font-semibold text-foreground">Why this matters:</span> the answer
-                required joining three different spreadsheets plus a policy document. You never
-                needed to know which system held the answer.
+                <span className="font-semibold text-foreground">Why this matters:</span>                identifying this gap required joining estimates, photos, and policy documents across
+                disconnected systems. Atlas surfaced the missing revenue opportunity — without you
+                needing to know which system held the answer.
               </div>
             </div>
           </Reveal>
@@ -1136,17 +1140,18 @@ export default function Landing() {
             <Reveal>
               <p className="atlas-eyebrow mb-3">Voice</p>
               <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                Talk to your company.
+                Ask about revenue by voice.
               </h2>
               <p className="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
                 Atlas isn't limited to a chat window. Ask questions naturally by voice and get
-                answers grounded in your company's actual information — an operating assistant for
-                the business, not a consumer toy.
+                answers grounded in your company's actual information — whether you're on a job
+                site, in the office, or walking through a property. Identify missed revenue
+                without opening a single file.
               </p>
               <div className="mt-7 space-y-3">
                 {[
-                  [Mic2, "“Atlas, what's happening across the business today?”"],
-                  [Radar, "“Three projects require attention, two invoices are overdue, and one compliance deadline is approaching…”"],
+                  [Mic2, "“Atlas, what claims need my attention?”"],
+                  [Radar, "“Three claims have scope gaps, two supplements are overdue for submission, and one carrier response deadline is approaching…”"],
                 ].map(([Icon, text], i) => {
                   const I = Icon as typeof Mic2;
                   return (
@@ -1203,7 +1208,7 @@ export default function Landing() {
                   <div className="text-left">
                     <p className="text-sm font-medium text-foreground">Ask aloud</p>
                     <p className="text-xs text-muted-foreground">
-                      “What does our refund policy say?” · “Where are we losing revenue?”
+                      “What documentation is missing on this claim?” · “What scope items were not captured in the estimate?”
                     </p>
                   </div>
                 </div>
@@ -1218,17 +1223,17 @@ export default function Landing() {
         <section id="evolution" className="relative z-10 mx-auto w-full max-w-6xl px-5 py-20">
           <SectionHead
             eyebrow="The roadmap"
-            title="From knowing what happened to knowing what to do next."
-            lead="The first Atlas experience centers on knowledge and querying. The platform architecture is designed to evolve into decision-making, execution, and closed-loop learning."
+            title="From recovering what was missed to preventing what would be."
+            lead="The first Atlas experience identifies missed revenue opportunities and builds the evidence to support them. The platform architecture evolves toward proactive prevention — detecting gaps before they become lost revenue."
           />
           <div className="mt-12 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {[
-              [Eye, "KNOW", "“What happened?”"],
-              [BrainCircuit, "UNDERSTAND", "“Why did it happen?”"],
-              [Scale, "COMPARE", "“Is this how it should happen?”"],
-              [Lightbulb, "ADVISE", "“What should we do?”"],
-              [Play, "ACT", "“Do it.”"],
-              [RefreshCw, "LEARN", "“Did it work?”"],
+              [Eye, "KNOW", "“What was missed?”"],
+              [BrainCircuit, "UNDERSTAND", "“Why was it missed?”"],
+              [Scale, "COMPARE", "“What does the documentation support?”"],
+              [Lightbulb, "ADVISE", "“What should we do next?”"],
+              [Play, "ACT", "“Submit the recovery.”"],
+              [RefreshCw, "LEARN", "“Did we prevent it next time?”"],
             ].map(([Icon, label, q], i) => {
               const I = Icon as typeof Eye;
               const live = i <= 2;
@@ -1270,8 +1275,8 @@ export default function Landing() {
             })}
           </div>
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            V1 ships the KNOW → UNDERSTAND → COMPARE foundation. Advisory, execution, and learning
-            build on the same architecture — they aren't promised today.
+            V1 ships revenue identification → evidence building → documentation support. Advisory,
+            execution, and prevention build on the same architecture.
           </p>
         </section>
 
@@ -1281,9 +1286,9 @@ export default function Landing() {
         <section id="context" className="relative z-10 border-y border-border/60 bg-card/30 py-20">
           <div className="mx-auto w-full max-w-6xl px-5">
             <SectionHead
-              eyebrow="Regulatory + industry intelligence"
-              title="Context changes the answer."
-              lead="A business doesn't operate in a vacuum. Atlas combines your company's reality with its policies, industry standards, and the regulations that apply where you operate."
+            eyebrow="Regulatory + industry intelligence"
+            title="Context determines what revenue is recoverable."
+            lead="A claim doesn't exist in a vacuum. Atlas combines your company's documentation with its policies, industry standards, and carrier requirements — so you know exactly what's recoverable and what needs to be documented."
             />
             <Reveal className="mt-10">
               <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
@@ -1305,10 +1310,10 @@ export default function Landing() {
             </Reveal>
             <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                [Eye, "What happened?", "The reality captured from your connected sources."],
-                [Scale, "What should have happened?", "Industry standards and benchmarks as reference."],
-                [FileCheck2, "What does our company require?", "Your own policies, SOPs, and procedures."],
-                [Landmark, "What does the regulation require?", "Jurisdictional and regulatory obligations."],
+                [Eye, "What happened on this claim?", "The reality captured from your connected sources — estimates, photos, conversations, and documentation."],
+                [Scale, "What should have been documented?", "Industry standards and carrier benchmarks as reference for what's expected."],
+                [FileCheck2, "What does our SOP require?", "Your own policies, documentation requirements, and procedures."],
+                [Landmark, "What does the carrier require?", "Jurisdictional, regulatory, and carrier-specific obligations."],
               ].map(([Icon, k, v], i) => {
                 const I = Icon as typeof Eye;
                 return (
@@ -1323,8 +1328,8 @@ export default function Landing() {
               })}
             </div>
             <p className="mt-8 text-center text-xs text-muted-foreground">
-              The long-term goal: Atlas surfaces gaps between reality, policy, industry expectations,
-              and regulatory requirements — flagged as signals, not mandates.
+              The long-term goal: Atlas surfaces gaps between what was documented, what should have
+              been documented, and what's required — flagged before they become lost revenue.
             </p>
           </div>
         </section>
@@ -1337,11 +1342,11 @@ export default function Landing() {
             <Reveal>
               <p className="atlas-eyebrow mb-3">Industries</p>
               <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                Starting where operational complexity is expensive.
+                Starting where revenue leakage is most expensive.
               </h2>
               <p className="mt-4 text-sm leading-7 text-muted-foreground">
-                Atlas is launching first in insurance restoration — an industry where critical
-                information is spread across estimates, claims, project systems, documents, photos,
+                Atlas is launching first in insurance restoration — an industry where revenue gets
+                left behind because critical information is spread across estimates, claims, photos,
                 communications, carrier requirements, SOPs, and spreadsheets.
               </p>
               <p className="mt-3 text-sm leading-7 text-muted-foreground">
@@ -1393,7 +1398,7 @@ export default function Landing() {
                 <p className="atlas-eyebrow mb-2">The universal architecture</p>
                 <h3 className="text-xl font-semibold tracking-tight">One intelligence layer. Any business.</h3>
                 <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                  The core Atlas architecture is industry-agnostic. Industry-specific intelligence
+                  The core Atlas architecture is industry-agnostic. Revenue recovery intelligence
                   sits above it — so Atlas expands vertical by vertical without rebuilding the
                   operating layer.
                 </p>
@@ -1467,8 +1472,8 @@ export default function Landing() {
           <div className="mx-auto w-full max-w-6xl px-5">
             <SectionHead
               eyebrow="Security & trust"
-              title="AI you can trace."
-              lead="Atlas should not be a black box. Every answer should be grounded in what Atlas actually knows — with the evidence to prove it."
+              title="Revenue intelligence you can trace."
+              lead="Atlas should not be a black box. Every revenue opportunity should be grounded in what Atlas actually knows — with the evidence to prove it, and the confidence to act on it."
             />
             <div className="mt-12 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
@@ -1508,18 +1513,19 @@ export default function Landing() {
             <Reveal>
               <p className="atlas-eyebrow mb-3">The operating loop</p>
               <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-                A continuous intelligence loop around the business.
+                From missed revenue to a closed loop.
               </h2>
               <p className="mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
-                The long-term vision for Atlas isn't simply to answer questions. It's to keep the
-                company model current — detecting what changed, comparing it against expectations,
-                and closing the loop from decision to outcome to learning.
+                Atlas captures the information surrounding the work, structures and understands
+                the evidence, identifies gaps and opportunities, helps determine what needs to
+                happen next — and the outcome becomes part of the company's knowledge. Every
+                claim makes the company better at capturing revenue on the next one.
               </p>
               <ul className="mt-6 space-y-2.5">
                 {[
-                  "V1 focus: connect, understand, query — a rock-solid knowledge layer.",
-                  "Later: detection and decisions with human approval at every step.",
-                  "Eventually: measured outcomes feed back into how Atlas reasons.",
+                  "V1: identify missed revenue and build evidence-backed recovery packages.",
+                  "Later: detect gaps in real time and advise on next steps.",
+                  "Eventually: closed-loop prevention — each claim improves the next one.",
                 ].map((t) => (
                   <li key={t} className="flex items-start gap-2.5 text-sm text-muted-foreground">
                     <Check className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
@@ -1560,8 +1566,8 @@ export default function Landing() {
           <div className="mx-auto w-full max-w-6xl px-5">
             <SectionHead
               eyebrow="Who it's for"
-              title="Built for businesses where information is already everywhere."
-              lead="Operationally complex companies run on dozens of systems. Atlas is built for them — from small and mid-sized operators to larger organizations."
+              title="Built for businesses where revenue is being left behind."
+              lead="Operationally complex companies lose revenue because critical information is scattered across dozens of systems. Atlas is built for them — from small and mid-sized operators to larger organizations."
             />
             <div className="mt-12 grid gap-4 md:grid-cols-2">
               <Reveal>
@@ -1615,9 +1621,9 @@ export default function Landing() {
 
             <div className="mt-12 grid gap-4 md:grid-cols-3">
               {[
-                [Search, "Stop searching", "Atlas finds the information.", "Ask across every connected source — no folder archaeology."],
-                [EyeOff, "Stop guessing", "Atlas shows the evidence.", "Facts, citations, and confidence behind every answer."],
-                [Lightbulb, "Start understanding", "Atlas connects the context.", "People, projects, policies, and financials — joined into one picture."],
+                [Search, "Stop missing revenue", "Atlas finds the gaps.", "Cross-reference estimates, photos, policies, and carrier requirements."],
+                [EyeOff, "Stop guessing what's recoverable", "Atlas shows the evidence.", "Documentation-backed claims with confidence scores."],
+                [Lightbulb, "Start preventing losses", "Atlas connects the context.", "Claims, projects, policies, and financials — joined into one picture."],
               ].map(([Icon, k, tag, v], i) => {
                 const I = Icon as typeof Search;
                 return (
@@ -1649,16 +1655,16 @@ export default function Landing() {
             <div className="atlas-glow-teal relative overflow-hidden rounded-2xl border border-teal-400/20 px-6 py-16 text-center">
               <div className="atlas-grid-fine pointer-events-none absolute inset-0 opacity-40" />
               <div className="relative">
-                <p className="atlas-eyebrow mb-3">Connect your company</p>
+                <p className="atlas-eyebrow mb-3">Recover your revenue</p>
                 <h2 className="mx-auto max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
-                  Your company already contains the answers.
+                  Revenue recovery starts with understanding what was missed.
                 </h2>
                 <p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-muted-foreground">
-                  Atlas connects the information, understands the context, and gives your entire
-                  organization a way to ask.
+                  Atlas connects your evidence, understands the context, and helps your team
+                recover — from the first document through final payment.
                 </p>
                 <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-                  <PrimaryCta onClick={toAuth}>Enter Atlas</PrimaryCta>
+                  <PrimaryCta onClick={toAuth}>See Atlas in Action</PrimaryCta>
                   <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
                 </div>
                 <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground/70">

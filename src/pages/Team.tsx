@@ -31,6 +31,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
+import { sendTeamInviteEmail } from "@/lib/actions/team-invite";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -107,10 +108,46 @@ export default function Team() {
         email: inviteForm.email.trim(),
         role: inviteForm.role as never,
       });
-      toast.success(
-        res.membershipCreated ? "Member added" : "Invitation sent",
-        { description: inviteForm.email.trim() },
-      );
+
+      if (res.membershipCreated) {
+        toast.success("Member added", { description: inviteForm.email.trim() });
+        setInviteOpen(false);
+        setInviteForm({ email: "", role: "analyst" });
+        return;
+      }
+
+      // Invitation row created — now attempt to deliver the actual email.
+      const tenantId = workspace?.tenant?._id as string | undefined;
+      if (!tenantId) {
+        toast.success("Invitation saved", {
+          description:
+            "The invitation is pending. No workspace ID was available to send the email, but the user can join by signing up with this email.",
+        });
+        setInviteOpen(false);
+        setInviteForm({ email: "", role: "analyst" });
+        return;
+      }
+
+      const emailResult = await sendTeamInviteEmail({
+        email: inviteForm.email.trim(),
+        tenantId,
+        tenantName: workspace?.tenant?.name as string | undefined,
+        inviterName: workspace?.profile?.name as string | undefined,
+      });
+
+      if (emailResult.ok) {
+        toast.success("Invitation sent", {
+          description: `${inviteForm.email.trim()} will receive an email with instructions to join this workspace.`,
+        });
+      } else {
+        toast.warning("Invite saved, but email was not delivered", {
+          description:
+            `${inviteForm.email.trim()} was added to the pending invitations list. ` +
+            `The email could not be sent (${emailResult.error ?? "unknown error"}). ` +
+            `The user can still join automatically by signing up with this email address.`,
+        });
+      }
+
       setInviteOpen(false);
       setInviteForm({ email: "", role: "analyst" });
     } catch (e) {

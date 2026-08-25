@@ -64,6 +64,12 @@ const SUPABASE_URL = isHttpUrl(RAW_URL) ? RAW_URL : FALLBACK_URL;
 const SUPABASE_ANON_KEY = isJwt(RAW_ANON_KEY) ? RAW_ANON_KEY : FALLBACK_ANON_KEY;
 
 /**
+ * The resolved Supabase project URL (public by design — ships in the browser
+ * bundle as part of the anon-key configuration).
+ */
+export const resolvedSupabaseUrl: string = SUPABASE_URL as string;
+
+/**
  * True when the browser-side Supabase config keys are present. The Auth page
  * shows an honest banner when this is false instead of firing doomed calls.
  */

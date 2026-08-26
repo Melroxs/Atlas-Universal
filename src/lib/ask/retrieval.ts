@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { rpcCall } from "@/lib/actions/rpc";
+import { retrieveKnowledge, buildKnowledgeContextString, type KnowledgeContext } from "@/lib/knowledge";
 import { analyzeClaimCompleteness, toClaimSnapshot, type ClaimSnapshot } from "@/lib/insurance/logic";
 import {
   assessReadiness,
@@ -77,6 +78,10 @@ export interface LocalAnswer {
   missingInformation?: string[];
   contradictions?: EvidenceContradiction[];
   recommendations?: string[];
+  /** Atlas industry + customer knowledge context (Milestone 2). */
+  knowledgeContext?: KnowledgeContext;
+  /** Human-readable knowledge layer string for the AI prompt. */
+  knowledgeContextString?: string;
 }
 
 const STOPWORDS = new Set([
@@ -736,6 +741,43 @@ export async function answerLocally(
     // history persistence is best-effort
   }
 
+  // -----------------------------------------------------------------------
+  // Knowledge Layer Integration (Milestone 2)
+  // Retrieve Atlas industry knowledge + customer knowledge alongside the
+  // evidence-based answer. This augments the answer with contextual industry
+  // knowledge, source classifications, and provenance.
+  // -----------------------------------------------------------------------
+  let knowledgeContext: KnowledgeContext | undefined;
+  let knowledgeContextString = "";
+  try {
+    knowledgeContext = await retrieveKnowledge(supabase, question, {
+      limit: 10,
+      minConfidence: 0.3,
+    });
+    knowledgeContextString = buildKnowledgeContextString(knowledgeContext);
+    // Augment the answer with a knowledge provenance note if industry
+    // knowledge was found and the current answer doesn't already reference it.
+    if (
+      knowledgeContext.items.length > 0 &&
+      knowledgeContext.layerCounts.atlas_industry > 0 &&
+      !answer.includes("<atlas_knowledge>") &&
+      !answer.includes("Atlas Industry Knowledge")
+    ) {
+      const industryCount = knowledgeContext.layerCounts.atlas_industry;
+      const customerCount = knowledgeContext.layerCounts.customer;
+      const evidenceCount = knowledgeContext.layerCounts.live_evidence;
+      const parts: string[] = [];
+      if (industryCount > 0) parts.push(`${industryCount} Atlas industry reference${industryCount === 1 ? "" : "s"}`);
+      if (customerCount > 0) parts.push(`${customerCount} company document${customerCount === 1 ? "" : "s"}`);
+      if (evidenceCount > 0) parts.push(`${evidenceCount} live evidence item${evidenceCount === 1 ? "" : "s"}`);
+      if (parts.length > 0) {
+        answer += ` [Knowledge context: ${parts.join(", ")}. These reference items are available to the AI reasoning layer alongside the evidence above.]`;
+      }
+    }
+  } catch {
+    // Knowledge retrieval is best-effort — never block the answer.
+  }
+
   return {
     sessionId,
     answer,
@@ -754,6 +796,8 @@ export async function answerLocally(
     missingInformation: structuredMissing ?? [],
     contradictions: structuredContradictions ?? [],
     recommendations: structuredRecommendations ?? suggestedActions,
+    knowledgeContext,
+    knowledgeContextString,
   };
 }
 

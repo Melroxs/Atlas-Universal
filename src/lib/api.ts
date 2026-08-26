@@ -1474,6 +1474,31 @@ pilotIntelligence: {
     saveSignature: def<Obj>("email_save_signature", "mutation"),
     deleteSignature: def<{ ok: boolean }>("email_delete_signature", "mutation"),
   },
+  // ---------------------------------------------------------------------
+  // Atlas Durable Job System
+  // ---------------------------------------------------------------------
+  jobs: {
+    createJob: def<{ job_id: string; deduplicated: boolean }>(
+      "jobs_create_job",
+      "mutation",
+    ),
+    createStep: def<{ step_id: string }>("jobs_create_step", "mutation"),
+    dequeue: def<{ jobs: string[]; count: number }>("jobs_dequeue", "mutation"),
+    completeJob: def<{ ok: boolean }>("jobs_complete_job", "mutation"),
+    failJob: def<{ ok: boolean; retrying: boolean; next_scheduled_at?: string }>(
+      "jobs_fail_job",
+      "mutation",
+    ),
+    completeStep: def<{ ok: boolean }>("jobs_complete_step", "mutation"),
+    failStep: def<{ ok: boolean }>("jobs_fail_step", "mutation"),
+    retryStep: def<{ ok: boolean }>("jobs_retry_step", "mutation"),
+    cancelJob: def<{ ok: boolean }>("jobs_cancel_job", "mutation"),
+    getJob: def<Obj | null>("jobs_get_job", "query"),
+    listJobs: def<ObjArray>("jobs_list_jobs", "query"),
+    getEvents: def<ObjArray>("jobs_get_events", "query"),
+    unlockStuck: def<{ unlocked: number }>("jobs_unlock_stuck", "mutation"),
+    stats: def<Obj>("jobs_stats", "query"),
+  },
 } as const;
 
 export type Api = typeof api;

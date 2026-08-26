@@ -1474,6 +1474,57 @@ pilotIntelligence: {
     saveSignature: def<Obj>("email_save_signature", "mutation"),
     deleteSignature: def<{ ok: boolean }>("email_delete_signature", "mutation"),
   },
+  industryKnowledge: {
+    // Industry knowledge layer — Layer 1 (global, shared across all customers)
+    listDocuments: def<ObjArray>("industry_list_documents", "query"),
+    getDocumentDetail: def<Obj | null>("industry_get_document_detail", "query"),
+    searchKnowledge: def<ObjArray>("industry_search_knowledge", "query"),
+    knowledgeStats: def<Obj>("industry_knowledge_stats", "query"),
+    knowledgeGraph: def<{
+      nodes: Array<{ id: string; type: string; title: string }>;
+      edges: Array<{ source: string; target: string; relationship: string }>;
+    }>("industry_knowledge_graph", "query"),
+    seedKnowledge: def<{ seededDocuments: number; seededKnowledge: number; seededProvenance: number }>(
+      "industry_seed_knowledge",
+      "client",
+      async () => {
+        const [
+          { ATLAS_INDUSTRY_KNOWLEDGE_SEED, ATLAS_KNOWLEDGE_PROVENANCE },
+          { getSupabaseClient },
+        ] = await Promise.all([
+          import("@/lib/knowledge/seed"),
+          import("@/lib/supabase"),
+        ]);
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        const { data, error } = await supabase.rpc("industry_seed_knowledge", {
+          p_knowledge: ATLAS_INDUSTRY_KNOWLEDGE_SEED,
+          p_provenance: ATLAS_KNOWLEDGE_PROVENANCE,
+        });
+        if (error) throw error;
+        return data as { seededDocuments: number; seededKnowledge: number; seededProvenance: number };
+      },
+    ),
+    // Client-side knowledge retrieval (combines industry + customer + live evidence)
+    retrieveKnowledge: def<Obj>(
+      "knowledge_retrieve",
+      "client",
+      async (args) => {
+        const { retrieveKnowledge } = await import("@/lib/knowledge/retrieval");
+        const { getSupabaseClient } = await import("@/lib/supabase");
+        const supabase = getSupabaseClient();
+        if (!supabase) throw new Error("Supabase is not configured.");
+        const a = (args ?? {}) as Record<string, unknown>;
+        const query = String(a.query ?? "");
+        return retrieveKnowledge(supabase, query, {
+          layers: a.layers as import("@/lib/knowledge/types").KnowledgeLayer[] | undefined,
+          industry: a.industry as string | undefined,
+          jurisdiction: a.jurisdiction as string | undefined,
+          limit: typeof a.limit === "number" ? a.limit : 15,
+        });
+      },
+    ),
+  },
 } as const;
 
 export type Api = typeof api;

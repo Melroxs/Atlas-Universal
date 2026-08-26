@@ -1,520 +1,721 @@
-// ---------------------------------------------------------------------------
-// Atlas Knowledge Layer — Seed Industry Knowledge
-//
-// Deterministic seed dataset representing Atlas's baseline industry knowledge
-// for the U.S. insurance restoration / roofing / construction ecosystem.
-//
-// This is Layer 1 knowledge — shared across all customers. It is NOT
-// customer-specific and does NOT contain any company's proprietary data.
-//
-// The seed covers:
-//   - Insurance restoration terminology
-//   - Claim lifecycle concepts
-//   - Documentation requirements
-//   - Evidence requirements per workflow stage
-//   - Common industry roles
-//   - Supplement concepts
-//   - Revenue recovery concepts
-//   - Industry risk patterns
-//   - Regulatory awareness (OSHA, EPA, licensing)
-// ---------------------------------------------------------------------------
+BEGIN;
 
-import type { KnowledgeItem, KnowledgeProvenance } from "./types";
+-- ============================================================
+-- ATLAS KNOWLEDGE LAYER — LAYER 1
+-- FIXED SINGLE-PASTE SEED
+-- ============================================================
 
-// ---------------------------------------------------------------------------
-// Industry Terminology
-// ---------------------------------------------------------------------------
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-export const INDUSTRY_TERMS: KnowledgeItem[] = [
-  {
-    id: "term_fnol",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "FNOL (First Notice of Loss)",
-    statement: "FNOL is the first report of a loss to the insurance carrier, initiating the claims process.",
-    interpretation: "Timely FNOL filing is critical — delays can jeopardize coverage. The FNOL should include date of loss, cause, and initial damage description.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.95,
-    status: "active",
-    isInference: false,
-    tags: ["claims", "insurance", "documentation"],
-  },
-  {
-    id: "term_mitigation",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Emergency Mitigation",
-    statement: "Mitigation is emergency work to stop further damage: water extraction, drying, tarping, board-up.",
-    interpretation: "Mitigation is typically covered by insurance and should begin immediately. Failure to mitigate can reduce the carrier's liability for subsequent damage.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.95,
-    status: "active",
-    isInference: false,
-    tags: ["mitigation", "water", "emergency"],
-  },
-  {
-    id: "term_supplement",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Supplement",
-    statement: "A supplement is an additional invoice for work or materials not in the original Xactimate estimate.",
-    interpretation: "Supplements are extremely common and represent a major revenue recovery opportunity. They typically arise from hidden damage, code requirements, or under-scoped original estimates.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["supplement", "revenue", "estimating"],
-  },
-  {
-    id: "term_xactimate",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Xactimate",
-    statement: "Xactimate is the industry-standard estimating software used by restoration carriers and contractors.",
-    interpretation: "Proficiency with Xactimate is essential for accurate scope documentation and supplement support. Line-item pricing in Xactimate directly affects what the carrier approves.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["estimating", "software", "pricing"],
-  },
-  {
-    id: "term_scope_of_work",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Scope of Work",
-    statement: "The scope of work is the agreed list of tasks and line items for a restoration or construction job.",
-    interpretation: "A complete scope of work is the foundation for accurate estimating and supplement support. Missing items in the scope directly result in missed revenue.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["scope", "estimating", "documentation"],
-  },
-  {
-    id: "term_drying_log",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Drying Log",
-    statement: "A drying log is documentation of moisture readings over time proving a structure is dry.",
-    interpretation: "Drying logs are critical evidence for water mitigation claims. Without them, equipment days and dehumidification charges are difficult to justify to the carrier.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["drying", "documentation", "water", "evidence"],
-  },
-  {
-    id: "term_adjuster",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Insurance Adjuster",
-    statement: "An adjuster is the carrier representative who reviews estimates, inspects damage, and authorizes payments.",
-    interpretation: "Building a professional relationship with adjusters improves outcomes. Documentation quality directly affects adjuster confidence and approval speed.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["adjuster", "carrier", "relationship"],
-  },
-  {
-    id: "term_policyholder",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Policyholder",
-    statement: "The policyholder is the insured customer whose property was damaged and who filed the insurance claim.",
-    interpretation: "The policyholder is the contractor's customer. Clear communication about the claims process, timelines, and expectations is essential.",
-    knowledgeType: "terminology",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["customer", "insurance", "communication"],
-  },
-];
+CREATE TABLE IF NOT EXISTS public.atlas_knowledge (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    knowledge_key TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    category TEXT NOT NULL,
+    knowledge_type TEXT NOT NULL DEFAULT 'industry',
+    scope TEXT NOT NULL DEFAULT 'global',
+    source_type TEXT NOT NULL DEFAULT 'atlas_seed',
+    source_name TEXT,
+    confidence NUMERIC(5,4) NOT NULL DEFAULT 0.95,
+    status TEXT NOT NULL DEFAULT 'active',
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-// ---------------------------------------------------------------------------
-// Evidence Requirements per Claim Workflow Stage
-// ---------------------------------------------------------------------------
+-- ============================================================
+-- SECURITY
+-- ============================================================
 
-export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
-  {
-    id: "evidence_fnol",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "FNOL Stage — Required Evidence",
-    statement: "At FNOL, the contractor needs: loss report, policy information, initial photos, and date-of-loss documentation.",
-    interpretation: "Incomplete FNOL documentation delays the entire claim. Atlas should flag missing items immediately when a claim enters the pipeline.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "fnol", "documentation", "requirements"],
-  },
-  {
-    id: "evidence_inspection",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "Inspection Stage — Required Evidence",
-    statement: "At inspection: inspection photos (date-stamped, wide and close-up), adjuster notes, scope measurements, and damage assessment.",
-    interpretation: "Photo documentation is the most commonly incomplete item at the inspection stage. Photos should be labeled with room/area and damage type.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "inspection", "photos", "documentation"],
-  },
-  {
-    id: "evidence_estimate",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "Estimate Stage — Required Evidence",
-    statement: "At estimate stage: Xactimate estimate, scope of work, material specifications, and code requirements.",
-    interpretation: "Estimate accuracy directly affects revenue. Under-scoped estimates are the primary source of missed revenue and the most common supplement trigger.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "estimate", "xactimate", "scope"],
-  },
-  {
-    id: "evidence_mitigation",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "Mitigation Stage — Required Evidence",
-    statement: "At mitigation: drying log with moisture readings, equipment invoices, daily readings, equipment placement photos, and authorization documentation.",
-    interpretation: "Drying logs are the most frequently disputed item in water mitigation claims. Without timestamped moisture readings, equipment days cannot be justified.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "mitigation", "drying", "water"],
-  },
-  {
-    id: "evidence_reconstruction",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "Reconstruction Stage — Required Evidence",
-    statement: "At reconstruction: permits, subcontractor invoices, material receipts, before/after photos, and signed change orders.",
-    interpretation: "Change orders not documented and billed are unrecovered revenue. Atlas should monitor scope changes during reconstruction.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "reconstruction", "permits", "invoices"],
-  },
-  {
-    id: "evidence_invoicing",
-    layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
-    title: "Invoicing Stage — Required Evidence",
-    statement: "At invoicing: final invoice, estimate vs. actual comparison, proof of completion, and signed authorization.",
-    interpretation: "The gap between estimate and final invoice is where revenue leakage occurs. Systematic reconciliation catches unbilled work.",
-    knowledgeType: "requirement",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["evidence", "invoicing", "reconciliation", "revenue"],
-  },
-];
+ALTER TABLE public.atlas_knowledge ENABLE ROW LEVEL SECURITY;
 
-// ---------------------------------------------------------------------------
-// Claim Lifecycle Workflow
-// ---------------------------------------------------------------------------
+-- Remove potentially conflicting seed policies.
+DROP POLICY IF EXISTS "atlas_knowledge_public_read"
+    ON public.atlas_knowledge;
 
-export const CLAIM_LIFECYCLE: KnowledgeItem[] = [
-  {
-    id: "lifecycle_claim",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Insurance Restoration Claim Lifecycle",
-    statement: "The standard claim lifecycle flows through: FNOL → Inspection → Estimate → Approval → Mitigation → Documentation → Reconstruction → Invoicing → Payment → Closeout.",
-    interpretation: "Revenue recovery opportunities exist at every stage. The most common gaps occur at the transition between stages when documentation is incomplete.",
-    knowledgeType: "workflow",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["lifecycle", "workflow", "claims", "process"],
-  },
-  {
-    id: "lifecycle_supplement",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Supplement Lifecycle",
-    statement: "Supplements flow through: scope gap identified → documentation assembled → submit to adjuster → review → approval/denial → re-submit if needed → payment.",
-    interpretation: "Supplement approval rates correlate strongly with documentation quality. Well-documented supplements with photo evidence and code references are approved at much higher rates.",
-    knowledgeType: "workflow",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.8,
-    status: "active",
-    isInference: false,
-    tags: ["supplement", "lifecycle", "revenue", "process"],
-  },
-];
+DROP POLICY IF EXISTS "atlas_knowledge_authenticated_read"
+    ON public.atlas_knowledge;
 
-// ---------------------------------------------------------------------------
-// Industry Risk Patterns
-// ---------------------------------------------------------------------------
+DROP POLICY IF EXISTS "atlas_knowledge_service_role_all"
+    ON public.atlas_knowledge;
 
-export const RISK_PATTERNS: KnowledgeItem[] = [
-  {
-    id: "risk_unauthorized_work",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Starting Work Without Authorization",
-    statement: "Starting mitigation or reconstruction without a signed authorization from the policyholder risks the carrier refusing payment.",
-    interpretation: "Always confirm written authorization is on file before work begins. This is the single most common reason for payment denial.",
-    knowledgeType: "risk_pattern",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.9,
-    status: "active",
-    isInference: false,
-    tags: ["risk", "authorization", "payment", "denial"],
-  },
-  {
-    id: "risk_missing_docs",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Incomplete Documentation",
-    statement: "Jobs missing expected documents (drying logs, photos, authorizations) face payment delays and disputes.",
-    interpretation: "Documentation completeness is the most controllable factor in claim outcome. A documentation checklist at job start prevents downstream issues.",
-    knowledgeType: "risk_pattern",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["risk", "documentation", "compliance", "payment"],
-  },
-  {
-    id: "risk_underbilling",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Underbilling / Missed Billable Work",
-    statement: "Delivered work that is never invoiced, or change orders not added to scope, quietly erodes revenue.",
-    interpretation: "Revenue leakage from underbilling is typically 5-15% of total project value. Systematic scope reconciliation catches this.",
-    knowledgeType: "risk_pattern",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.8,
-    status: "active",
-    isInference: false,
-    tags: ["risk", "revenue", "billing", "leakage"],
-  },
-  {
-    id: "risk_supplement_needed",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Likely Supplement Needed",
-    statement: "Undocumented conditions discovered mid-job, aging estimates, or material price increases typically require a supplement.",
-    interpretation: "Proactive supplement identification before the adjuster discovers the gap improves approval rates and reduces payment delays.",
-    knowledgeType: "risk_pattern",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.75,
-    status: "active",
-    isInference: false,
-    tags: ["risk", "supplement", "scope", "pricing"],
-  },
-  {
-    id: "risk_doc_gap",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Documentation Gap Risk",
-    statement: "A job missing expected documents per workflow stage is at risk of payment delay, dispute, or denial.",
-    interpretation: "Atlas should continuously monitor documentation completeness against the expected document set for each claim lifecycle stage.",
-    knowledgeType: "risk_pattern",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.8,
-    status: "active",
-    isInference: false,
-    tags: ["risk", "documentation", "compliance", "claims"],
-  },
-];
+-- Normal authenticated users can READ active global knowledge.
+CREATE POLICY "atlas_knowledge_authenticated_read"
+ON public.atlas_knowledge
+FOR SELECT
+TO authenticated
+USING (
+    scope = 'global'
+    AND status = 'active'
+);
 
-// ---------------------------------------------------------------------------
-// Revenue Recovery Concepts
-// ---------------------------------------------------------------------------
+-- Service role can perform backend operations.
+CREATE POLICY "atlas_knowledge_service_role_all"
+ON public.atlas_knowledge
+FOR ALL
+TO service_role
+USING (true)
+WITH CHECK (true);
 
-export const REVENUE_CONCEPTS: KnowledgeItem[] = [
-  {
-    id: "revenue_scope_gaps",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Scope Gap Revenue Recovery",
-    statement: "Scope gaps between the contractor's estimate and the carrier's approved estimate represent recoverable revenue through the supplement process.",
-    interpretation: "The supplement process is the primary mechanism for recovering revenue that was missed in the original estimate. Quality documentation of the gap is essential.",
-    knowledgeType: "concept",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["revenue", "recovery", "scope", "supplement"],
-  },
-  {
-    id: "revenue_code_requirements",
-    layer: "atlas_industry",
-    sourceClassification: "REGULATORY",
-    title: "Code Upgrade Revenue",
-    statement: "Building code requirements that necessitate upgrades beyond the original scope represent additional recoverable revenue.",
-    interpretation: "When building codes require upgrades (e.g., ice and water shield, upgraded ventilation), these are legitimate supplement items supported by regulatory authority.",
-    knowledgeType: "concept",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.8,
-    status: "active",
-    isInference: false,
-    tags: ["revenue", "recovery", "code", "regulation"],
-  },
-  {
-    id: "revenue_material_price",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Material Price Variance",
-    statement: "Material price increases between estimate date and purchase date create recoverable price variance.",
-    interpretation: "When material prices increase after the estimate is approved, the price difference can be submitted as a supplement item with current pricing documentation.",
-    knowledgeType: "concept",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.75,
-    status: "active",
-    isInference: false,
-    tags: ["revenue", "recovery", "materials", "pricing"],
-  },
-];
+-- ============================================================
+-- INDEXES
+-- ============================================================
 
-// ---------------------------------------------------------------------------
-// Industry Roles
-// ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_atlas_knowledge_scope
+ON public.atlas_knowledge(scope);
 
-export const INDUSTRY_ROLES: KnowledgeItem[] = [
-  {
-    id: "role_project_manager",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Restoration Project Manager",
-    statement: "The project manager owns the job flow: assignments, documentation completion, carrier communication, and customer updates.",
-    interpretation: "The PM is typically the primary point of contact for both the policyholder and the adjuster. Documentation quality often depends on PM diligence.",
-    knowledgeType: "role",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.8,
-    status: "active",
-    isInference: false,
-    tags: ["role", "management", "operations"],
-  },
-  {
-    id: "role_estimator",
-    layer: "atlas_industry",
-    sourceClassification: "ATLAS_CURATED",
-    title: "Restoration Estimator",
-    statement: "The estimator builds Xactimate estimates, documents scope, identifies supplement opportunities, and supports adjuster negotiations.",
-    interpretation: "Estimator accuracy directly affects revenue. Under-scoping is the most common estimator-related revenue leak.",
-    knowledgeType: "role",
-    industry: "insurance restoration",
-    jurisdiction: "United States",
-    confidence: 0.85,
-    status: "active",
-    isInference: false,
-    tags: ["role", "estimating", "revenue"],
-  },
-];
+CREATE INDEX IF NOT EXISTS idx_atlas_knowledge_category
+ON public.atlas_knowledge(category);
 
-// ---------------------------------------------------------------------------
-// Combined Seed
-// ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_atlas_knowledge_status
+ON public.atlas_knowledge(status);
 
-/** All seed knowledge items for the Atlas Industry Knowledge layer. */
-export const ATLAS_INDUSTRY_KNOWLEDGE_SEED: KnowledgeItem[] = [
-  ...INDUSTRY_TERMS,
-  ...EVIDENCE_REQUIREMENTS,
-  ...CLAIM_LIFECYCLE,
-  ...RISK_PATTERNS,
-  ...REVENUE_CONCEPTS,
-  ...INDUSTRY_ROLES,
-];
+CREATE INDEX IF NOT EXISTS idx_atlas_knowledge_type
+ON public.atlas_knowledge(knowledge_type);
 
-/** Knowledge provenance for the seed data sources. */
-export const ATLAS_KNOWLEDGE_PROVENANCE: KnowledgeProvenance[] = [
-  {
-    sourceId: "atlas-curated",
-    sourceName: "Atlas Industry Knowledge — Curated",
-    organization: "Atlas",
-    authorityTier: "tier3_industry",
-    sourceType: "curated",
-    status: "active",
-  },
-  {
-    sourceId: "atlas-evidence-model",
-    sourceName: "Atlas Evidence Requirements Model",
-    organization: "Atlas",
-    authorityTier: "tier3_industry",
-    sourceType: "curated",
-    status: "active",
-  },
-  {
-    sourceId: "iicrc-s500",
-    sourceName: "IICRC S500 — Standard for Water Damage Restoration",
-    organization: "IICRC",
-    authorityTier: "tier3_industry",
-    sourceType: "standard",
-    status: "active",
-  },
-  {
-    sourceId: "iicrc-s520",
-    sourceName: "IICRC S520 — Standard for Mold Remediation",
-    organization: "IICRC",
-    authorityTier: "tier3_industry",
-    sourceType: "standard",
-    status: "active",
-  },
-  {
-    sourceId: "osha-construction",
-    sourceName: "OSHA — Construction Standards (29 CFR 1926)",
-    organization: "US OSHA",
-    authorityTier: "tier1_primary",
-    sourceType: "regulation",
-    status: "active",
-  },
-  {
-    sourceId: "epa-lead-rrp",
-    sourceName: "EPA — Lead Renovation, Repair & Painting Rule",
-    organization: "US EPA",
-    authorityTier: "tier1_primary",
-    sourceType: "regulation",
-    status: "active",
-  },
-];
+-- ============================================================
+-- LAYER 1 INDUSTRY KNOWLEDGE
+-- ============================================================
+
+INSERT INTO public.atlas_knowledge (
+    knowledge_key,
+    title,
+    content,
+    category,
+    knowledge_type,
+    scope,
+    source_type,
+    source_name,
+    confidence,
+    status,
+    metadata
+)
+VALUES
+
+-- INSURANCE RESTORATION
+
+(
+    'industry.insurance_restoration.overview',
+    'Insurance Restoration Industry Overview',
+    'Insurance restoration is the process of restoring property after a covered loss such as wind, hail, storm, fire, water, or other insured damage. Restoration contractors typically inspect damage, document conditions, develop an estimate, communicate with the property owner and insurance carrier, perform authorized work, document completed work, and pursue additional compensation when legitimate scope or pricing differences exist.',
+    'insurance_restoration',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1,"domain":"insurance_restoration"}'
+),
+
+(
+    'industry.insurance_restoration.contractor_role',
+    'Restoration Contractor Role in the Claim Lifecycle',
+    'A restoration contractor commonly participates in property inspection, damage documentation, estimating, scope development, repair execution, change documentation, supplement preparation, carrier communication, and final documentation. The contractor should distinguish between observed physical damage, required repair scope, pricing, policy coverage decisions, and carrier authorization.',
+    'insurance_restoration',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.insurance_restoration.claim_lifecycle',
+    'Typical Property Insurance Claim Lifecycle',
+    'A typical restoration claim progresses through loss occurrence, initial inspection, damage documentation, claim reporting, estimate creation, carrier or adjuster review, scope negotiation, authorization, repair execution, change documentation, supplement or revision requests, final documentation, invoicing, and claim closure. Actual workflows vary by carrier, policy, jurisdiction, and project.',
+    'claims',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1}'
+),
+
+-- DOCUMENTATION
+
+(
+    'industry.documentation.damage_photos',
+    'Damage Photo Documentation',
+    'Damage photographs are a core form of claim evidence. Useful photo documentation should establish location, affected component, severity, dimensions where relevant, surrounding conditions, and the relationship between the observed condition and the proposed repair. Photos should be organized so a reviewer can understand the evidence without relying solely on verbal explanation.',
+    'documentation',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1,"evidence_type":"photo"}'
+),
+
+(
+    'industry.documentation.before_during_after',
+    'Before, During, and After Documentation',
+    'Strong restoration documentation commonly includes before-work evidence, documentation of concealed or discovered conditions during work, and after-work evidence. The exact documentation needed depends on the repair and claim. Before-and-after evidence helps establish what condition existed and what work was completed.',
+    'documentation',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.documentation.measurements',
+    'Measurement Documentation',
+    'Measurements can support quantities in an estimate and help connect physical conditions to proposed scope. Depending on the project, useful evidence may include roof dimensions, linear measurements, elevations, room dimensions, material quantities, openings, waste factors, and other quantity-driving information.',
+    'documentation',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.95,
+    'active',
+    '{"layer":1,"evidence_type":"measurement"}'
+),
+
+(
+    'industry.documentation.material_evidence',
+    'Material and Component Evidence',
+    'Documentation may need to establish the type, age, condition, availability, installation method, or required replacement characteristics of affected materials or components. Product labels, manufacturer information, photographs, receipts, samples, measurements, and field observations can provide supporting evidence depending on the issue.',
+    'documentation',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.94,
+    'active',
+    '{"layer":1}'
+),
+
+-- SUPPLEMENTS
+
+(
+    'industry.supplements.definition',
+    'Insurance Supplement Definition',
+    'A supplement is a request to revise or increase the previously established scope or estimate based on additional damage, omitted work, changed conditions, necessary repair procedures, applicable pricing, code-related requirements where applicable, or other supportable differences discovered during the claim or repair process.',
+    'supplements',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.supplements.evidence_first',
+    'Evidence-First Supplement Principle',
+    'A strong supplement should connect each requested scope or pricing change to supporting evidence. The evidence may include photographs, measurements, documentation of concealed conditions, manufacturer requirements, invoices, receipts, applicable code documentation, estimating logic, or other relevant records. A dollar amount without supporting reasoning is generally weaker than a clearly documented cause-and-effect explanation.',
+    'supplements',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1,"principle":"evidence_first"}'
+),
+
+(
+    'industry.supplements.omitted_scope',
+    'Omitted Scope as a Supplement Trigger',
+    'One common reason for a supplement is that necessary work or quantities were not included in the original estimate. Atlas should distinguish omitted scope from new damage, pricing differences, code-related requirements, or other categories rather than treating every supplement as the same type of issue.',
+    'supplements',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.supplements.hidden_damage',
+    'Hidden or Concealed Damage',
+    'Additional damage may become visible only after demolition, removal, tear-off, opening assemblies, or beginning repairs. Such conditions should be documented as soon as they are discovered and connected to the work necessary to address them.',
+    'supplements',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.supplements.pricing_difference',
+    'Estimating and Pricing Differences',
+    'Differences between contractor and carrier estimates can result from different assumptions about quantities, labor, materials, operations, access, waste, equipment, minimum charges, or applicable pricing. Atlas should identify the specific estimating difference rather than treating a total-dollar variance as self-explanatory.',
+    'supplements',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.96,
+    'active',
+    '{"layer":1}'
+),
+
+-- ESTIMATING
+
+(
+    'industry.estimating.xactimate',
+    'Xactimate and Insurance Estimating',
+    'Xactimate is widely used in the U.S. property insurance ecosystem for estimating repair and replacement costs. Estimates commonly consist of line items representing labor, material, equipment, quantities, operations, and related costs. Atlas should treat estimate line items as structured evidence and reasoning inputs rather than merely dollar values.',
+    'estimating',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1,"software":"Xactimate"}'
+),
+
+(
+    'industry.estimating.line_item_reasoning',
+    'Estimate Line-Item Reasoning',
+    'A line item should be evaluated in relation to the physical work it represents. Atlas should reason about whether evidence supports the presence of the work, whether the quantity appears connected to documented measurements, whether the operation is consistent with the repair scenario, and whether differences between estimates require further evidence.',
+    'estimating',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.96,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.estimating.scope_vs_price',
+    'Scope Versus Pricing',
+    'Claim differences should be separated into scope differences and pricing differences. Scope differences concern what work or quantities are included. Pricing differences concern the cost assigned to work that is otherwise within scope. Separating these concepts improves claim review and supplement reasoning.',
+    'estimating',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1}'
+),
+
+-- ROOFING
+
+(
+    'industry.roofing.wind_hail',
+    'Roofing Wind and Hail Damage',
+    'Wind and hail claims commonly require documentation of affected roofing components and related exterior components. Useful evidence can include representative damage photographs, field observations, measurements, roof diagrams, collateral damage, affected accessories, and documentation of repair or replacement requirements.',
+    'roofing',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.96,
+    'active',
+    '{"layer":1,"loss_types":["wind","hail"]}'
+),
+
+(
+    'industry.roofing.components',
+    'Roof System Components',
+    'A roofing system can include shingles or other roof covering, underlayment, flashing, drip edge, ventilation components, valleys, penetrations, pipe boots, ridge components, decking, gutters, accessories, and related components. Damage assessment should consider the complete system rather than only the visible primary covering.',
+    'roofing',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.roofing.replacement_scope',
+    'Roof Replacement Scope',
+    'Roof replacement scope may involve tear-off, disposal, preparation, replacement materials, underlayment, flashing, ventilation, accessories, labor, equipment, and other operations depending on the roof system and documented conditions. Atlas should not assume that every roof replacement contains identical scope.',
+    'roofing',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.96,
+    'active',
+    '{"layer":1}'
+),
+
+-- CLAIMS / ADJUSTERS
+
+(
+    'industry.adjuster.role',
+    'Insurance Adjuster Role',
+    'An insurance adjuster evaluates a reported loss and may inspect damage, review documentation, determine or recommend claim scope, communicate with the policyholder and other parties, and evaluate estimates. Adjuster responsibilities and authority vary by role, carrier, jurisdiction, and claim.',
+    'claims',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.claim.coverage_vs_scope',
+    'Coverage Versus Physical Scope',
+    'Coverage determination and physical damage assessment are distinct concepts. A contractor can document observed damage and proposed repair scope, while coverage decisions are made under the applicable insurance policy and carrier process. Atlas should avoid presenting an estimate or physical observation as a definitive coverage determination.',
+    'claims',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"critical_reasoning_rule":true}'
+),
+
+(
+    'industry.claim.communication',
+    'Claim Communication Documentation',
+    'Claim-related communications can become important evidence of decisions, requests, disagreements, approvals, and outstanding issues. Relevant communications may include emails, messages, notes, inspection reports, estimate comments, and other records. Atlas should preserve provenance when using communication data in claim reasoning.',
+    'claims',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1,"provenance_required":true}'
+),
+
+-- EVIDENCE
+
+(
+    'industry.evidence.provenance',
+    'Evidence Provenance',
+    'Claim reasoning should be traceable to source evidence. When Atlas makes a recommendation, the system should be capable of identifying the underlying document, photograph, estimate line, communication, measurement, or other source used to support the conclusion.',
+    'evidence',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"principle":"provenance"}'
+),
+
+(
+    'industry.evidence.contradictions',
+    'Contradiction Detection',
+    'Claim records can contain conflicting information, such as different dates, quantities, descriptions, damage locations, estimate assumptions, or statements about completed work. Contradictions should be surfaced rather than silently resolved when they could affect claim reasoning.',
+    'evidence',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1,"principle":"surface_conflicts"}'
+),
+
+(
+    'industry.evidence.missing_evidence',
+    'Missing Evidence and Evidence Gaps',
+    'An evidence gap exists when a proposed claim action, scope item, or conclusion requires support that is not currently available or sufficiently clear. Atlas should identify the missing evidence and, where possible, explain what evidence would strengthen the conclusion.',
+    'evidence',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"principle":"gap_detection"}'
+),
+
+(
+    'industry.evidence.representative_photos',
+    'Representative Evidence',
+    'Evidence should be representative of the condition being claimed. A single photograph may not establish the full extent, quantity, or location of damage. Atlas should evaluate whether the available evidence is sufficient for the specific conclusion being made.',
+    'evidence',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.95,
+    'active',
+    '{"layer":1}'
+),
+
+-- CODE / COMPLIANCE
+
+(
+    'industry.code.local_requirements',
+    'Building Code and Local Requirements',
+    'Building codes and local requirements can affect repair scope. Code-related requirements vary by jurisdiction, building type, construction date, adopted code edition, and specific circumstances. Atlas should identify code-related questions and supporting documentation needs without assuming a universal requirement.',
+    'compliance',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.98,
+    'active',
+    '{"layer":1,"critical_reasoning_rule":true}'
+),
+
+(
+    'industry.code.documentation',
+    'Code Documentation',
+    'When code or regulatory requirements are relevant to a claim, supporting evidence may include applicable code provisions, jurisdictional requirements, permit information, official documentation, manufacturer requirements, or other authoritative sources. Atlas should distinguish authoritative requirements from informal commentary.',
+    'compliance',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.96,
+    'active',
+    '{"layer":1}'
+),
+
+-- CLAIM PACKAGES
+
+(
+    'industry.claim_package.initial',
+    'Initial Claim Package',
+    'A strong initial claim package generally organizes the loss description, observed damage, supporting photographs, measurements, estimate, relevant documentation, and other evidence needed for review. The exact package varies by claim and carrier.',
+    'claim_packages',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1}'
+),
+
+(
+    'industry.claim_package.supplement',
+    'Supplement Claim Package',
+    'A supplement package should clearly identify what differs from the prior estimate or approved scope, why the change is necessary, what evidence supports it, and the requested revision. Clear mapping between requested changes and evidence improves reviewability.',
+    'claim_packages',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1}'
+),
+
+-- AI REASONING
+
+(
+    'industry.ai.do_not_invent',
+    'AI Must Not Invent Claim Facts',
+    'Atlas must not invent damage, measurements, policy provisions, estimate quantities, pricing, approvals, communications, code requirements, or other claim facts that are not supported by available evidence. When information is unavailable, Atlas should explicitly identify the uncertainty or evidence gap.',
+    'ai_reasoning',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    1.00,
+    'active',
+    '{"layer":1,"critical":true}'
+),
+
+(
+    'industry.ai.distinguish_fact_inference',
+    'Distinguish Facts From Inferences',
+    'Atlas should distinguish directly observed or documented facts from inferred conclusions. A source document may establish a fact while the system may infer a likely relationship. Inferences should be labeled as such and should remain traceable to their supporting evidence.',
+    'ai_reasoning',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    1.00,
+    'active',
+    '{"layer":1,"critical":true}'
+),
+
+(
+    'industry.ai.confidence',
+    'Confidence and Uncertainty',
+    'Atlas should represent uncertainty when evidence is incomplete, conflicting, ambiguous, or insufficient. Confidence should reflect the strength and quality of evidence rather than simply the certainty of the generated language.',
+    'ai_reasoning',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"critical":true}'
+),
+
+(
+    'industry.ai.source_citation',
+    'Source Citation Requirement',
+    'Material recommendations and conclusions generated by Atlas should be traceable to source material whenever source evidence exists. Citations or provenance references should allow a reviewer to locate the underlying evidence.',
+    'ai_reasoning',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    1.00,
+    'active',
+    '{"layer":1,"critical":true}'
+),
+
+-- ATLAS WORKFLOW
+
+(
+    'industry.atlas.ingestion',
+    'Knowledge and Claim Ingestion',
+    'Atlas can ingest documents, estimates, photographs, communications, and other claim-related information as inputs to its reasoning pipeline. Ingestion should preserve source identity and provenance so downstream reasoning can be traced back to original evidence.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"pipeline_stage":"ingestion"}'
+),
+
+(
+    'industry.atlas.extraction',
+    'Evidence Extraction',
+    'After ingestion, Atlas should extract relevant entities, dates, quantities, damage descriptions, estimate information, participants, communications, and other structured facts from source material. Extracted facts should retain links to their originating evidence.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"pipeline_stage":"extraction"}'
+),
+
+(
+    'industry.atlas.entity_resolution',
+    'Entity Resolution',
+    'Atlas should resolve references to the same claim, property, customer, contractor, adjuster, document, estimate, or other entity when multiple sources refer to them differently. Resolution should be evidence-driven and should avoid merging entities when identity is uncertain.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.97,
+    'active',
+    '{"layer":1,"pipeline_stage":"entity_resolution"}'
+),
+
+(
+    'industry.atlas.claim_reconstruction',
+    'Claim Reconstruction',
+    'Atlas should reconstruct a coherent claim timeline and state from distributed evidence. The reconstructed claim should represent what is known, what is uncertain, what changed, what evidence supports each state, and where contradictions remain.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"pipeline_stage":"claim_reconstruction"}'
+),
+
+(
+    'industry.atlas.gap_intelligence',
+    'Evidence Gap Intelligence',
+    'Atlas should identify missing evidence that prevents a claim, estimate item, supplement request, or recommendation from being adequately supported. The system should explain the gap and, where practical, recommend the evidence needed to close it.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"pipeline_stage":"gap_intelligence"}'
+),
+
+(
+    'industry.atlas.contradiction_engine',
+    'Contradiction Intelligence',
+    'Atlas should identify material conflicts across documents, estimates, photographs, communications, measurements, and other sources. Contradictions should be surfaced to reviewers and should not be silently overwritten by whichever source was processed last.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    0.99,
+    'active',
+    '{"layer":1,"pipeline_stage":"contradiction_engine"}'
+),
+
+(
+    'industry.atlas.ask_atlas',
+    'Ask Atlas Evidence-Based Answers',
+    'When a user asks Atlas a claim question, Atlas should answer from available customer evidence plus applicable shared industry knowledge. Answers should distinguish customer-specific facts from general industry knowledge and should identify supporting sources whenever possible.',
+    'atlas_workflow',
+    'industry',
+    'global',
+    'atlas_seed',
+    'Atlas Industry Knowledge',
+    1.00,
+    'active',
+    '{"layer":1,"pipeline_stage":"ask_atlas"}'
+)
+
+ON CONFLICT (knowledge_key)
+DO UPDATE SET
+    title = EXCLUDED.title,
+    content = EXCLUDED.content,
+    category = EXCLUDED.category,
+    knowledge_type = EXCLUDED.knowledge_type,
+    scope = EXCLUDED.scope,
+    source_type = EXCLUDED.source_type,
+    source_name = EXCLUDED.source_name,
+    confidence = EXCLUDED.confidence,
+    status = EXCLUDED.status,
+    metadata = EXCLUDED.metadata,
+    updated_at = NOW();
+
+-- ============================================================
+-- VERIFICATION
+-- ============================================================
+
+DO $$
+DECLARE
+    seed_count INTEGER;
+BEGIN
+    SELECT COUNT(*)
+    INTO seed_count
+    FROM public.atlas_knowledge
+    WHERE scope = 'global'
+      AND source_type = 'atlas_seed';
+
+    RAISE NOTICE '=============================================';
+    RAISE NOTICE 'ATLAS KNOWLEDGE LAYER SEED COMPLETE';
+    RAISE NOTICE 'Layer 1 records: %', seed_count;
+    RAISE NOTICE 'RLS: ENABLED';
+    RAISE NOTICE '=============================================';
+END $$;
+
+COMMIT;
+
+-- Final result
+SELECT
+    COUNT(*) AS layer_1_records,
+    COUNT(DISTINCT category) AS categories
+FROM public.atlas_knowledge
+WHERE scope = 'global'
+  AND source_type = 'atlas_seed';

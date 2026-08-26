@@ -476,6 +476,7 @@ export function buildGeminiRequestBody(
   question: string,
   history: Array<{ role: "user" | "model"; text: string }>,
   evidenceItems: EvidenceContextItem[],
+  knowledgeContext?: string,
 ): GeminiRequestBody {
   const contents: Array<{ role: "user" | "model"; parts: Array<{ text: string }> }> = [
     // Bounded recent conversation (short-term memory).
@@ -489,6 +490,7 @@ export function buildGeminiRequestBody(
       parts: [
         {
           text:
+            `${knowledgeContext ? knowledgeContext + "\n\n" : ""}` +
             `<evidence>\n${
               evidenceItems.length
                 ? evidenceItems

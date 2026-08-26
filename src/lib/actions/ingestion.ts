@@ -312,3 +312,251 @@ async function upsertEntitiesClient(
   }
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// Industry Document Ingestion — extends the standard pipeline to populate
+// the Atlas Industry Knowledge layer (Layer 1: global, shared).
+// ---------------------------------------------------------------------------
+
+export interface IndustryDocumentArgs {
+  /** Storage path of the uploaded file. */
+  storagePath: string;
+  /** Document title. */
+  title: string;
+  /** MIME type. */
+  mimeType: string;
+  /** File size in bytes. */
+  size: number;
+  /** Source classification (e.g., INDUSTRY_STANDARD, REGULATORY, etc.). */
+  sourceClassification?: string;
+  /** Industry focus (e.g., "insurance_restoration", "construction"). */
+  industry?: string;
+  /** Jurisdiction (e.g., "United States", "Florida"). */
+  jurisdiction?: string;
+  /** Source URL if the document was retrieved from the web. */
+  sourceUrl?: string;
+  /** Source ID from the authoritative sources registry. */
+  sourceId?: string;
+}
+
+/**
+ * Process a document as Atlas Industry Knowledge.
+ *
+ * This runs the standard document processing pipeline AND inserts the
+ * parsed content into the industry knowledge tables:
+ *   atlasIndustryDocuments
+ *   atlasIndustryChunks
+ *   atlasIndustryKnowledge
+ *   atlasIndustryProvenance
+ *
+ * The document status is set to `needs_review` — industry knowledge must
+ * be approved by a Super Admin/Atlas Admin before it becomes published
+ * and available to customers.
+ */
+export async function processIndustryDocument(
+  args: IndustryDocumentArgs,
+): Promise<{
+  docId: string;
+  industryDocId: string;
+  classification: string;
+  chunks: number;
+  knowledgeItems: number;
+  status: string;
+  warnings?: string[];
+}> {
+  const supabase = getSupabaseClient();
+  if (!supabase) throw new Error("Supabase is not configured.");
+
+  // 1. Run standard document processing pipeline
+  const result = await processDocumentClient({
+    storagePath: args.storagePath,
+    title: args.title,
+    mimeType: args.mimeType,
+    size: args.size,
+    sourceType: "industry_upload",
+  });
+
+  // 2. Create the industry document record
+  const industryDoc = (await rpcCall(supabase, "industry_create_document", {
+    title: args.title,
+    filename: args.title,
+    mimeType: args.mimeType,
+    size: args.size,
+    storagePath: args.storagePath,
+    sourceType: "upload",
+    sourceUrl: args.sourceUrl ?? null,
+    sourceId: args.sourceId ?? null,
+    classification: args.sourceClassification ?? "ATLAS_CURATED",
+    status: "needs_review",
+    industry: args.industry ?? null,
+    jurisdiction: args.jurisdiction ?? null,
+    standardDocId: result.docId,
+  })) as { docId: string };
+
+  // 3. Get chunks from the standard document and insert industry chunks
+  const chunksResult = (await rpcCall(supabase, "documents_get_document_detail", {
+    documentId: result.docId,
+  })) as { chunks?: Array<{ content?: string; chunkIndex?: number }> } | null;
+
+  let industryChunksInserted = 0;
+  if (chunksResult?.chunks && Array.isArray(chunksResult.chunks)) {
+    for (const chunk of chunksResult.chunks) {
+      if (!chunk.content) continue;
+      await rpcCall(supabase, "industry_insert_chunk", {
+        documentId: industryDoc.docId,
+        chunkIndex: chunk.chunkIndex ?? industryChunksInserted,
+        content: chunk.content,
+        tokenCount: null,
+      }).catch(() => undefined);
+      industryChunksInserted++;
+    }
+  }
+
+  // 4. Extract knowledge items from the document text
+  // Use simple heuristics to identify knowledge items from the document
+  const text = (chunksResult?.chunks ?? [])
+    .map((c) => c.content ?? "")
+    .join("\n");
+
+  const knowledgeItems = extractKnowledgeItems(text, args.title, {
+    sourceClassification: (args.sourceClassification ?? "ATLAS_CURATED") as string,
+    industry: args.industry,
+    jurisdiction: args.jurisdiction,
+    documentId: industryDoc.docId,
+    sourceId: args.sourceId,
+  });
+
+  let knowledgeInserted = 0;
+  for (const item of knowledgeItems) {
+    await rpcCall(supabase, "industry_insert_knowledge", {
+      documentId: industryDoc.docId,
+      layer: "atlas_industry",
+      sourceClassification: item.sourceClassification,
+      title: item.title,
+      statement: item.statement,
+      interpretation: item.interpretation ?? null,
+      knowledgeType: item.knowledgeType,
+      industry: item.industry ?? null,
+      jurisdiction: item.jurisdiction ?? null,
+      confidence: item.confidence,
+      status: "needs_review",
+      sourceId: item.sourceId ?? null,
+      tags: item.tags ?? [],
+    }).catch(() => undefined);
+    knowledgeInserted++;
+  }
+
+  // 5. Create provenance record
+  if (args.sourceId) {
+    await rpcCall(supabase, "industry_upsert_provenance", {
+      sourceId: args.sourceId,
+      sourceName: args.title,
+      organization: "Unknown",
+      authorityTier: "standard",
+      sourceType: "uploaded_document",
+      canonicalUrl: args.sourceUrl ?? null,
+      status: "active",
+    }).catch(() => undefined);
+  }
+
+  return {
+    docId: result.docId,
+    industryDocId: industryDoc.docId,
+    classification: result.classification,
+    chunks: industryChunksInserted,
+    knowledgeItems: knowledgeInserted,
+    status: "needs_review",
+    warnings: result.warnings,
+  };
+}
+
+/**
+ * Simple heuristic extraction of knowledge items from document text.
+ * Identifies requirements, standards, definitions, and procedures.
+ */
+function extractKnowledgeItems(
+  text: string,
+  title: string,
+  meta: {
+    sourceClassification: string;
+    industry?: string;
+    jurisdiction?: string;
+    documentId: string;
+    sourceId?: string;
+  },
+): Array<{
+  title: string;
+  statement: string;
+  interpretation?: string;
+  knowledgeType: string;
+  sourceClassification: string;
+  confidence: number;
+  industry?: string;
+  jurisdiction?: string;
+  sourceId?: string;
+  tags?: string[];
+}> {
+  const items: Array<{
+    title: string;
+    statement: string;
+    interpretation?: string;
+    knowledgeType: string;
+    sourceClassification: string;
+    confidence: number;
+    industry?: string;
+    jurisdiction?: string;
+    sourceId?: string;
+    tags?: string[];
+  }> = [];
+
+  // Split into sentences and look for knowledge patterns
+  const sentences = text
+    .split(/[.!?]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 20 && s.length < 500);
+
+  const requirementPatterns = /\b(must|shall|required|mandatory|shall not|must not|prohibited|minimum|at least)\b/i;
+  const definitionPatterns = /\b(is defined as|means|refers to|is the|consists of|includes)\b/i;
+  const procedurePatterns = /\b(step \d|first,|second,|third,|finally,|before|after|ensure|verify|inspect)\b/i;
+  const standardPatterns = /\b(standard|code|regulation|guideline|specification|requirement| criterion)\b/i;
+
+  for (const sentence of sentences) {
+    let knowledgeType = "general";
+    let confidence = 0.6;
+
+    if (requirementPatterns.test(sentence)) {
+      knowledgeType = "requirement";
+      confidence = 0.75;
+    } else if (definitionPatterns.test(sentence)) {
+      knowledgeType = "definition";
+      confidence = 0.7;
+    } else if (procedurePatterns.test(sentence)) {
+      knowledgeType = "procedure";
+      confidence = 0.65;
+    } else if (standardPatterns.test(sentence)) {
+      knowledgeType = "standard_reference";
+      confidence = 0.7;
+    } else {
+      // Only include sentences that look like they contain useful knowledge
+      if (!/^(the|this|that|it|we|they|there|here)\b/i.test(sentence)) continue;
+      if (sentence.split(" ").length < 8) continue;
+    }
+
+    items.push({
+      title: `${title} — ${knowledgeType.charAt(0).toUpperCase() + knowledgeType.slice(1)}`,
+      statement: sentence,
+      knowledgeType,
+      sourceClassification: meta.sourceClassification,
+      confidence,
+      industry: meta.industry,
+      jurisdiction: meta.jurisdiction,
+      sourceId: meta.sourceId,
+      tags: [knowledgeType],
+    });
+
+    // Limit to prevent excessive extraction
+    if (items.length >= 20) break;
+  }
+
+  return items;
+}

@@ -380,6 +380,95 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
     implementationStatus: "implemented",
     documentationUrl: "https://developers.google.com/drive/api/reference/rest/v3/files/update",
   },
+  // -----------------------------------------------------------------------
+  // Atlas Industry Knowledge — search tool for agents
+  // -----------------------------------------------------------------------
+  {
+    id: "atlas.search_industry_knowledge",
+    name: "Search industry knowledge",
+    description:
+      "Search Atlas industry knowledge for construction/restoration/insurance concepts, evidence requirements, standards, and guidance. Returns structured results with source classification, provenance, and relevance scores.",
+    category: "search",
+    provider: null,
+    version: "1.0.0",
+    capabilities: ["search"],
+    inputSchema: {
+      fields: [
+        {
+          key: "query",
+          type: "string",
+          required: true,
+          description: "Search query (e.g. \"supplement documentation requirements\", \"water damage evidence\").",
+          minLength: 1,
+          maxLength: 500,
+        },
+        {
+          key: "industry",
+          type: "string",
+          description: "Restrict results to a specific industry (e.g. \"insurance_restoration\").",
+          maxLength: 100,
+        },
+        {
+          key: "sourceClassification",
+          type: "enum",
+          enum: [
+            "INDUSTRY_STANDARD",
+            "REGULATORY",
+            "CARRIER_OR_INSURANCE",
+            "MANUFACTURER",
+            "PROFESSIONAL_GUIDANCE",
+            "ATLAS_CURATED",
+          ],
+          description: "Restrict to a specific source classification.",
+        },
+        {
+          key: "limit",
+          type: "number",
+          min: 1,
+          max: 20,
+          description: "Maximum number of results (default 10).",
+        },
+      ],
+    },
+    authRequirements: { provider: null, minRole: "member" },
+    requiredScopes: [],
+    riskLevel: "READ",
+    confirmationPolicy: "never",
+    implementationStatus: "planned",
+  },
+  {
+    id: "atlas.search_evidence_requirements",
+    name: "Search evidence requirements",
+    description:
+      "Search for evidence requirements related to a claim element, supplement, or workflow. Returns required evidence types, supporting industry references, and gap analysis.",
+    category: "search",
+    provider: null,
+    version: "1.0.0",
+    capabilities: ["search"],
+    inputSchema: {
+      fields: [
+        {
+          key: "claimElement",
+          type: "string",
+          required: true,
+          description: "The claim element to find evidence requirements for (e.g. \"roof replacement scope\", \"water damage drying\").",
+          minLength: 1,
+          maxLength: 500,
+        },
+        {
+          key: "workflow",
+          type: "enum",
+          enum: ["claim_readiness", "supplement_readiness", "submission_readiness"],
+          description: "The workflow context for evidence assessment.",
+        },
+      ],
+    },
+    authRequirements: { provider: null, minRole: "member" },
+    requiredScopes: [],
+    riskLevel: "READ",
+    confirmationPolicy: "never",
+    implementationStatus: "planned",
+  },
 ];
 
 /** Fast lookup by tool id. */

@@ -266,7 +266,7 @@ function HeroVisual() {
     <div className="atlas-grid-fine relative overflow-hidden rounded-2xl border border-border/70 bg-card/70 p-5 shadow-2xl shadow-black/10 backdrop-blur dark:shadow-black/40">
       <div className="mb-4 flex items-center justify-between px-1">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          Systems → Atlas → Intelligence
+          Industry + Company + Live Evidence → Atlas Intelligence
         </span>
         <span className="flex items-center gap-1.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
           <span className="size-1.5 animate-pulse rounded-full bg-emerald-400" />
@@ -275,15 +275,20 @@ function HeroVisual() {
       </div>
 
       <div className="flex flex-col items-center gap-5 lg:flex-row lg:items-center lg:justify-between">
-        {/* your systems */}
-        <div className="grid w-full grid-cols-2 gap-2 lg:w-40">
-          {HERO_SYSTEMS.map((s) => (
+        {/* three knowledge layers */}
+        <div className="grid w-full grid-cols-1 gap-2 lg:w-44">
+          {[
+            { icon: Globe, label: 'Industry', sub: 'knowledge' },
+            { icon: Building2, label: 'Company', sub: 'knowledge' },
+            { icon: Radar, label: 'Live', sub: 'evidence' },
+          ].map((s) => (
             <div
               key={s.label}
-              className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/60 px-2 py-1.5 transition-colors hover:border-teal-400/30"
+              className="flex items-center gap-2 rounded-lg border border-teal-400/25 bg-teal-400/[0.04] px-2.5 py-1.5"
             >
-              <s.icon className="size-3 shrink-0 text-muted-foreground" />
+              <s.icon className="size-3.5 shrink-0 text-teal-600 dark:text-teal-300" />
               <span className="truncate text-[10px] font-medium text-foreground/90">{s.label}</span>
+              <span className="truncate text-[9px] text-muted-foreground/60">{s.sub}</span>
             </div>
           ))}
         </div>
@@ -308,11 +313,11 @@ function HeroVisual() {
         <div className="flex w-full flex-col gap-3 lg:max-w-xs">
           <div className="rounded-xl border border-teal-400/20 bg-teal-400/[0.05] p-3">
             <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-teal-600 dark:text-teal-300">
-              Company intelligence layer
+              Three-layer intelligence
             </p>
             <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-              Claims · estimates · photos · policies · documentation — one continuously
-              updated revenue model.
+              Industry knowledge + company knowledge + live evidence — one continuously
+              updated intelligence system.
             </p>
           </div>
           <div className="rounded-xl border border-border/70 bg-background/60 p-3">
@@ -737,36 +742,33 @@ export default function Landing() {
               <motion.p variants={fadeUp} className="atlas-eyebrow mb-4 flex items-center gap-2">
                 <Sparkles className="size-3.5" />
                 Revenue Recovery + Prevention
-              </motion.p>
-              <motion.h1
+              </motion.p>                <motion.h1
                 variants={fadeUp}
                 className="text-4xl font-semibold leading-[1.06] tracking-tight sm:text-5xl lg:text-[3.4rem]"
               >
-                Recover the revenue{" "}
+                Atlas builds an intelligence layer{" "}
                 <span className="bg-gradient-to-r from-teal-600 via-cyan-600 to-teal-600 bg-clip-text text-transparent dark:from-teal-300 dark:via-cyan-300 dark:to-teal-300">
-                  your company is missing.
+                  around your company.
                 </span>
               </motion.h1>
               <motion.p variants={fadeUp} className="mt-5 max-w-lg text-base leading-7 text-muted-foreground">
-                Atlas finds missed revenue opportunities inside your claims and workflows,
-                helps build the evidence to support them, and helps your team act — from
-                the beginning of a claim through final payment.
+                Atlas combines industry knowledge, your company's own knowledge, and live
+                operational evidence — then uses that intelligence to identify missed revenue,
+                surface gaps, answer questions, and power specialized AI workflows.
               </motion.p>
               <motion.p variants={fadeUp} className="mt-2 flex items-center gap-2 text-xs text-muted-foreground/80">
-                <span className="font-mono uppercase tracking-[0.14em]">Recover what was missed. Prevent what would have been missed.</span>
-              </motion.p>
-              <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3">
-                <PrimaryCta onClick={toAuth}>See Atlas in Action</PrimaryCta>
-                <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
+                <span className="font-mono uppercase tracking-[0.14em]">Industry knowledge · Company knowledge · Live evidence → Intelligence</span>
+              </motion.p>              <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center gap-3">
+                <PrimaryCta onClick={toAuth}>Apply for the Atlas Pilot</PrimaryCta>
+                <SecondaryCta href="#how">See How Atlas Works</SecondaryCta>
               </motion.div>
               <motion.div
                 variants={fadeUp}
                 className="mt-9 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground"
               >
-                {[
-                  "Evidence-backed revenue recovery",
-                  "Identifies missed scope & documentation",
-                  "Professional claim & supplement packages",
+                {["Evidence-backed intelligence",
+                  "Source-aware reasoning with provenance",
+                  "Recover missed revenue · Prevent future losses",
                 ].map((f) => (
                   <span key={f} className="flex items-center gap-1.5">
                     <Check className="size-3.5 text-teal-600 dark:text-teal-300" />
@@ -807,8 +809,8 @@ export default function Landing() {
               )}
             </div>
             <p className="text-xs text-muted-foreground/80">
-              Atlas is the revenue recovery layer that sits above your existing software — identifying missed
-              opportunities and preventing them from being missed in the first place.
+              Atlas is an intelligence layer that sits above your existing software — combining industry knowledge,
+              your company's knowledge, and live operational evidence into a continuously updated intelligence system.
             </p>
           </div>
         </section>
@@ -847,6 +849,113 @@ export default function Landing() {
                   );
                 })}
               </ul>
+            </Reveal>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* How Atlas Thinks — Three-layer intelligence */}
+        {/* ------------------------------------------------------------------ */}
+        <section className="relative z-10 border-y border-border/60 bg-card/30 py-20">
+          <div className="mx-auto w-full max-w-6xl px-5">
+            <SectionHead
+              eyebrow="How Atlas thinks"
+              title={<>Atlas doesn't just search your documents. It connects what the industry knows, what your company knows, and what is happening inside your business — then reasons across all three.</>}
+              lead="Most AI tools search one set of documents. Atlas combines three distinct knowledge layers — industry knowledge, your company's proprietary knowledge, and live operational evidence — then uses that combined context to identify gaps, surface contradictions, answer questions, and make recommendations."
+            />
+            <div className="mt-14 grid gap-4 sm:grid-cols-3">
+              {/* Layer 1: Industry Knowledge */}
+              <Reveal delay={0}>
+                <div className="h-full rounded-2xl border border-teal-400/25 bg-teal-400/[0.04] p-6">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/20 dark:text-teal-300">
+                    <Globe className="size-5" />
+                  </div>
+                  <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-teal-600 dark:text-teal-300">
+                    Industry Knowledge
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                    Atlas already knows the industry.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Construction terminology, restoration workflows, insurance claims processes, evidence requirements, carrier standards, regulatory context, and industry roles — Atlas brings this baseline knowledge to every company it serves.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {['Terminology', 'Workflows', 'Standards', 'Regulations', 'Evidence types'].map((t) => (
+                      <span key={t} className="rounded-md border border-teal-400/20 bg-background/50 px-2 py-0.5 font-mono text-[9px] text-foreground/80">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+
+              {/* Layer 2: Company Knowledge */}
+              <Reveal delay={0.08}>
+                <div className="h-full rounded-2xl border border-border/70 bg-card/60 p-6">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 dark:text-teal-300">
+                    <Building2 className="size-5" />
+                  </div>
+                  <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Company Knowledge
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                    Atlas learns from your business.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Your SOPs, estimating procedures, company policies, documentation requirements, workflows, and operating patterns — Atlas builds a company-specific knowledge layer that understands how your business actually works.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {['SOPs', 'Policies', 'Workflows', 'Estimates', 'Templates'].map((t) => (
+                      <span key={t} className="rounded-md border border-border/70 bg-background/50 px-2 py-0.5 font-mono text-[9px] text-foreground/80">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+
+              {/* Layer 3: Live Evidence */}
+              <Reveal delay={0.16}>
+                <div className="h-full rounded-2xl border border-border/70 bg-card/60 p-6">
+                  <div className="flex size-10 items-center justify-center rounded-lg bg-teal-400/10 text-teal-600 ring-1 ring-teal-400/20 dark:text-teal-300">
+                    <Radar className="size-5" />
+                  </div>
+                  <p className="mt-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                    Live Evidence
+                  </p>
+                  <h3 className="mt-2 text-lg font-semibold tracking-tight text-foreground">
+                    Atlas sees what's happening now.
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Claims, documents, estimates, photos, communications, and operational events — Atlas continuously reasons over your live business activity to identify what needs attention.
+                  </p>
+                  <div className="mt-4 flex flex-wrap gap-1.5">
+                    {['Claims', 'Estimates', 'Photos', 'Docs', 'Events'].map((t) => (
+                      <span key={t} className="rounded-md border border-border/70 bg-background/50 px-2 py-0.5 font-mono text-[9px] text-foreground/80">{t}</span>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+            </div>
+
+            {/* Convergence arrow */}
+            <div className="my-6 flex items-center justify-center gap-3">
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-400/40 to-transparent" />
+              <div className="flex size-10 items-center justify-center rounded-xl border border-teal-400/40 bg-teal-400/10 text-teal-600 dark:text-teal-300">
+                <BrainCircuit className="size-5" />
+              </div>
+              <div className="h-px flex-1 bg-gradient-to-r from-transparent via-teal-400/40 to-transparent" />
+            </div>
+
+            {/* Result */}
+            <Reveal>
+              <div className="mx-auto max-w-2xl rounded-2xl border border-teal-400/25 bg-teal-400/[0.05] p-6 text-center">
+                <p className="font-mono text-[10px] uppercase tracking-[0.22em] text-teal-600 dark:text-teal-300">
+                  Atlas Intelligence
+                </p>
+                <p className="mt-3 text-lg font-semibold tracking-tight text-foreground">
+                  Evidence · Gaps · Contradictions · Recommendations
+                </p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Every answer carries provenance — you can trace where the information came from, what evidence supports it, what is missing, and what conflicts. Atlas distinguishes facts from inference and never fabricates evidence.
+                </p>
+              </div>
             </Reveal>
           </div>
         </section>
@@ -1668,7 +1777,7 @@ export default function Landing() {
                   <SecondaryCta href="/pilot">Join the Pilot Program</SecondaryCta>
                 </div>
                 <p className="mt-8 font-mono text-[11px] uppercase tracking-[0.22em] text-muted-foreground/70">
-                  The AI revenue recovery platform for contractors
+                  Industry knowledge + company intelligence + live evidence
                 </p>
               </div>
             </div>
@@ -1693,9 +1802,9 @@ export default function Landing() {
                   <span className="text-base font-semibold tracking-tight">Atlas</span>
                 </a>
                 <p className="mt-3 max-w-xs text-xs leading-5 text-muted-foreground">
-                  The AI revenue recovery platform for contractors. Atlas connects your company
-                  information, identifies potential revenue opportunities, and generates professional
-                  claim and supplement packages.
+                  An AI Operating System for Companies. Atlas combines industry knowledge,
+                  company-specific intelligence, and live evidence to recover revenue and
+                  drive operational decisions.
                 </p>
                 <div className="mt-4 flex items-center gap-2">
                   <ThemeToggle />
@@ -1740,11 +1849,10 @@ export default function Landing() {
             </div>
             <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border/60 pt-6 sm:flex-row">
               <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/60">
-                connect · understand · query · decide · act · learn
+                industry knowledge · company intelligence · live evidence · reasoning · action
               </p>
               <p className="text-[11px] text-muted-foreground/60">
-                © {new Date().getFullYear()} Atlas. Launching with insurance restoration. Built for
-                every business.
+                © {new Date().getFullYear()} Atlas. AI Operating System for Companies. Starting with insurance restoration.
               </p>
             </div>
           </div>

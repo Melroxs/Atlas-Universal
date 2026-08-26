@@ -63,6 +63,10 @@ import {
   scanDocumentsForContradictions,
   type EvidenceContradiction,
 } from "./contradictions.ts";
+import {
+  retrieveIndustryKnowledge,
+  buildKnowledgeContextString,
+} from "./knowledge.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -907,12 +911,33 @@ async function reasonWithGemini(
   diag("ai-request-start", { model: config.model, evidenceCount: evidenceRaw.length });
   const history = await loadConversationHistory(supabase, sessionId, config.maxHistoryTurns);
   const { items, byId } = buildEvidenceContext(evidenceRaw, config);
+
+  // Retrieve Atlas Industry Knowledge server-side (best-effort).
+  // This runs AFTER evidence retrieval so the model sees company evidence
+  // (higher priority) alongside industry knowledge (contextual reference).
+  let knowledgeContextString = "";
+  try {
+    const knowledgeResults = await retrieveIndustryKnowledge(supabase, question, {
+      layers: ["atlas_industry"],
+      limit: 5,
+      publishedOnly: true,
+    });
+    if (knowledgeResults.length > 0) {
+      knowledgeContextString = buildKnowledgeContextString(knowledgeResults);
+      diag("knowledge-retrieved", { count: knowledgeResults.length });
+    }
+  } catch (e) {
+    // Knowledge retrieval is best-effort — never block the AI reasoning path.
+    diag("knowledge-retrieval-failed", { error: e instanceof Error ? e.message : String(e) });
+  }
+
   const requestBody = buildGeminiRequestBody(
     config,
     ATLAS_SYSTEM_PROMPT,
     question,
     history,
     items,
+    knowledgeContextString || undefined,
   );
 
   const attempt = async (): Promise<GeminiCallResult> => callGemini(config, requestBody);

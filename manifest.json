@@ -1,0 +1,42 @@
+{
+  "corpusName": "Atlas U.S. Insurance Restoration Industry Knowledge Corpus",
+  "version": "0.1.0-seed",
+  "layer": "atlas_industry",
+  "retrievedDate": "2026-08-27",
+  "jurisdictionsCovered": [
+    "FEDERAL",
+    "STATE profiles for 50 states + DC",
+    "INDUSTRY"
+  ],
+  "counts": {
+    "sources": 5,
+    "knowledgeRecords": 112,
+    "regulations": 8,
+    "workflows": 31,
+    "evidenceRequirements": 36,
+    "documentationTypes": 36,
+    "stateProfiles": 51,
+    "standards": 5,
+    "risks": 21,
+    "revenueRecoveryConcepts": 16,
+    "inferredOrHeuristicRecords": 155,
+    "conflicts": 0
+  },
+  "schemaVersion": "1.0",
+  "machineReadableFiles": [
+    "atlas_ingestion/knowledge.jsonl",
+    "atlas_ingestion/entities.jsonl",
+    "atlas_ingestion/relationships.jsonl",
+    "atlas_ingestion/evidence_requirements.jsonl",
+    "atlas_ingestion/workflows.jsonl",
+    "atlas_ingestion/regulations.jsonl",
+    "atlas_ingestion/risks.jsonl",
+    "atlas_ingestion/conflicts.jsonl"
+  ],
+  "limitations": [
+    "This is a seed corpus, not an exhaustive 50-state/locality legal survey.",
+    "State profiles are explicit placeholders pending official state-by-state research.",
+    "Carrier policy and proprietary estimating rules are not included.",
+    "Standards are metadata/high-level summaries only."
+  ]
+}

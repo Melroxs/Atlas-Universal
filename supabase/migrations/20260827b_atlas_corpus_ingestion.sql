@@ -21,7 +21,7 @@
 -- ================================================================
 
 CREATE TABLE IF NOT EXISTS public.atlasIndustryRelationships (
-  _id           uuid DEFAULT public.gen_random_uuid() PRIMARY KEY,
+  _id           uuid DEFAULT extensions.gen_random_uuid() PRIMARY KEY,
   _creationTime bigint DEFAULT public.epoch_ms(),
   sourceId      text NOT NULL,
   targetId      text NOT NULL,

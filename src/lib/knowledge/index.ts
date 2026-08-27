@@ -30,3 +30,28 @@ export {
   REVENUE_CONCEPTS,
   INDUSTRY_ROLES,
 } from "./seed";
+export {
+  CORPUS_MANIFEST,
+  CORPUS_PROVENANCE,
+  FEDERAL_REGULATIONS,
+  WORKFLOW_STAGES,
+  DOCUMENTATION_EVIDENCE,
+  JURISDICTION_PROFILES,
+  STANDARDS_METADATA,
+  CORPUS_RISKS,
+  CORPUS_REVENUE,
+  GRAPH_RELATIONSHIPS,
+} from "./corpus";
+export type {
+  CorpusKnowledgeRecord,
+  CorpusProvenanceRecord,
+  CorpusGraphEdge,
+} from "./corpus";
+export {
+  validateCorpus,
+  normalizeCorpusToKnowledgeItems,
+  normalizeCorpusProvenance,
+  getValidatedGraphEdges,
+  getIngestionReport,
+} from "./corpus/importer";
+export type { CorpusValidationResult } from "./corpus/importer";

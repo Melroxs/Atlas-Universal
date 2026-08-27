@@ -17,6 +17,17 @@
 //   - Revenue recovery concepts
 //   - Industry risk patterns
 //   - Regulatory awareness (OSHA, EPA, licensing)
+//
+// Provenance review notes:
+//   - Items classified as ATLAS_CURATED with isInference: false represent
+//     widely-accepted industry terminology or workflow descriptions.
+//   - Items with isInference: true are Atlas heuristics — operational
+//     patterns observed across the industry but not attributable to a
+//     single authoritative source. These are lower confidence.
+//   - Quantitative claims (e.g. "5-15%") are Atlas heuristics, not
+//     sourced statistics.
+//   - Causal claims (e.g. "most common reason for denial") are Atlas
+//     observations, not peer-reviewed findings.
 // ---------------------------------------------------------------------------
 
 import type { KnowledgeItem, KnowledgeProvenance } from "./types";
@@ -156,7 +167,7 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_fnol",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "FNOL Stage — Required Evidence",
     statement: "At FNOL, the contractor needs: loss report, policy information, initial photos, and date-of-loss documentation.",
     interpretation: "Incomplete FNOL documentation delays the entire claim. Atlas should flag missing items immediately when a claim enters the pipeline.",
@@ -171,7 +182,7 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_inspection",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "Inspection Stage — Required Evidence",
     statement: "At inspection: inspection photos (date-stamped, wide and close-up), adjuster notes, scope measurements, and damage assessment.",
     interpretation: "Photo documentation is the most commonly incomplete item at the inspection stage. Photos should be labeled with room/area and damage type.",
@@ -186,10 +197,10 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_estimate",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "Estimate Stage — Required Evidence",
     statement: "At estimate stage: Xactimate estimate, scope of work, material specifications, and code requirements.",
-    interpretation: "Estimate accuracy directly affects revenue. Under-scoped estimates are the primary source of missed revenue and the most common supplement trigger.",
+    interpretation: "Estimate accuracy directly affects revenue. Under-scoped estimates are a primary source of missed revenue and a common supplement trigger.",
     knowledgeType: "requirement",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -201,10 +212,10 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_mitigation",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "Mitigation Stage — Required Evidence",
     statement: "At mitigation: drying log with moisture readings, equipment invoices, daily readings, equipment placement photos, and authorization documentation.",
-    interpretation: "Drying logs are the most frequently disputed item in water mitigation claims. Without timestamped moisture readings, equipment days cannot be justified.",
+    interpretation: "Drying logs are a frequently disputed item in water mitigation claims. Without timestamped moisture readings, equipment days cannot be justified.",
     knowledgeType: "requirement",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -216,7 +227,7 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_reconstruction",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "Reconstruction Stage — Required Evidence",
     statement: "At reconstruction: permits, subcontractor invoices, material receipts, before/after photos, and signed change orders.",
     interpretation: "Change orders not documented and billed are unrecovered revenue. Atlas should monitor scope changes during reconstruction.",
@@ -231,10 +242,10 @@ export const EVIDENCE_REQUIREMENTS: KnowledgeItem[] = [
   {
     id: "evidence_invoicing",
     layer: "atlas_industry",
-    sourceClassification: "PROFESSIONAL_GUIDANCE",
+    sourceClassification: "ATLAS_CURATED",
     title: "Invoicing Stage — Required Evidence",
     statement: "At invoicing: final invoice, estimate vs. actual comparison, proof of completion, and signed authorization.",
-    interpretation: "The gap between estimate and final invoice is where revenue leakage occurs. Systematic reconciliation catches unbilled work.",
+    interpretation: "The gap between estimate and final invoice is where revenue leakage can occur. Systematic reconciliation catches unbilled work.",
     knowledgeType: "requirement",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -256,7 +267,7 @@ export const CLAIM_LIFECYCLE: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Insurance Restoration Claim Lifecycle",
     statement: "The standard claim lifecycle flows through: FNOL → Inspection → Estimate → Approval → Mitigation → Documentation → Reconstruction → Invoicing → Payment → Closeout.",
-    interpretation: "Revenue recovery opportunities exist at every stage. The most common gaps occur at the transition between stages when documentation is incomplete.",
+    interpretation: "Revenue recovery opportunities exist at every stage. Gaps commonly occur at transitions between stages when documentation is incomplete.",
     knowledgeType: "workflow",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -271,7 +282,7 @@ export const CLAIM_LIFECYCLE: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Supplement Lifecycle",
     statement: "Supplements flow through: scope gap identified → documentation assembled → submit to adjuster → review → approval/denial → re-submit if needed → payment.",
-    interpretation: "Supplement approval rates correlate strongly with documentation quality. Well-documented supplements with photo evidence and code references are approved at much higher rates.",
+    interpretation: "Supplement outcomes correlate with documentation quality. Well-documented supplements with photo evidence and code references tend to have better approval outcomes.",
     knowledgeType: "workflow",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -293,7 +304,7 @@ export const RISK_PATTERNS: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Starting Work Without Authorization",
     statement: "Starting mitigation or reconstruction without a signed authorization from the policyholder risks the carrier refusing payment.",
-    interpretation: "Always confirm written authorization is on file before work begins. This is the single most common reason for payment denial.",
+    interpretation: "Always confirm written authorization is on file before work begins. This pattern is frequently associated with payment denial scenarios in the restoration industry.",
     knowledgeType: "risk_pattern",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -308,7 +319,7 @@ export const RISK_PATTERNS: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Incomplete Documentation",
     statement: "Jobs missing expected documents (drying logs, photos, authorizations) face payment delays and disputes.",
-    interpretation: "Documentation completeness is the most controllable factor in claim outcome. A documentation checklist at job start prevents downstream issues.",
+    interpretation: "Documentation completeness is a key controllable factor in claim outcomes. A documentation checklist at job start prevents downstream issues.",
     knowledgeType: "risk_pattern",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -323,13 +334,13 @@ export const RISK_PATTERNS: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Underbilling / Missed Billable Work",
     statement: "Delivered work that is never invoiced, or change orders not added to scope, quietly erodes revenue.",
-    interpretation: "Revenue leakage from underbilling is typically 5-15% of total project value. Systematic scope reconciliation catches this.",
+    interpretation: "Revenue leakage from underbilling is commonly estimated in the range of 5-15% of total project value (Atlas heuristic based on industry observation). Systematic scope reconciliation helps catch this.",
     knowledgeType: "risk_pattern",
     industry: "insurance restoration",
     jurisdiction: "United States",
-    confidence: 0.8,
+    confidence: 0.65,
     status: "active",
-    isInference: false,
+    isInference: true,
     tags: ["risk", "revenue", "billing", "leakage"],
   },
   {
@@ -338,7 +349,7 @@ export const RISK_PATTERNS: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Likely Supplement Needed",
     statement: "Undocumented conditions discovered mid-job, aging estimates, or material price increases typically require a supplement.",
-    interpretation: "Proactive supplement identification before the adjuster discovers the gap improves approval rates and reduces payment delays.",
+    interpretation: "Proactive supplement identification before the adjuster discovers the gap can improve outcomes and reduce payment delays.",
     knowledgeType: "risk_pattern",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -387,14 +398,14 @@ export const REVENUE_CONCEPTS: KnowledgeItem[] = [
   {
     id: "revenue_code_requirements",
     layer: "atlas_industry",
-    sourceClassification: "REGULATORY",
-    title: "Code Upgrade Revenue",
-    statement: "Building code requirements that necessitate upgrades beyond the original scope represent additional recoverable revenue.",
-    interpretation: "When building codes require upgrades (e.g., ice and water shield, upgraded ventilation), these are legitimate supplement items supported by regulatory authority.",
+    sourceClassification: "ATLAS_CURATED",
+    title: "Code Upgrade Revenue Potential",
+    statement: "Building code requirements that necessitate upgrades beyond the original scope can represent recoverable revenue through supplements.",
+    interpretation: "When building codes require upgrades (e.g., ice and water shield, upgraded ventilation), these may be legitimate supplement items supported by regulatory authority. Recovery depends on jurisdiction and carrier policy.",
     knowledgeType: "concept",
     industry: "insurance restoration",
     jurisdiction: "United States",
-    confidence: 0.8,
+    confidence: 0.75,
     status: "active",
     isInference: false,
     tags: ["revenue", "recovery", "code", "regulation"],
@@ -404,12 +415,12 @@ export const REVENUE_CONCEPTS: KnowledgeItem[] = [
     layer: "atlas_industry",
     sourceClassification: "ATLAS_CURATED",
     title: "Material Price Variance",
-    statement: "Material price increases between estimate date and purchase date create recoverable price variance.",
-    interpretation: "When material prices increase after the estimate is approved, the price difference can be submitted as a supplement item with current pricing documentation.",
+    statement: "Material price increases between estimate date and purchase date can create recoverable price variance.",
+    interpretation: "When material prices increase after the estimate is approved, the price difference may be submitted as a supplement item with current pricing documentation. Approval varies by carrier and jurisdiction.",
     knowledgeType: "concept",
     industry: "insurance restoration",
     jurisdiction: "United States",
-    confidence: 0.75,
+    confidence: 0.7,
     status: "active",
     isInference: false,
     tags: ["revenue", "recovery", "materials", "pricing"],
@@ -442,7 +453,7 @@ export const INDUSTRY_ROLES: KnowledgeItem[] = [
     sourceClassification: "ATLAS_CURATED",
     title: "Restoration Estimator",
     statement: "The estimator builds Xactimate estimates, documents scope, identifies supplement opportunities, and supports adjuster negotiations.",
-    interpretation: "Estimator accuracy directly affects revenue. Under-scoping is the most common estimator-related revenue leak.",
+    interpretation: "Estimator accuracy directly affects revenue. Under-scoping is a common estimator-related revenue concern.",
     knowledgeType: "role",
     industry: "insurance restoration",
     jurisdiction: "United States",
@@ -480,6 +491,14 @@ export const ATLAS_KNOWLEDGE_PROVENANCE: KnowledgeProvenance[] = [
   {
     sourceId: "atlas-evidence-model",
     sourceName: "Atlas Evidence Requirements Model",
+    organization: "Atlas",
+    authorityTier: "tier3_industry",
+    sourceType: "curated",
+    status: "active",
+  },
+  {
+    sourceId: "atlas-professional-guidance",
+    sourceName: "Atlas Industry Operational Guidance",
     organization: "Atlas",
     authorityTier: "tier3_industry",
     sourceType: "curated",

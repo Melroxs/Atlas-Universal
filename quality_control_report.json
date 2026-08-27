@@ -1,0 +1,15 @@
+{
+  "validatedDate": "2026-08-27",
+  "status": "PASS_WITH_WARNINGS",
+  "errors": [],
+  "warnings": [],
+  "checks": {
+    "validJsonl": true,
+    "stateProfiles": true,
+    "provenancePresent": true,
+    "inferencesMarked": true,
+    "copyrightBoundaryDocumented": true,
+    "noPaymentGuaranteeRuleDocumented": true,
+    "noFabricatedCitationRuleDocumented": true
+  }
+}

@@ -90,7 +90,7 @@ $$;
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public."atlasIndustryDocuments" (
-  "_id" uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  "_id" uuid DEFAULT extensions.gen_random_uuid() PRIMARY KEY,
   "_creationTime" bigint DEFAULT public.epoch_ms(),
 
   "title" text NOT NULL,
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS public."atlasIndustryDocuments" (
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public."atlasIndustryChunks" (
-  "_id" uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  "_id" uuid DEFAULT extensions.gen_random_uuid() PRIMARY KEY,
   "_creationTime" bigint DEFAULT public.epoch_ms(),
 
   "documentId" uuid NOT NULL
@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS public."atlasIndustryChunks" (
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public."atlasIndustryKnowledge" (
-  "_id" uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  "_id" uuid DEFAULT extensions.gen_random_uuid() PRIMARY KEY,
   "_creationTime" bigint DEFAULT public.epoch_ms(),
 
   "documentId" uuid
@@ -202,7 +202,7 @@ CREATE TABLE IF NOT EXISTS public."atlasIndustryKnowledge" (
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS public."atlasIndustryProvenance" (
-  "_id" uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  "_id" uuid DEFAULT extensions.gen_random_uuid() PRIMARY KEY,
   "_creationTime" bigint DEFAULT public.epoch_ms(),
 
   "sourceId" text NOT NULL UNIQUE,

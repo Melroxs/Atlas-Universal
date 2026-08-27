@@ -522,7 +522,7 @@ describe("ATLAS_INDUSTRY_KNOWLEDGE_SEED", () => {
 
 describe("ATLAS_KNOWLEDGE_PROVENANCE", () => {
   it("contains provenance records", () => {
-    expect(ATLAS_KNOWLEDGE_PROVENANCE.length).toBeGreaterThan(0);
+    expect(ATLAS_KNOWLEDGE_PROVENANCE.length).toBeGreaterThanOrEqual(6);
   });
 
   it("every record has required fields", () => {
@@ -541,10 +541,86 @@ describe("ATLAS_KNOWLEDGE_PROVENANCE", () => {
     expect(types).toContain("standard");
     expect(types).toContain("curated");
   });
+
+  it("includes all six required provenance sources", () => {
+    const ids = ATLAS_KNOWLEDGE_PROVENANCE.map((p) => p.sourceId);
+    expect(ids).toContain("atlas-curated");
+    expect(ids).toContain("atlas-evidence-model");
+    expect(ids).toContain("atlas-professional-guidance");
+    expect(ids).toContain("iicrc-s500");
+    expect(ids).toContain("iicrc-s520");
+    expect(ids).toContain("osha-construction");
+    expect(ids).toContain("epa-lead-rrp");
+  });
 });
 
 // ---------------------------------------------------------------------------
-// 11. Deterministic fallback contract
+// 11. Seed data accuracy and provenance correctness
+// ---------------------------------------------------------------------------
+
+describe("Seed data provenance correctness", () => {
+  it("all seeded records have layer = atlas_industry", () => {
+    for (const item of ATLAS_INDUSTRY_KNOWLEDGE_SEED) {
+      expect(item.layer).toBe("atlas_industry");
+    }
+  });
+
+  it("unsubstantiated quantitative claims are marked isInference", () => {
+    const underbilling = ATLAS_INDUSTRY_KNOWLEDGE_SEED.find(
+      (i) => i.id === "risk_underbilling",
+    );
+    expect(underbilling).toBeDefined();
+    expect(underbilling!.isInference).toBe(true);
+    expect(underbilling!.confidence).toBeLessThan(0.75);
+  });
+
+  it("unsupported causal claims are softened to Atlas observations", () => {
+    const unauthorized = ATLAS_INDUSTRY_KNOWLEDGE_SEED.find(
+      (i) => i.id === "risk_unauthorized_work",
+    );
+    expect(unauthorized).toBeDefined();
+    // Should not claim "single most common reason" — that is unsupported
+    expect(unauthorized!.interpretation).not.toContain("single most common");
+  });
+
+  it("code upgrade claim does not assert automatic recoverability", () => {
+    const codeRev = ATLAS_INDUSTRY_KNOWLEDGE_SEED.find(
+      (i) => i.id === "revenue_code_requirements",
+    );
+    expect(codeRev).toBeDefined();
+    expect(codeRev!.interpretation).toContain("may be");
+    expect(codeRev!.confidence).toBeLessThanOrEqual(0.8);
+  });
+
+  it("supplement approval claim is softened to correlation language", () => {
+    const lifecycle = ATLAS_INDUSTRY_KNOWLEDGE_SEED.find(
+      (i) => i.id === "lifecycle_supplement",
+    );
+    expect(lifecycle).toBeDefined();
+    // Should not claim "approved at much higher rates" as a guarantee
+    expect(lifecycle!.interpretation).toContain("correlate");
+  });
+
+  it("no duplicate titles within the same knowledgeType (idempotency)", () => {
+    const seen = new Set<string>();
+    for (const item of ATLAS_INDUSTRY_KNOWLEDGE_SEED) {
+      const key = `${item.knowledgeType}::${item.title}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
+  });
+
+  it("total item count remains consistent (26)", () => {
+    expect(ATLAS_INDUSTRY_KNOWLEDGE_SEED.length).toBe(26);
+  });
+
+  it("total provenance count remains consistent (7)", () => {
+    expect(ATLAS_KNOWLEDGE_PROVENANCE.length).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. Deterministic fallback contract
 // ---------------------------------------------------------------------------
 
 describe("Deterministic fallback", () => {

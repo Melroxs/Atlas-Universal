@@ -33,10 +33,16 @@ console.log("-- Paste this into Supabase SQL Editor and run it.");
 console.log("-- The function industry_ingest_corpus() must exist (apply migration 20260827e first).");
 console.log("");
 
+function sqlJson(arr: unknown[]): string {
+  // Escape single quotes for SQL string literal (double them)
+  const json = JSON.stringify(arr).replace(/'/g, "''");
+  return "'" + json + "'::jsonb";
+}
+
 console.log("SELECT public.industry_ingest_corpus(");
-console.log("  " + JSON.stringify(allKnowledge) + "::jsonb,");
-console.log("  " + JSON.stringify(CORPUS_PROVENANCE) + "::jsonb,");
-console.log("  " + JSON.stringify(GRAPH_RELATIONSHIPS) + "::jsonb,");
+console.log("  " + sqlJson(allKnowledge) + ",");
+console.log("  " + sqlJson(CORPUS_PROVENANCE) + ",");
+console.log("  " + sqlJson(GRAPH_RELATIONSHIPS) + ",");
 console.log("  '" + CORPUS_MANIFEST.version + "'");
 console.log(");");
 console.log("");

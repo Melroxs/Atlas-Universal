@@ -26,8 +26,10 @@
 // ---------------------------------------------------------------------------
 
 /** Origins the Atlas web app runs from. The canonical production deployment
- *  is atlasuniversalos.freebuff.app — and that is the only allowed origin. */
+ *  is atlas-ai-os.com; atlasuniversalos.freebuff.app is the previous
+ *  Freebuff-hosted alias. Both are intentionally authorized — nothing else. */
 export const ATLAS_ALLOWED_ORIGINS: string[] = [
+  "https://atlas-ai-os.com",
   "https://atlasuniversalos.freebuff.app",
 ];
 

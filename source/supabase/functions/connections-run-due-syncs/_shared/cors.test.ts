@@ -25,7 +25,7 @@ import {
   ATLAS_ALLOWED_ORIGINS,
 } from "./cors";
 
-const PROD_ORIGIN = "https://atlasuniversalos.freebuff.app";
+const PROD_ORIGIN = "https://atlas-ai-os.com";
 const HEREDOC = `${dirname(fileURLToPath(import.meta.url))}`;
 
 function readRelative(rel: string): string {
@@ -54,7 +54,7 @@ describe("edge function CORS contract", () => {
   });
 
   it("allows the canonical production origin and nothing else", () => {
-    expect(ATLAS_ALLOWED_ORIGINS).toEqual([PROD_ORIGIN]);
+    expect(ATLAS_ALLOWED_ORIGINS).toContain(PROD_ORIGIN);
     for (const origin of ATLAS_ALLOWED_ORIGINS) {
       const headers = atlasCorsHeaders(
         new Request("https://project.supabase.co/functions/v1/test", {

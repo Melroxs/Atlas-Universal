@@ -25,7 +25,7 @@ import {
   ATLAS_ALLOWED_ORIGINS,
 } from "./cors";
 
-const PROD_ORIGIN = "https://atlasmvp.freebuff.app";
+const PROD_ORIGIN = "https://atlas-ai-os.com";
 const ALIAS_ORIGIN = "https://atlasuniversalos.freebuff.app";
 const HEREDOC = `${dirname(fileURLToPath(import.meta.url))}`;
 

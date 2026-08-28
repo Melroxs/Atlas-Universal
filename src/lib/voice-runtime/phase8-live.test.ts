@@ -91,7 +91,7 @@ describe("Step 2: Live NVIDIA AI Smoke Test", () => {
       // Direct fetch test to validate NVIDIA NIM API connectivity
       const baseUrl = (process.env.NVIDIA_NIM_BASE_URL ?? "https://integrate.api.nvidia.com/v1").trim();
       const apiKey = (process.env.NVIDIA_NIM_API_KEY ?? "").trim();
-      const model = "deepseek-ai/deepseek-v4-flash";
+      const model = "deepseek-ai/deepseek-v4-flash-0731";
 
       const start = performance.now();
 

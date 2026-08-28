@@ -47,7 +47,7 @@ describe("recordUsage", () => {
   it("records a failed call with error code", () => {
     recordUsage({
       provider: "nvidia-nim",
-      model: "deepseek-ai/deepseek-v4-pro",
+      model: "deepseek-ai/deepseek-v4-pro-0813",
       operation: "structured",
       promptTokens: 0,
       completionTokens: 0,
@@ -116,7 +116,7 @@ describe("getUsageByProvider", () => {
     });
     recordUsage({
       provider: "nvidia-nim",
-      model: "deepseek-ai/deepseek-v4-pro",
+      model: "deepseek-ai/deepseek-v4-pro-0813",
       operation: "generate",
       promptTokens: 50,
       completionTokens: 150,
@@ -261,7 +261,7 @@ describe("getTotalCost", () => {
     });
     recordUsage({
       provider: "nvidia-nim",
-      model: "deepseek-ai/deepseek-v4-pro",
+      model: "deepseek-ai/deepseek-v4-pro-0813",
       operation: "generate",
       promptTokens: 100,
       completionTokens: 100,

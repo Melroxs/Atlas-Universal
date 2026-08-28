@@ -119,11 +119,11 @@ function loadNvidiaNimConfig(): ProviderConfig | null {
   if (!apiKey) return null;
 
   const baseUrl = (env("NVIDIA_NIM_BASE_URL") ?? "https://integrate.api.nvidia.com/v1").trim();
-  const defaultModel = (env("NVIDIA_NIM_DEFAULT_MODEL") ?? "deepseek-ai/deepseek-v4-pro").trim();
+  const defaultModel = (env("NVIDIA_NIM_DEFAULT_MODEL") ?? "deepseek-ai/deepseek-v4-pro-0813").trim();
 
   const models: ModelConfig[] = [
     {
-      id: "deepseek-ai/deepseek-v4-pro",
+      id: "deepseek-ai/deepseek-v4-pro-0813",
       name: "DeepSeek V4 Pro",
       providerId: "nvidia-nim",
       tier: "strong",
@@ -133,7 +133,7 @@ function loadNvidiaNimConfig(): ProviderConfig | null {
       capabilities: NIM_CAPABILITIES,
     },
     {
-      id: "deepseek-ai/deepseek-v4-flash",
+      id: "deepseek-ai/deepseek-v4-flash-0731",
       name: "DeepSeek V4 Flash",
       providerId: "nvidia-nim",
       tier: "fast",
@@ -143,8 +143,8 @@ function loadNvidiaNimConfig(): ProviderConfig | null {
       capabilities: NIM_CAPABILITIES,
     },
     {
-      id: "nvidia/llama-3.3-nemotron-super-49b-v1",
-      name: "NVIDIA Nemotron Super 49B",
+      id: "nvidia/nemotron-3-super-120b-a12b",
+      name: "NVIDIA Nemotron 3 Super 120B",
       providerId: "nvidia-nim",
       tier: "standard",
       costPer1kTokens: 0.001,
@@ -153,8 +153,8 @@ function loadNvidiaNimConfig(): ProviderConfig | null {
       capabilities: NIM_CAPABILITIES,
     },
     {
-      id: "nvidia/nemotron-ultra-253b",
-      name: "NVIDIA Nemotron Ultra 253B",
+      id: "nvidia/nemotron-3-ultra-550b-a55b",
+      name: "NVIDIA Nemotron 3 Ultra 550B",
       providerId: "nvidia-nim",
       tier: "strong",
       costPer1kTokens: 0.005,

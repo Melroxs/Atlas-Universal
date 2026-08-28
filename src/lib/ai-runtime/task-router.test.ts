@@ -99,7 +99,7 @@ describe("Model Registry", () => {
     setupEnv();
     initializeModelRegistry();
 
-    const deepseekPro = getModelProfile("deepseek-ai/deepseek-v4-pro");
+    const deepseekPro = getModelProfile("deepseek-ai/deepseek-v4-pro-0813");
     expect(deepseekPro).toBeDefined();
     expect(deepseekPro!.tier).toBe("strong");
     expect(deepseekPro!.providerId).toBe("nvidia-nim");

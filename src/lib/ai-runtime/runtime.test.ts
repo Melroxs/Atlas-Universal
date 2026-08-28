@@ -259,7 +259,7 @@ describe("generate — model resolution", () => {
     });
     const nvidia = createMockProvider("nvidia-nim", {
       response: "nvidia model",
-      models: [makeModel("deepseek-ai/deepseek-v4-pro", "strong", "nvidia-nim")],
+      models: [makeModel("deepseek-ai/deepseek-v4-pro-0813", "strong", "nvidia-nim")],
     });
 
     registerProvider(gemini);
@@ -267,7 +267,7 @@ describe("generate — model resolution", () => {
 
     const result = await generate({
       prompt: "Hi",
-      model: "deepseek-ai/deepseek-v4-pro",
+      model: "deepseek-ai/deepseek-v4-pro-0813",
     });
     expect(result.text).toBe("nvidia model");
     expect(result.provider).toBe("nvidia-nim");

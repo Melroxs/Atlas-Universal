@@ -339,10 +339,10 @@ function estimateModelCost(modelId: string, totalTokens: number): number {
     "gemini-2.5-flash": 0.0001,
     "gemini-2.5-pro": 0.00125,
     "gemini-2.0-flash": 0.0001,
-    "deepseek-ai/deepseek-v4-pro": 0.003,
-    "deepseek-ai/deepseek-v4-flash": 0.0003,
-    "nvidia/llama-3.3-nemotron-super-49b-v1": 0.001,
-    "nvidia/nemotron-ultra-253b": 0.005,
+    "deepseek-ai/deepseek-v4-pro-0813": 0.003,
+    "deepseek-ai/deepseek-v4-flash-0731": 0.0003,
+    "nvidia/nemotron-3-super-120b-a12b": 0.001,
+    "nvidia/nemotron-3-ultra-550b-a55b": 0.005,
   };
 
   const costPer1k = costMap[modelId] ?? 0.001;

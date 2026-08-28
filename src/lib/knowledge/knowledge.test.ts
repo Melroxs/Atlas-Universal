@@ -56,46 +56,46 @@ describe("EmbeddingsProvider", () => {
     resetEmbeddingsProvider();
   });
 
-  it("returns a provider instance", () => {
-    const provider = getEmbeddingsProvider();
+  it("returns a provider instance", async () => {
+    const provider = await getEmbeddingsProvider();
     expect(provider).toBeDefined();
     expect(provider.name).toBeTruthy();
     expect(provider.dimension).toBeGreaterThan(0);
   });
 
-  it("is always available (local fallback guaranteed)", () => {
-    const provider = getEmbeddingsProvider();
+  it("is always available (local fallback guaranteed)", async () => {
+    const provider = await getEmbeddingsProvider();
     expect(provider.isAvailable()).toBe(true);
   });
 
   it("generates deterministic embeddings for the same input", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const [a] = await provider.embed(["insurance restoration claim"]);
     const [b] = await provider.embed(["insurance restoration claim"]);
     expect(a).toEqual(b);
   });
 
   it("generates different embeddings for different inputs", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const [a] = await provider.embed(["water damage mitigation"]);
     const [b] = await provider.embed(["fire damage reconstruction"]);
     expect(a).not.toEqual(b);
   });
 
   it("embedding dimension matches the provider's declared dimension", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const [embedding] = await provider.embed(["test"]);
     expect(embedding.length).toBe(provider.dimension);
   });
 
   it("handles empty input", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const result = await provider.embed([]);
     expect(result).toEqual([]);
   });
 
   it("handles multiple texts in a single call", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const result = await provider.embed(["one", "two", "three"]);
     expect(result).toHaveLength(3);
     for (const emb of result) {
@@ -103,10 +103,10 @@ describe("EmbeddingsProvider", () => {
     }
   });
 
-  it("reset clears the singleton", () => {
-    const a = getEmbeddingsProvider();
+  it("reset clears the singleton", async () => {
+    const a = await getEmbeddingsProvider();
     resetEmbeddingsProvider();
-    const b = getEmbeddingsProvider();
+    const b = await getEmbeddingsProvider();
     // Both should work, but the singleton should be re-created
     expect(a).toBeDefined();
     expect(b).toBeDefined();
@@ -624,16 +624,16 @@ describe("Seed data provenance correctness", () => {
 // ---------------------------------------------------------------------------
 
 describe("Deterministic fallback", () => {
-  it("provider works without any API key configured", () => {
+  it("provider works without any API key configured", async () => {
     // This test proves the system works without GEMINI_API_KEY
     resetEmbeddingsProvider();
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     expect(provider.isAvailable()).toBe(true);
     expect(provider.name).toBe("local");
   });
 
   it("rankBySimilarity returns correct top-K", async () => {
-    const provider = getEmbeddingsProvider();
+    const provider = await getEmbeddingsProvider();
     const queryEmb = (await provider.embed(["water damage"]))[0];
     const docEmbs = [
       { id: "d1", embedding: (await provider.embed(["water damage restoration"]))[0] },

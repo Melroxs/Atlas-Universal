@@ -1,283 +1,369 @@
 // ---------------------------------------------------------------------------
-// Atlas AI Runtime — Core Types
+// Atlas AI Runtime — Core Type Definitions
 //
-// Provider-agnostic types for the Atlas AI Runtime. Every AI call in Atlas
-// should eventually flow through these interfaces so the application never
-// needs to know whether the request is going to Gemini, NVIDIA NIM, or
-// another provider.
+// Provider-agnostic interfaces for LLM interaction. Every Atlas feature
+// that calls an LLM should ultimately use these types through the runtime.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
-// Provider identification
+// Provider identity
 // ---------------------------------------------------------------------------
 
-export type ProviderId = "gemini" | "nvidia_nim" | "openai_compatible";
+export type ProviderId = "gemini" | "nvidia-nim" | string;
+
+export interface ProviderConfig {
+  id: ProviderId;
+  name: string;
+  /** Base URL for the provider's API (e.g., https://generativelanguage.googleapis.com). */
+  baseUrl: string;
+  /** API key (NEVER logged or exposed to client). */
+  apiKey: string;
+  /** Default model for this provider when no specific model is requested. */
+  defaultModel: string;
+  /** Available models on this provider. */
+  models: ModelConfig[];
+  /** Provider priority (lower = higher priority for fallback selection). */
+  priority: number;
+  /** Whether this provider is currently enabled (has valid credentials). */
+  enabled: boolean;
+}
 
 // ---------------------------------------------------------------------------
-// Model tier — determines cost/speed tradeoff
+// Model registry
 // ---------------------------------------------------------------------------
 
 export type ModelTier = "fast" | "standard" | "strong";
 
-// ---------------------------------------------------------------------------
-// Message types (provider-agnostic)
-// ---------------------------------------------------------------------------
+/** Capability strength rating for model matching. */
+export type CapabilityLevel = "low" | "medium" | "high";
 
-export interface AIMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
+export interface ModelConfig {
+  id: string;
+  name: string;
+  providerId: ProviderId;
+  tier: ModelTier;
+  /** Estimated cost per 1K tokens (USD). */
+  costPer1kTokens: number;
+  /** Max context window in tokens. */
+  maxContextTokens: number;
+  /** Max output tokens. */
+  maxOutputTokens: number;
+  /** Model capabilities. */
+  capabilities: ModelCapabilities;
+}
+
+export interface ModelCapabilities {
+  /** Supports chat/conversation generation. */
+  generate: boolean;
+  /** Supports structured (JSON) output. */
+  structuredOutput: boolean;
+  /** Supports streaming responses. */
+  streaming: boolean;
+  /** Supports function/tool calling. */
+  toolCalling: boolean;
+  /** Supports text embeddings. */
+  embeddings: boolean;
+  /** Supports vision (image/document input). */
+  vision: boolean;
+  /** Supports multi-modal (text + image in same request). */
+  multiModal: boolean;
+  /** Reasoning strength (low/medium/high). */
+  reasoning?: CapabilityLevel;
+  /** Document understanding capability. */
+  documentUnderstanding?: CapabilityLevel;
+  /** Long-context handling (>50K tokens). */
+  longContext?: CapabilityLevel;
 }
 
 // ---------------------------------------------------------------------------
-// Generation request
+// Generation request/response
 // ---------------------------------------------------------------------------
 
-export interface AIGenerateRequest {
-  /** The messages to send to the model. */
-  messages: AIMessage[];
-
-  /** Which provider to use (null = auto-select from config). */
+export interface GenerateRequest {
+  /** The prompt or message. */
+  prompt: string;
+  /** System instruction. */
+  systemPrompt?: string;
+  /** Preferred provider (otherwise auto-selected by priority). */
   provider?: ProviderId;
-
-  /** Specific model ID override (null = use provider default). */
+  /** Model override (otherwise uses provider default). */
   model?: string;
-
-  /** Max tokens the model may emit. */
+  /** Max output tokens. */
   maxTokens?: number;
-
-  /** Sampling temperature (0..2). */
+  /** Temperature (0..2). */
   temperature?: number;
-
-  /** Nucleus sampling parameter. */
+  /** Top-p sampling. */
   topP?: number;
-
-  /** Response format hint. */
-  responseFormat?: "text" | "json";
-
-  /** Request timeout in milliseconds. */
-  timeoutMs?: number;
-
-  /** Abort signal for cancellation. */
+  /** Stop sequences. */
+  stopSequences?: string[];
+  /** Whether the response should be JSON. */
+  jsonMode?: boolean;
+  /** Abort signal for timeout/cancellation. */
   signal?: AbortSignal;
+  /** Request timeout in ms. */
+  timeoutMs?: number;
+  /** Optional conversation history (for multi-turn). */
+  history?: Array<{ role: "user" | "model"; text: string }>;
+  /** Metadata for logging/tracking (never customer data). */
+  metadata?: Record<string, unknown>;
+}
 
-  /** Metadata for logging/tracking (never includes secrets). */
+export interface GenerateResult {
+  /** The generated text. */
+  text: string;
+  /** Provider that handled the request. */
+  provider: ProviderId;
+  /** Model used. */
+  model: string;
+  /** Token usage. */
+  usage: TokenUsage;
+  /** Latency in ms. */
+  latencyMs: number;
+  /** Whether this was a fallback from another provider. */
+  fallbackFrom?: ProviderId;
+}
+
+export interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+// ---------------------------------------------------------------------------
+// Structured output
+// ---------------------------------------------------------------------------
+
+export interface StructuredOutputRequest extends GenerateRequest {
+  /** JSON schema for the expected output. */
+  schema: Record<string, unknown>;
+  /** Whether to enforce strict schema compliance. */
+  strict?: boolean;
+}
+
+export interface StructuredOutputResult<T = Record<string, unknown>>
+  extends GenerateResult {
+  /** The parsed structured output. */
+  data: T;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming
+// ---------------------------------------------------------------------------
+
+export interface StreamRequest extends GenerateRequest {
+  /** Called for each chunk of the stream. */
+  onChunk: (chunk: StreamChunk) => void;
+  /** Called when the stream completes. */
+  onComplete: (result: GenerateResult) => void;
+  /** Called on stream error. */
+  onError: (error: AIRuntimeError) => void;
+}
+
+export interface StreamChunk {
+  text: string;
+  /** Whether this is the final chunk. */
+  done: boolean;
+  /** Accumulated text so far. */
+  accumulatedText: string;
+}
+
+// ---------------------------------------------------------------------------
+// Embeddings
+// ---------------------------------------------------------------------------
+
+export interface EmbedRequest {
+  /** Array of texts to embed. */
+  texts: string[];
+  /** Model override. */
+  model?: string;
+  /** Abort signal. */
+  signal?: AbortSignal;
+  /** Timeout in ms. */
+  timeoutMs?: number;
+}
+
+export interface EmbedResult {
+  /** Array of embedding vectors, same order as input texts. */
+  embeddings: number[][];
+  /** Dimension of the embeddings. */
+  dimension: number;
+  /** Provider and model used. */
+  provider: ProviderId;
+  model: string;
+  /** Latency in ms. */
+  latencyMs: number;
+  /** Token usage (if available). */
+  usage?: TokenUsage;
+}
+
+// ---------------------------------------------------------------------------
+// Vision
+// ---------------------------------------------------------------------------
+
+export interface VisionRequest {
+  /** The prompt/instruction. */
+  prompt: string;
+  /** Image data as base64 or URL. */
+  images: Array<{ data: string; mimeType: string } | { url: string }>;
+  /** System prompt. */
+  systemPrompt?: string;
+  /** Model override. */
+  model?: string;
+  /** Max output tokens. */
+  maxTokens?: number;
+  /** Temperature. */
+  temperature?: number;
+  /** JSON mode. */
+  jsonMode?: boolean;
+  /** Signal. */
+  signal?: AbortSignal;
+  /** Timeout in ms. */
+  timeoutMs?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Tool calling
+// ---------------------------------------------------------------------------
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+export interface ToolCallRequest extends GenerateRequest {
+  /** Available tools. */
+  tools: ToolDefinition[];
+  /** Maximum tool call iterations. */
+  maxIterations?: number;
+  /** Called for each tool invocation. */
+  onToolCall?: (call: ToolCall) => void;
+}
+
+export interface ToolCall {
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ToolCallResult {
+  name: string;
+  arguments: Record<string, unknown>;
+  result: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Provider adapter interface
+// ---------------------------------------------------------------------------
+
+/**
+ * Every LLM provider implements this interface. The runtime never calls
+ * provider-specific SDKs directly — it goes through this abstraction.
+ */
+export interface AIProviderAdapter {
+  /** Unique provider identifier. */
+  readonly id: ProviderId;
+
+  /** Display name. */
+  readonly name: string;
+
+  /** Check if the provider has valid credentials. */
+  isAvailable(): boolean;
+
+  /** List supported models. */
+  listModels(): ModelConfig[];
+
+  /** Get a specific model config. */
+  getModel(modelId: string): ModelConfig | undefined;
+
+  /** Generate text. */
+  generate(request: GenerateRequest): Promise<GenerateResult>;
+
+  /** Generate with structured output. */
+  generateStructured<T = Record<string, unknown>>(
+    request: StructuredOutputRequest,
+  ): Promise<StructuredOutputResult<T>>;
+
+  /** Stream text generation. */
+  stream(request: StreamRequest): Promise<void>;
+
+  /** Generate embeddings. */
+  embed(request: EmbedRequest): Promise<EmbedResult>;
+
+  /** Vision (image understanding). */
+  vision?(request: VisionRequest): Promise<GenerateResult>;
+}
+
+// ---------------------------------------------------------------------------
+// AI Runtime error
+// ---------------------------------------------------------------------------
+
+export type AIRuntimeErrorCode =
+  | "provider_unavailable"
+  | "missing_api_key"
+  | "invalid_model"
+  | "authentication"
+  | "rate_limited"
+  | "timeout"
+  | "network"
+  | "malformed_response"
+  | "provider_error"
+  | "all_providers_failed"
+  | "invalid_request"
+  | "not_implemented";
+
+export interface AIRuntimeError extends Error {
+  code: AIRuntimeErrorCode;
+  /** The provider that failed. */
+  provider?: ProviderId;
+  /** HTTP status code from the provider, if applicable. */
+  httpStatus?: number;
+  /** Whether this error is retryable. */
+  retryable: boolean;
+  /** Original error for debugging (NEVER contains API keys). */
+  cause?: Error;
+}
+
+// ---------------------------------------------------------------------------
+// Usage tracking
+// ---------------------------------------------------------------------------
+
+export interface UsageRecord {
+  timestamp: string;
+  provider: ProviderId;
+  model: string;
+  operation: "generate" | "structured" | "stream" | "embed" | "vision" | "tool_call";
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  estimatedCostUsd: number;
+  latencyMs: number;
+  success: boolean;
+  errorCode?: AIRuntimeErrorCode;
+  /** Metadata — never customer content. */
   metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------
-// Structured generation request
+// Fallback configuration
 // ---------------------------------------------------------------------------
 
-export interface AIStructuredRequest extends Omit<AIGenerateRequest, "responseFormat"> {
-  /** JSON Schema the model's output must conform to. */
-  schema: Record<string, unknown>;
-
-  /** Strict mode — reject outputs with extra properties. */
-  strict?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Generation response
-// ---------------------------------------------------------------------------
-
-export interface AIGenerateResponse {
-  /** Whether the request succeeded. */
-  ok: boolean;
-
-  /** The generated text (when ok=true). */
-  text?: string;
-
-  /** Parsed JSON (when responseFormat=json or structured generation). */
-  parsed?: unknown;
-
-  /** Which provider actually handled the request. */
-  provider: ProviderId;
-
-  /** Which model was used. */
-  model: string;
-
-  /** Token usage breakdown. */
-  usage: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-  };
-
-  /** Request latency in milliseconds. */
-  latencyMs: number;
-
-  /** Error information (when ok=false). */
-  error?: {
-    code: AIErrorCode;
-    message: string;
-    /** Whether this error is retryable. */
-    retryable: boolean;
-    /** HTTP status code if applicable. */
-    status?: number;
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Streaming response
-// ---------------------------------------------------------------------------
-
-export interface AIStreamChunk {
-  /** The text delta for this chunk. */
-  delta: string;
-
-  /** Whether this is the final chunk. */
-  done: boolean;
-
-  /** Token usage (only on the final chunk). */
-  usage?: AIGenerateResponse["usage"];
-}
-
-// ---------------------------------------------------------------------------
-// Embedding request/response
-// ---------------------------------------------------------------------------
-
-export interface AIEmbedRequest {
-  /** Text(s) to embed. */
-  input: string | string[];
-
-  /** Which provider to use. */
-  provider?: ProviderId;
-
-  /** Specific embedding model override. */
-  model?: string;
-
-  /** Request timeout in milliseconds. */
-  timeoutMs?: number;
-
-  /** Abort signal for cancellation. */
-  signal?: AbortSignal;
-}
-
-export interface AIEmbedResponse {
-  ok: boolean;
-  embeddings?: number[][];
-  provider: ProviderId;
-  model: string;
-  dimensions?: number;
-  latencyMs: number;
-  error?: AIGenerateResponse["error"];
-}
-
-// ---------------------------------------------------------------------------
-// Error codes
-// ---------------------------------------------------------------------------
-
-export type AIErrorCode =
-  | "auth"
-  | "rate_limited"
-  | "timeout"
-  | "network"
-  | "server"
-  | "model_unavailable"
-  | "malformed"
-  | "provider_not_configured"
-  | "no_providers_available"
-  | "validation_error"
-  | "unknown";
-
-// ---------------------------------------------------------------------------
-// Provider capabilities
-// ---------------------------------------------------------------------------
-
-export interface ProviderCapabilities {
-  /** Whether the provider supports text generation. */
-  generate: boolean;
-  /** Whether the provider supports structured JSON output. */
-  structuredOutput: boolean;
-  /** Whether the provider supports streaming. */
-  streaming: boolean;
-  /** Whether the provider supports embeddings. */
-  embeddings: boolean;
-  /** Whether the provider supports vision/image input. */
-  vision: boolean;
-  /** Whether the provider supports tool/function calling. */
-  toolCalling: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Provider configuration
-// ---------------------------------------------------------------------------
-
-export interface ProviderConfig {
-  /** Unique provider identifier. */
-  id: ProviderId;
-  /** Display name. */
-  name: string;
-  /** API key (server-side only, never exposed to client). */
-  apiKey: string;
-  /** Base URL for API calls. */
-  baseUrl: string;
-  /** Default model for this provider. */
-  defaultModel: string;
-  /** Available models, ordered fast → strong. */
-  models: ModelConfig[];
-  /** Provider capabilities. */
-  capabilities: ProviderCapabilities;
-  /** Whether this provider is enabled (has valid credentials). */
+export interface FallbackConfig {
+  /** Whether fallback is enabled. */
   enabled: boolean;
-  /** Priority for auto-selection (lower = preferred). */
-  priority: number;
+  /** Maximum number of fallback attempts. */
+  maxAttempts: number;
+  /** Delay before retry in ms. */
+  retryDelayMs: number;
+  /** Maximum retry delay (for exponential backoff) in ms. */
+  maxRetryDelayMs: number;
+  /** Maximum number of retries per provider. */
+  maxRetriesPerProvider: number;
 }
 
-export interface ModelConfig {
-  /** Model ID (provider-specific). */
-  id: string;
-  /** Display name. */
-  name: string;
-  /** Cost tier. */
-  tier: ModelTier;
-  /** Estimated cost per 1K tokens (USD). */
-  costPer1kTokens: number;
-  /** Max context tokens. */
-  maxContextTokens: number;
-  /** Max output tokens. */
-  maxOutputTokens: number;
-}
-
-// ---------------------------------------------------------------------------
-// Provider interface — every adapter implements this
-// ---------------------------------------------------------------------------
-
-export interface AIProvider {
-  /** Provider identifier. */
-  readonly id: ProviderId;
-
-  /** Provider display name. */
-  readonly name: string;
-
-  /** Whether this provider is currently available. */
-  readonly available: boolean;
-
-  /** Provider capabilities. */
-  readonly capabilities: ProviderCapabilities;
-
-  /**
-   * Generate text completion.
-   * Returns a standardized response regardless of the underlying provider.
-   */
-  generate(request: AIGenerateRequest): Promise<AIGenerateResponse>;
-
-  /**
-   * Generate structured JSON output conforming to a schema.
-   * Falls back to generate + parse when the provider doesn't natively
-   * support structured output.
-   */
-  generateStructured(request: AIStructuredRequest): Promise<AIGenerateResponse>;
-
-  /**
-   * Generate text with streaming.
-   * Yields chunks as they arrive from the provider.
-   */
-  stream(request: AIGenerateRequest): AsyncIterable<AIStreamChunk>;
-
-  /**
-   * Generate embeddings for the given input.
-   * Throws if the provider doesn't support embeddings.
-   */
-  embed(request: AIEmbedRequest): Promise<AIEmbedResponse>;
-}
+export const DEFAULT_FALLBACK_CONFIG: FallbackConfig = {
+  enabled: true,
+  maxAttempts: 3,
+  retryDelayMs: 1000,
+  maxRetryDelayMs: 30_000,
+  maxRetriesPerProvider: 2,
+};

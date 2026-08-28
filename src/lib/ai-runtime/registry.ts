@@ -1,229 +1,147 @@
 // ---------------------------------------------------------------------------
 // Atlas AI Runtime — Provider Registry
 //
-// Manages registered AI providers and handles provider selection based on
-// configuration, availability, and task requirements.
+// Manages the set of available AI providers. Handles:
+//   - Registration of provider adapters
+//   - Provider selection based on model policies
+//   - Fallback chain when the primary provider fails
+//   - Runtime enable/disable of providers
 // ---------------------------------------------------------------------------
 
 import type {
+  AIProviderAdapter,
   ProviderId,
-  AIProvider,
-  ProviderConfig,
-  ModelConfig,
   ModelTier,
-  ProviderCapabilities,
 } from "./types";
-import { GeminiProvider } from "./providers/gemini";
-import { NvidiaNimProvider } from "./providers/nvidia";
+import { loadProviderConfigs } from "./config";
 
 // ---------------------------------------------------------------------------
-// Registry state
+// Registry singleton
 // ---------------------------------------------------------------------------
 
-const _providers = new Map<ProviderId, AIProvider>();
-const _configs = new Map<ProviderId, ProviderConfig>();
-
-// ---------------------------------------------------------------------------
-// Default provider configurations
-// ---------------------------------------------------------------------------
-
-function buildDefaultConfigs(): ProviderConfig[] {
-  return [
-    {
-      id: "gemini",
-      name: "Google Gemini",
-      apiKey: "",
-      baseUrl: "https://generativelanguage.googleapis.com",
-      defaultModel: "gemini-2.5-flash",
-      models: [
-        { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", tier: "fast", costPer1kTokens: 0.0001, maxContextTokens: 1_048_576, maxOutputTokens: 8192 },
-        { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", tier: "standard", costPer1kTokens: 0.00125, maxContextTokens: 1_048_576, maxOutputTokens: 65536 },
-      ],
-      capabilities: { generate: true, structuredOutput: true, streaming: true, embeddings: false, vision: true, toolCalling: true },
-      enabled: false,
-      priority: 1,
-    },
-    {
-      id: "nvidia_nim",
-      name: "NVIDIA NIM",
-      apiKey: "",
-      baseUrl: "https://integrate.api.nvidia.com/v1",
-      defaultModel: "deepseek-ai/deepseek-r1",
-      models: [
-        { id: "deepseek-ai/deepseek-r1", name: "DeepSeek R1", tier: "fast", costPer1kTokens: 0.00025, maxContextTokens: 131_072, maxOutputTokens: 32768 },
-        { id: "nvidia/llama-3.1-nemotron-70b-instruct", name: "Nemotron 70B", tier: "standard", costPer1kTokens: 0.0012, maxContextTokens: 131_072, maxOutputTokens: 32768 },
-        { id: "nvidia/llama-3.3-70b-instruct", name: "Llama 3.3 70B", tier: "standard", costPer1kTokens: 0.00088, maxContextTokens: 131_072, maxOutputTokens: 32768 },
-      ],
-      capabilities: { generate: true, structuredOutput: true, streaming: true, embeddings: true, vision: false, toolCalling: false },
-      enabled: false,
-      priority: 2,
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
-// Configuration loading
-// ---------------------------------------------------------------------------
+const _providers = new Map<ProviderId, AIProviderAdapter>();
+let _initialized = false;
 
 /**
- * Load provider configurations from environment variables.
- * Server-side only — never call from browser code.
- *
- * Supported environment variables:
- *   GEMINI_API_KEY         — Gemini API key
- *   GEMINI_MODEL           — Override Gemini model
- *   NVIDIA_NIM_API_KEY     — NVIDIA NIM API key
- *   NVIDIA_NIM_BASE_URL    — Override NVIDIA NIM base URL
- *   NVIDIA_NIM_DEFAULT_MODEL — Override NVIDIA NIM default model
- *   AI_PROVIDER            — Force a specific provider (gemini|nvidia_nim)
+ * Initialize the registry from environment configuration.
+ * Safe to call multiple times — only initializes once.
  */
-export function loadProviderConfigs(env?: Record<string, string | undefined>): ProviderConfig[] {
-  const e = env ?? (typeof process !== "undefined" ? process.env : {});
-  const configs = buildDefaultConfigs();
+export async function initializeRegistry(): Promise<void> {
+  if (_initialized) return;
 
-  // Gemini
-  const geminiKey = (e.GEMINI_API_KEY ?? "").trim();
-  const geminiModel = (e.GEMINI_MODEL ?? "").trim();
-  const geminiConfig = configs.find((c) => c.id === "gemini")!;
-  if (geminiKey) {
-    geminiConfig.apiKey = geminiKey;
-    geminiConfig.enabled = true;
-    if (geminiModel) {
-      geminiConfig.defaultModel = geminiModel;
+  const configs = loadProviderConfigs();
+  for (const config of configs) {
+    if (config.id === "gemini") {
+      const { GeminiProvider } = await import("./providers/gemini");
+      _providers.set("gemini", new GeminiProvider(config));
+    } else if (config.id === "nvidia-nim") {
+      const { NvidiaNimProvider } = await import("./providers/nvidia-nim");
+      _providers.set("nvidia-nim", new NvidiaNimProvider(config));
     }
   }
 
-  // NVIDIA NIM
-  const nvidiaKey = (e.NVIDIA_NIM_API_KEY ?? "").trim();
-  const nvidiaBaseUrl = (e.NVIDIA_NIM_BASE_URL ?? "").trim();
-  const nvidiaModel = (e.NVIDIA_NIM_DEFAULT_MODEL ?? "").trim();
-  const nvidiaConfig = configs.find((c) => c.id === "nvidia_nim")!;
-  if (nvidiaKey) {
-    nvidiaConfig.apiKey = nvidiaKey;
-    nvidiaConfig.enabled = true;
-    if (nvidiaBaseUrl) nvidiaConfig.baseUrl = nvidiaBaseUrl;
-    if (nvidiaModel) nvidiaConfig.defaultModel = nvidiaModel;
-  }
-
-  // Forced provider override
-  const forcedProvider = (e.AI_PROVIDER ?? "").trim().toLowerCase();
-  if (forcedProvider === "gemini") {
-    nvidiaConfig.enabled = false;
-    geminiConfig.priority = 0;
-  } else if (forcedProvider === "nvidia_nim") {
-    geminiConfig.enabled = false;
-    nvidiaConfig.priority = 0;
-  }
-
-  return configs;
+  _initialized = true;
 }
 
-// ---------------------------------------------------------------------------
-// Registry operations
-// ---------------------------------------------------------------------------
+/**
+ * Synchronous initialization for providers that are already imported.
+ * Used by the runtime when providers are registered directly.
+ */
+export function ensureInitialized(): void {
+  if (_initialized) return;
+  // Load configs synchronously — providers must be registered via registerProvider
+  // or initializeRegistry must be called first.
+  const configs = loadProviderConfigs();
+  // Mark as initialized even if no providers were configured — we don't want
+  // to re-initialize on every call.
+  _initialized = true;
 
-/** Initialize the registry from environment or explicit configs. */
-export function initializeRegistry(configs?: ProviderConfig[]): void {
-  const providerConfigs = configs ?? loadProviderConfigs();
-  _configs.clear();
-  _providers.clear();
-
-  for (const config of providerConfigs) {
-    _configs.set(config.id, config);
-
-    let provider: AIProvider;
-    switch (config.id) {
-      case "gemini":
-        provider = new GeminiProvider(config);
-        break;
-      case "nvidia_nim":
-        provider = new NvidiaNimProvider(config);
-        break;
-      default:
-        continue;
-    }
-    _providers.set(config.id, provider);
-  }
+  // If configs exist but no providers were registered, this is a no-op.
+  // The caller should use initializeRegistry() for async setup.
+  void configs;
 }
 
-/** Get all registered providers (including disabled ones). */
-export function getAllProviders(): AIProvider[] {
-  return Array.from(_providers.values());
+/**
+ * Register a provider adapter directly (for testing or custom providers).
+ */
+export function registerProvider(adapter: AIProviderAdapter): void {
+  _providers.set(adapter.id, adapter);
+  _initialized = true;
 }
 
-/** Get only available (enabled + has API key) providers, sorted by priority. */
-export function getAvailableProviders(): AIProvider[] {
-  return getAllProviders()
-    .filter((p) => p.available)
-    .sort((a, b) => {
-      const configA = _configs.get(a.id);
-      const configB = _configs.get(b.id);
-      return (configA?.priority ?? 99) - (configB?.priority ?? 99);
-    });
-}
-
-/** Get a specific provider by ID. */
-export function getProvider(id: ProviderId): AIProvider | undefined {
+/**
+ * Get a specific provider adapter.
+ */
+export function getProvider(id: ProviderId): AIProviderAdapter | undefined {
   return _providers.get(id);
 }
 
-/** Get a specific provider config. */
-export function getProviderConfig(id: ProviderId): ProviderConfig | undefined {
-  return _configs.get(id);
+/**
+ * Get all registered providers, sorted by priority.
+ */
+export function getAllProviders(): AIProviderAdapter[] {
+  ensureInitialized();
+  return Array.from(_providers.values());
 }
 
-/** Check if any provider is available. */
-export function hasAvailableProvider(): boolean {
-  return getAvailableProviders().length > 0;
+/**
+ * Get all available (enabled + has API key) providers.
+ */
+export function getAvailableProviders(): AIProviderAdapter[] {
+  ensureInitialized();
+  return Array.from(_providers.values()).filter((p) => p.isAvailable());
 }
 
-/** Get the best available provider (highest priority). */
-export function getBestProvider(): AIProvider | undefined {
-  return getAvailableProviders()[0];
+/**
+ * Check if a specific provider is available.
+ */
+export function isProviderAvailable(id: ProviderId): boolean {
+  ensureInitialized();
+  const provider = _providers.get(id);
+  return provider?.isAvailable() ?? false;
 }
 
-/** Find a model across all available providers. */
-export function findModel(
-  modelId: string,
-): { provider: AIProvider; model: ModelConfig } | undefined {
-  for (const provider of getAvailableProviders()) {
-    const config = _configs.get(provider.id);
-    const model = config?.models.find((m) => m.id === modelId);
-    if (model) return { provider, model };
-  }
-  return undefined;
-}
+/**
+ * Find the best provider for a given model tier preference.
+ * Returns providers sorted by priority, filtered to those with the
+ * requested tier capability.
+ */
+export function findProvidersForTier(
+  _tier?: ModelTier,
+  preferredProvider?: ProviderId,
+): AIProviderAdapter[] {
+  ensureInitialized();
+  const available = getAvailableProviders();
 
-/** Find the best model within a tier across all providers. */
-export function findBestModelInTier(
-  tier: ModelTier,
-  maxCost?: number,
-): { provider: AIProvider; model: ModelConfig } | undefined {
-  const tierOrder: ModelTier[] = ["fast", "standard", "strong"];
-  const targetIdx = tierOrder.indexOf(tier);
-
-  for (const provider of getAvailableProviders()) {
-    const config = _configs.get(provider.id);
-    if (!config) continue;
-
-    const candidates = config.models
-      .filter((m) => {
-        const tierIdx = tierOrder.indexOf(m.tier);
-        if (tierIdx > targetIdx) return false;
-        if (maxCost !== undefined && m.costPer1kTokens > maxCost) return false;
-        return true;
-      })
-      .sort((a, b) => tierOrder.indexOf(b.tier) - tierOrder.indexOf(a.tier));
-
-    if (candidates.length > 0) {
-      return { provider, model: candidates[0] };
+  // If a preferred provider is specified and available, try it first
+  if (preferredProvider) {
+    const preferred = available.find((p) => p.id === preferredProvider);
+    if (preferred) {
+      const others = available.filter((p) => p.id !== preferredProvider);
+      return [preferred, ...others];
     }
   }
+
+  return available;
+}
+
+/**
+ * Find a provider that supports a specific model.
+ */
+export function findProviderForModel(
+  modelId: string,
+): AIProviderAdapter | undefined {
+  ensureInitialized();
+  for (const provider of getAvailableProviders()) {
+    if (provider.getModel(modelId)) return provider;
+  }
   return undefined;
 }
 
-/** Reset the registry (for testing). */
+/**
+ * Reset the registry (for testing).
+ */
 export function resetRegistry(): void {
   _providers.clear();
-  _configs.clear();
+  _initialized = false;
 }

@@ -3,7 +3,9 @@
 //
 // Resolves which AI provider and model to use based on the agent's model
 // policy and available providers. Supports escalation for low-confidence
-// results. The router does NOT make AI calls — it selects the target.
+// results. The router delegates availability checks to the ai-runtime
+// provider registry so agent and non-agent code share the same provider
+// configuration.
 // ---------------------------------------------------------------------------
 
 import type { ModelPolicy } from "../jobs/types";
@@ -35,9 +37,34 @@ export interface ModelConfig {
 
 // ---------------------------------------------------------------------------
 // Default provider configurations
+//
+// The `available` flag is set to `false` by default. At runtime, if the
+// ai-runtime provider registry is initialized and reports a provider as
+// available, the flag is updated via `syncWithAIRuntime()`.
 // ---------------------------------------------------------------------------
 
 const DEFAULT_PROVIDERS: ProviderConfig[] = [
+  {
+    id: "gemini",
+    name: "Google Gemini",
+    models: [
+      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", tier: "fast", cost_per_1k_tokens: 0.0001, max_tokens: 1048576 },
+      { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", tier: "fast", cost_per_1k_tokens: 0.0001, max_tokens: 1048576 },
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", tier: "standard", cost_per_1k_tokens: 0.00125, max_tokens: 1048576 },
+    ],
+    available: false,
+  },
+  {
+    id: "nvidia-nim",
+    name: "NVIDIA NIM",
+    models: [
+      { id: "deepseek-ai/deepseek-v4-flash", name: "DeepSeek V4 Flash", tier: "fast", cost_per_1k_tokens: 0.0003, max_tokens: 131072 },
+      { id: "deepseek-ai/deepseek-v4-pro", name: "DeepSeek V4 Pro", tier: "strong", cost_per_1k_tokens: 0.003, max_tokens: 131072 },
+      { id: "nvidia/llama-3.3-nemotron-super-49b-v1", name: "NVIDIA Nemotron Super 49B", tier: "standard", cost_per_1k_tokens: 0.001, max_tokens: 131072 },
+      { id: "nvidia/nemotron-ultra-253b", name: "NVIDIA Nemotron Ultra 253B", tier: "strong", cost_per_1k_tokens: 0.005, max_tokens: 131072 },
+    ],
+    available: false,
+  },
   {
     id: "openai",
     name: "OpenAI",
@@ -58,25 +85,22 @@ const DEFAULT_PROVIDERS: ProviderConfig[] = [
     ],
     available: false,
   },
-  {
-    id: "google",
-    name: "Google",
-    models: [
-      { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", tier: "fast", cost_per_1k_tokens: 0.0001, max_tokens: 1048576 },
-      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", tier: "standard", cost_per_1k_tokens: 0.00125, max_tokens: 1048576 },
-    ],
-    available: false,
-  },
 ];
 
 // ---------------------------------------------------------------------------
 // Router state
 // ---------------------------------------------------------------------------
 
-let _providers: ProviderConfig[] = DEFAULT_PROVIDERS.map((p) => ({ ...p }));
+let _providers: ProviderConfig[] = DEFAULT_PROVIDERS.map((p) => ({
+  ...p,
+  models: [...p.models],
+}));
 
 export function configureProviders(providers: ProviderConfig[]): void {
-  _providers = providers.map((p) => ({ ...p }));
+  _providers = providers.map((p) => ({
+    ...p,
+    models: [...p.models],
+  }));
 }
 
 export function getAvailableProviders(): ProviderConfig[] {
@@ -86,6 +110,32 @@ export function getAvailableProviders(): ProviderConfig[] {
 export function markProviderAvailable(providerId: string, available: boolean): void {
   const provider = _providers.find((p) => p.id === providerId);
   if (provider) provider.available = available;
+}
+
+/**
+ * Synchronize provider availability from the ai-runtime registry.
+ * This bridges the agent model-router with the shared provider configuration
+ * so both subsystems agree on which providers are live.
+ *
+ * Safe to call multiple times — idempotent.
+ */
+export async function syncWithAIRuntime(): Promise<void> {
+  try {
+    const { initializeRegistry, getAvailableProviders: getAIRuntimeProviders } = await import("../ai-runtime");
+
+    // Ensure ai-runtime is initialized
+    await initializeRegistry();
+
+    const aiProviders = getAIRuntimeProviders();
+    const availableIds = new Set(aiProviders.map((p) => p.id));
+
+    for (const provider of _providers) {
+      provider.available = availableIds.has(provider.id);
+    }
+  } catch {
+    // ai-runtime not available — keep the manually-configured state.
+    // This happens in test environments or when ai-runtime hasn't been set up yet.
+  }
 }
 
 // ---------------------------------------------------------------------------

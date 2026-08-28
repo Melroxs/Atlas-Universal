@@ -9,7 +9,8 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "atlas:ai:evaluate": "node scripts/atlas-ai-evaluate.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

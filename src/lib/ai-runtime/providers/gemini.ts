@@ -1,279 +1,391 @@
 // ---------------------------------------------------------------------------
 // Atlas AI Runtime — Gemini Provider Adapter
 //
-// Wraps the existing Gemini REST API implementation from the conversation-converse
-// Edge Function into the Atlas AI Runtime provider interface. This preserves
-// the existing behavior while making it accessible through the unified runtime.
+// Wraps the existing Gemini REST API implementation used by Atlas.
+// This adapter delegates to the same REST endpoints and request formats
+// already deployed in the conversation-converse Edge Function.
 // ---------------------------------------------------------------------------
 
 import type {
-  ProviderId,
-  AIGenerateRequest,
-  AIGenerateResponse,
-  AIStructuredRequest,
-  AIStreamChunk,
-  AIEmbedRequest,
-  AIEmbedResponse,
+  AIProviderAdapter,
   ProviderConfig,
-  ProviderCapabilities,
+  GenerateRequest,
+  GenerateResult,
+  StructuredOutputRequest,
+  StructuredOutputResult,
+  StreamRequest,
+  EmbedRequest,
+  EmbedResult,
+  TokenUsage,
+  AIRuntimeError,
+  ModelConfig,
+  VisionRequest,
 } from "../types";
-import { BaseAIProvider, classifyHttpError, classifyNetworkError } from "./base";
+import {
+  createAIRuntimeError,
+  httpStatusToErrorCode,
+  classifyFetchError,
+} from "../errors";
 
 // ---------------------------------------------------------------------------
-// Gemini-specific types
+// Gemini Provider
 // ---------------------------------------------------------------------------
 
-interface GeminiPart {
-  text?: string;
-  inlineData?: { mimeType: string; data: string };
-}
-
-interface GeminiContent {
-  role: "user" | "model";
-  parts: GeminiPart[];
-}
-
-interface GeminiRequestBody {
-  contents: GeminiContent[];
-  systemInstruction?: { parts: GeminiPart[] };
-  generationConfig?: {
-    responseMimeType?: string;
-    temperature?: number;
-    topP?: number;
-    maxOutputTokens?: number;
-    stopSequences?: string[];
-  };
-}
-
-interface GeminiResponse {
-  candidates?: Array<{
-    content?: { parts?: GeminiPart[] };
-    finishReason?: string;
-  }>;
-  usageMetadata?: {
-    promptTokenCount?: number;
-    candidatesTokenCount?: number;
-    totalTokenCount?: number;
-  };
-  error?: { code?: number; message?: string };
-}
-
-// ---------------------------------------------------------------------------
-// Gemini adapter
-// ---------------------------------------------------------------------------
-
-export class GeminiProvider extends BaseAIProvider {
-  readonly id: ProviderId = "gemini";
+export class GeminiProvider implements AIProviderAdapter {
+  readonly id = "gemini" as const;
   readonly name = "Google Gemini";
-  readonly capabilities: ProviderCapabilities = {
-    generate: true,
-    structuredOutput: true,
-    streaming: true,
-    embeddings: false,
-    vision: true,
-    toolCalling: true,
-  };
+
+  private config: ProviderConfig;
 
   constructor(config: ProviderConfig) {
-    super(config);
+    this.config = config;
   }
 
-  protected buildEndpoint(_model: string, _action: "generate" | "embed" | "stream"): string {
-    const model = _action === "embed" ? _model : this.config.defaultModel;
-    return `${this.config.baseUrl}/v1beta/models/${model}:generateContent`;
+  isAvailable(): boolean {
+    return this.config.enabled && this.config.apiKey.length > 0;
   }
 
-  protected buildHeaders(): Record<string, string> {
+  listModels(): ModelConfig[] {
+    return this.config.models;
+  }
+
+  getModel(modelId: string): ModelConfig | undefined {
+    return this.config.models.find((m) => m.id === modelId);
+  }
+
+  private resolveModel(model?: string): string {
+    return model || this.config.defaultModel;
+  }
+
+  private buildHeaders(): Record<string, string> {
     return {
       "Content-Type": "application/json",
       "x-goog-api-key": this.config.apiKey,
     };
   }
 
-  protected async doGenerate(
-    request: AIGenerateRequest,
-    model: string,
-  ): Promise<AIGenerateResponse> {
-    const startTime = Date.now();
-
-    try {
-      const body = this.buildRequestBody(request);
-      const endpoint = `${this.config.baseUrl}/v1beta/models/${model}:generateContent`;
-
-      const response = await this.fetchWithTimeout(
-        endpoint,
-        {
-          method: "POST",
-          headers: this.buildHeaders(),
-          body: JSON.stringify(body),
-        },
-        request.timeoutMs ?? 30_000,
-        request.signal,
-      );
-
-      const latencyMs = Date.now() - startTime;
-
-      if (!response.ok) {
-        const code = classifyHttpError(response.status);
-        let message = `Gemini API error: ${response.status}`;
-        try {
-          const errBody = await response.json() as GeminiResponse;
-          message = errBody.error?.message ?? message;
-        } catch {
-          // Use default message
-        }
-        return this.errorResponse(code, message, model, latencyMs, response.status);
-      }
-
-      const data = await response.json() as GeminiResponse;
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-
-      if (!text.trim()) {
-        return this.errorResponse("malformed", "Empty response from Gemini", model, latencyMs);
-      }
-
-      const usage = {
-        promptTokens: data.usageMetadata?.promptTokenCount ?? 0,
-        completionTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
-        totalTokens: data.usageMetadata?.totalTokenCount ?? 0,
-      };
-
-      return this.success(text, model, usage, latencyMs);
-    } catch (err) {
-      const latencyMs = Date.now() - startTime;
-      const code = classifyNetworkError(err);
-      return this.errorResponse(
-        code,
-        err instanceof Error ? err.message : "Unknown error",
-        model,
-        latencyMs,
-      );
-    }
+  private buildUrl(model: string, action: string = "generateContent"): string {
+    return `${this.config.baseUrl}/v1beta/models/${encodeURIComponent(model)}:${action}`;
   }
 
-  protected async *doStream(
-    request: AIGenerateRequest,
-    model: string,
-  ): AsyncIterable<AIStreamChunk> {
-    const body = this.buildRequestBody(request);
-    const endpoint = `${this.config.baseUrl}/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+  // -----------------------------------------------------------------------
+  // generate
+  // -----------------------------------------------------------------------
 
-    const response = await this.fetchWithTimeout(
-      endpoint,
-      {
+  async generate(request: GenerateRequest): Promise<GenerateResult> {
+    const t0 = Date.now();
+    const model = this.resolveModel(request.model);
+    const timeoutMs = request.timeoutMs ?? 30_000;
+
+    const contents = this.buildContents(request);
+    const body = {
+      contents,
+      systemInstruction: request.systemPrompt
+        ? { parts: [{ text: request.systemPrompt }] }
+        : undefined,
+      generationConfig: {
+        temperature: request.temperature ?? 0.2,
+        topP: request.topP ?? 0.9,
+        maxOutputTokens: request.maxTokens ?? 2048,
+        ...(request.jsonMode ? { responseMimeType: "application/json" } : {}),
+        ...(request.stopSequences?.length
+          ? { stopSequences: request.stopSequences }
+          : {}),
+      },
+    };
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      const res = await fetch(this.buildUrl(model), {
         method: "POST",
         headers: this.buildHeaders(),
         body: JSON.stringify(body),
-      },
-      request.timeoutMs ?? 60_000,
-      request.signal,
-    );
+        signal: request.signal ?? controller.signal,
+      });
 
-    if (!response.ok) {
-      yield { delta: "", done: true };
-      return;
-    }
+      clearTimeout(timer);
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      yield { delta: "", done: true };
-      return;
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = "";
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr || jsonStr === "[DONE]") continue;
-
-          try {
-            const data = JSON.parse(jsonStr) as GeminiResponse;
-            const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-            if (text) {
-              yield { delta: text, done: false };
-            }
-          } catch {
-            // Skip malformed SSE lines
-          }
-        }
+      if (!res.ok) {
+        const raw = await res.text().catch(() => "");
+        const classified = httpStatusToErrorCode(res.status, this.id);
+        throw createAIRuntimeError(classified.code, classified.message, {
+          provider: this.id,
+          httpStatus: res.status,
+          retryable: classified.retryable,
+        });
       }
-    } finally {
-      reader.releaseLock();
+
+      const payload = await res.json() as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+          usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+        }>;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+      };
+
+      const text = payload.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("")
+        .trim();
+
+      if (!text) {
+        throw createAIRuntimeError("malformed_response", "Gemini returned an empty response (possible safety block).", { provider: this.id });
+      }
+
+      const usage: TokenUsage = {
+        promptTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+        completionTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
+        totalTokens: payload.usageMetadata?.totalTokenCount ?? 0,
+      };
+
+      return {
+        text,
+        provider: this.id,
+        model,
+        usage,
+        latencyMs: Date.now() - t0,
+      };
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err) throw err;
+      throw classifyFetchError(err, this.id, timeoutMs);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // generateStructured
+  // -----------------------------------------------------------------------
+
+  async generateStructured<T = Record<string, unknown>>(
+    request: StructuredOutputRequest,
+  ): Promise<StructuredOutputResult<T>> {
+    const result = await this.generate({
+      ...request,
+      jsonMode: true,
+    });
+
+    let data: T;
+    try {
+      data = extractJsonObject(result.text) as T;
+    } catch {
+      throw createAIRuntimeError("malformed_response", "Gemini returned invalid JSON.", { provider: this.id });
     }
 
-    yield {
-      delta: "",
-      done: true,
-      usage: {
-        promptTokens: 0,
-        completionTokens: 0,
-        totalTokens: 0,
-      },
+    return {
+      ...result,
+      data,
     };
   }
 
-  protected async doEmbed(
-    _request: AIEmbedRequest,
-    _model: string,
-  ): Promise<AIEmbedResponse> {
-    // Gemini doesn't use the same embedding endpoint through this interface.
-    // Embeddings are handled locally via src/lib/ingest/localEmbed.ts.
-    return {
-      ok: false,
-      provider: this.id,
-      model: _model,
-      latencyMs: 0,
-      error: {
-        code: "provider_not_configured",
-        message: "Gemini embeddings are handled via localEmbed — use the dedicated embedding path",
-        retryable: false,
+  // -----------------------------------------------------------------------
+  // stream
+  // -----------------------------------------------------------------------
+
+  async stream(request: StreamRequest): Promise<void> {
+    const t0 = Date.now();
+    const model = this.resolveModel(request.model);
+    const timeoutMs = request.timeoutMs ?? 30_000;
+
+    const contents = this.buildContents(request);
+    const body = {
+      contents,
+      systemInstruction: request.systemPrompt
+        ? { parts: [{ text: request.systemPrompt }] }
+        : undefined,
+      generationConfig: {
+        temperature: request.temperature ?? 0.2,
+        topP: request.topP ?? 0.9,
+        maxOutputTokens: request.maxTokens ?? 2048,
       },
     };
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      const res = await fetch(this.buildUrl(model), {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(body),
+        signal: request.signal ?? controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const classified = httpStatusToErrorCode(res.status, this.id);
+        throw createAIRuntimeError(classified.code, classified.message, {
+          provider: this.id,
+          httpStatus: res.status,
+          retryable: classified.retryable,
+        });
+      }
+
+      const payload = await res.json() as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> };
+          usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+        }>;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; totalTokenCount?: number };
+      };
+
+      const text = payload.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("")
+        .trim() ?? "";
+
+      // Note: True SSE streaming requires a different endpoint.
+      // For Phase 1, we simulate streaming by emitting the full response as one chunk.
+      request.onChunk({ text, done: true, accumulatedText: text });
+
+      const usage: TokenUsage = {
+        promptTokens: payload.usageMetadata?.promptTokenCount ?? 0,
+        completionTokens: payload.usageMetadata?.candidatesTokenCount ?? 0,
+        totalTokens: payload.usageMetadata?.totalTokenCount ?? 0,
+      };
+
+      request.onComplete({
+        text,
+        provider: this.id,
+        model,
+        usage,
+        latencyMs: Date.now() - t0,
+      });
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err) {
+        request.onError(err as AIRuntimeError);
+        return;
+      }
+      request.onError(classifyFetchError(err, this.id, timeoutMs));
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // embed
+  // -----------------------------------------------------------------------
+
+  async embed(request: EmbedRequest): Promise<EmbedResult> {
+    const t0 = Date.now();
+    const model = request.model || "text-embedding-004";
+    const timeoutMs = request.timeoutMs ?? 15_000;
+
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+      const res = await fetch(
+        `${this.config.baseUrl}/v1beta/models/${encodeURIComponent(model)}:embedContent?key=${this.config.apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: `models/${model}`,
+            content: { parts: request.texts.map((t) => ({ text: t })) },
+            taskType: "RETRIEVAL_DOCUMENT",
+          }),
+          signal: request.signal ?? controller.signal,
+        },
+      );
+
+      clearTimeout(timer);
+
+      if (!res.ok) {
+        const classified = httpStatusToErrorCode(res.status, this.id);
+        throw createAIRuntimeError(classified.code, classified.message, {
+          provider: this.id,
+          httpStatus: res.status,
+          retryable: classified.retryable,
+        });
+      }
+
+      const data = await res.json() as {
+        embeddings?: Array<{ values: number[] }>;
+      };
+
+      const embeddings = data?.embeddings?.map((e) => e.values);
+      if (!Array.isArray(embeddings) || embeddings.length !== request.texts.length) {
+        throw createAIRuntimeError("malformed_response", "Gemini returned an unexpected embedding format.", { provider: this.id });
+      }
+
+      return {
+        embeddings,
+        dimension: embeddings[0]?.length ?? 0,
+        provider: this.id,
+        model,
+        latencyMs: Date.now() - t0,
+      };
+    } catch (err) {
+      if (err && typeof err === "object" && "code" in err) throw err;
+      throw classifyFetchError(err, this.id, timeoutMs);
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // vision
+  // -----------------------------------------------------------------------
+
+  async vision(request: VisionRequest): Promise<GenerateResult> {
+    const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+
+    for (const img of request.images) {
+      if ("url" in img) {
+        // For URLs, include as a text part (Gemini supports this)
+        parts.push({ text: `[Image: ${img.url}]` });
+      } else {
+        parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
+      }
+    }
+    parts.push({ text: request.prompt });
+
+    return this.generate({
+      prompt: request.prompt,
+      systemPrompt: request.systemPrompt,
+      model: request.model,
+      maxTokens: request.maxTokens,
+      temperature: request.temperature,
+      jsonMode: request.jsonMode,
+      signal: request.signal,
+      timeoutMs: request.timeoutMs,
+    });
   }
 
   // -----------------------------------------------------------------------
   // Private helpers
   // -----------------------------------------------------------------------
 
-  private buildRequestBody(request: AIGenerateRequest): GeminiRequestBody {
-    const contents: GeminiContent[] = [];
+  private buildContents(request: GenerateRequest): Array<{
+    role: "user" | "model";
+    parts: Array<{ text: string }>;
+  }> {
+    const contents: Array<{
+      role: "user" | "model";
+      parts: Array<{ text: string }>;
+    }> = [];
 
-    for (const msg of request.messages) {
-      if (msg.role === "system") continue; // Handled separately
-      contents.push({
-        role: msg.role === "assistant" ? "model" : "user",
-        parts: [{ text: msg.content }],
-      });
+    if (request.history) {
+      for (const h of request.history) {
+        contents.push({ role: h.role, parts: [{ text: h.text }] });
+      }
     }
 
-    const systemMsg = request.messages.find((m) => m.role === "system");
-
-    const body: GeminiRequestBody = { contents };
-    if (systemMsg) {
-      body.systemInstruction = { parts: [{ text: systemMsg.content }] };
-    }
-
-    body.generationConfig = {
-      temperature: request.temperature ?? 0.2,
-      topP: request.topP ?? 0.9,
-      maxOutputTokens: request.maxTokens ?? 600,
-    };
-
-    if (request.responseFormat === "json") {
-      body.generationConfig.responseMimeType = "application/json";
-    }
-
-    return body;
+    contents.push({ role: "user", parts: [{ text: request.prompt }] });
+    return contents;
   }
+}
+
+// ---------------------------------------------------------------------------
+// JSON extraction helper (ported from existing gemini.ts)
+// ---------------------------------------------------------------------------
+
+function extractJsonObject(text: string): unknown {
+  let t = (text ?? "").trim();
+  const fence = t.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
+  if (fence) t = fence[1].trim();
+  if (!t.startsWith("{")) {
+    const start = t.indexOf("{");
+    const end = t.lastIndexOf("}");
+    if (start !== -1 && end > start) t = t.slice(start, end + 1);
+  }
+  return JSON.parse(t);
 }

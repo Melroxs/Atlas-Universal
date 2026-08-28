@@ -3,10 +3,12 @@
 //
 // Provides a pluggable embeddings interface that supports:
 //   - Local deterministic fallback (hash-based bag-of-words, 256-dim)
-//   - External providers (Gemini, OpenAI) via the existing provider config
+//   - External providers via the Atlas AI Runtime (Gemini, NVIDIA NIM, etc.)
 //
 // The local fallback ensures the knowledge system works without any paid API
 // key. External providers replace this transparently when configured.
+//
+// Phase 2: Migrated from direct Gemini fetch() to ai-runtime embed().
 // ---------------------------------------------------------------------------
 
 import type { EmbeddingsProvider } from "./types";
@@ -89,57 +91,51 @@ class LocalEmbeddingsProvider implements EmbeddingsProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Gemini Embeddings Provider (external, requires GEMINI_API_KEY)
+// AI Runtime Embeddings Provider (external, via Atlas AI Runtime)
+//
+// Uses the provider-agnostic ai-runtime embed() function instead of direct
+// Gemini API calls. Supports Gemini, NVIDIA NIM, or any future provider
+// registered in the ai-runtime registry.
 // ---------------------------------------------------------------------------
 
-class GeminiEmbeddingsProvider implements EmbeddingsProvider {
-  name = "gemini";
-  dimension = 768; // text-embedding-004 default
+class AIRuntimeEmbeddingsProvider implements EmbeddingsProvider {
+  name = "ai-runtime";
+  dimension = 768; // default for text-embedding-004; adjusted per provider
 
-  private apiKey: string;
-  private model: string;
-  private available: boolean;
+  private _available = false;
 
-  constructor(apiKey: string, model = "text-embedding-004") {
-    this.apiKey = apiKey;
-    this.model = model;
-    this.available = Boolean(apiKey);
+  async initialize(): Promise<void> {
+    try {
+      const { initializeRegistry, getAvailableProviders } = await import("@/lib/ai-runtime");
+      await initializeRegistry();
+      const providers = getAvailableProviders();
+      this._available = providers.some((p) => p.getModel("text-embedding-004")?.capabilities.embeddings || false);
+    } catch {
+      this._available = false;
+    }
   }
 
   async embed(texts: string[]): Promise<number[][]> {
-    if (!this.available) return texts.map(() => new Array(LOCAL_DIM).fill(0));
+    if (!this._available) return texts.map(() => new Array(LOCAL_DIM).fill(0));
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:embedContent?key=${this.apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: `models/${this.model}`,
-          content: { parts: texts.map((t) => ({ text: t })) },
-          taskType: "RETRIEVAL_DOCUMENT",
-        }),
-      },
-    );
-
-    if (!response.ok) {
-      console.warn(`[atlas] gemini-embeddings: HTTP ${response.status} — falling back to local`);
+    try {
+      const { embed } = await import("@/lib/ai-runtime");
+      const result = await embed({
+        texts,
+        model: "text-embedding-004",
+        timeoutMs: 15_000,
+      });
+      this.dimension = result.dimension;
+      return result.embeddings;
+    } catch (err) {
+      console.warn(`[atlas] ai-runtime-embeddings: falling back to local —`,
+        err instanceof Error ? err.message : err);
       return texts.map(localEmbedText);
     }
-
-    const data = await response.json();
-    // Gemini returns embeddings in data.embeddings[].values
-    const embeddings = data?.embeddings?.map((e: { values: number[] }) => e.values);
-    if (Array.isArray(embeddings) && embeddings.length === texts.length) {
-      return embeddings;
-    }
-
-    // Fallback to local if response is malformed
-    return texts.map(localEmbedText);
   }
 
   isAvailable(): boolean {
-    return this.available;
+    return this._available;
   }
 }
 
@@ -148,25 +144,25 @@ class GeminiEmbeddingsProvider implements EmbeddingsProvider {
 // ---------------------------------------------------------------------------
 
 let _instance: EmbeddingsProvider | null = null;
+let _initPromise: Promise<void> | null = null;
 
 /**
  * Get the configured embeddings provider. Resolution order:
- *   1. GEMINI_API_KEY → Gemini embeddings (text-embedding-004)
+ *   1. Atlas AI Runtime embeddings (Gemini, NVIDIA NIM, etc.)
  *   2. Fallback → local deterministic embeddings (256-dim bag-of-words)
  *
  * The provider is a singleton — call this once and reuse.
  */
-export function getEmbeddingsProvider(): EmbeddingsProvider {
+export async function getEmbeddingsProvider(): Promise<EmbeddingsProvider> {
   if (_instance) return _instance;
 
-  // Check for Gemini API key (available in Edge Function context or via env)
-  const geminiKey =
-    typeof process !== "undefined"
-      ? (process.env as Record<string, string | undefined>).GEMINI_API_KEY
-      : undefined;
+  // Try ai-runtime first
+  const aiProvider = new AIRuntimeEmbeddingsProvider();
+  _initPromise = aiProvider.initialize();
+  await _initPromise;
 
-  if (geminiKey) {
-    _instance = new GeminiEmbeddingsProvider(geminiKey);
+  if (aiProvider.isAvailable()) {
+    _instance = aiProvider;
   } else {
     _instance = new LocalEmbeddingsProvider();
   }
@@ -175,17 +171,28 @@ export function getEmbeddingsProvider(): EmbeddingsProvider {
 }
 
 /**
+ * Get the embeddings provider synchronously (returns local if ai-runtime
+ * is not yet initialized). Use the async version when possible.
+ */
+export function getEmbeddingsProviderSync(): EmbeddingsProvider {
+  if (_instance) return _instance;
+  // If nothing initialized yet, return local as safe default
+  return new LocalEmbeddingsProvider();
+}
+
+/**
  * Reset the provider singleton (for testing or when configuration changes).
  */
 export function resetEmbeddingsProvider(): void {
   _instance = null;
+  _initPromise = null;
 }
 
 /**
  * Generate embeddings for an array of texts using the configured provider.
  */
 export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
-  const provider = getEmbeddingsProvider();
+  const provider = await getEmbeddingsProvider();
   return provider.embed(texts);
 }
 

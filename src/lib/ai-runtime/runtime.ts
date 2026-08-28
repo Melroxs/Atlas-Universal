@@ -1,393 +1,504 @@
 // ---------------------------------------------------------------------------
-// Atlas AI Runtime — Main Service
+// Atlas AI Runtime — Main Runtime Facade
 //
-// The single entry point for all AI operations in Atlas. Business logic
-// calls atlasAI.generate(), atlasAI.generateStructured(), etc. and the
-// runtime handles provider selection, retry, fallback, and observability.
+// This is the single entry point for all Atlas business logic that needs
+// to call an LLM. It handles:
+//   - Provider selection (auto or manual)
+//   - Fallback across providers on failure
+//   - Retry with exponential backoff
+//   - Usage tracking (metadata only, never customer content)
+//   - Timeout enforcement
 //
-// Usage:
-//   import { atlasAI } from "@/lib/ai-runtime";
-//   const result = await atlasAI.generate({ messages: [...] });
+// Atlas business logic never calls provider-specific SDKs directly.
 // ---------------------------------------------------------------------------
 
 import type {
+  AIProviderAdapter,
+  GenerateRequest,
+  GenerateResult,
+  StructuredOutputRequest,
+  StructuredOutputResult,
+  StreamRequest,
+  EmbedRequest,
+  EmbedResult,
+  VisionRequest,
   ProviderId,
-  AIGenerateRequest,
-  AIGenerateResponse,
-  AIStructuredRequest,
-  AIStreamChunk,
-  AIEmbedRequest,
-  AIEmbedResponse,
-  ModelTier,
-  ProviderConfig,
+  FallbackConfig,
+  UsageRecord,
+  AIRuntimeError,
 } from "./types";
+import { createAIRuntimeError } from "./errors";
+import { getDefaultFallbackConfig } from "./config";
 import {
   getAvailableProviders,
   getProvider,
-  getProviderConfig,
-  getBestProvider,
-  findBestModelInTier,
+  findProviderForModel,
+  findProvidersForTier,
   initializeRegistry,
 } from "./registry";
-import { withRetry, DEFAULT_RETRY_CONFIG, type RetryConfig } from "./retry";
+import { recordUsage } from "./usage-tracker";
 
 // ---------------------------------------------------------------------------
 // Runtime configuration
 // ---------------------------------------------------------------------------
 
-export interface AIRuntimeConfig {
-  /** Default request timeout in milliseconds. */
+export interface AtlasAIRuntimeConfig {
+  /** Default fallback configuration. */
+  fallback: FallbackConfig;
+  /** Default request timeout in ms. */
   defaultTimeoutMs: number;
-  /** Default max tokens for generation. */
-  defaultMaxTokens: number;
-  /** Default temperature. */
-  defaultTemperature: number;
-  /** Retry configuration. */
-  retry: RetryConfig;
-  /** Whether to log AI operations (metadata only, never secrets). */
-  enableLogging: boolean;
+  /** Default provider (if not auto-selected). */
+  defaultProvider?: ProviderId;
+  /** Default model (if not specified in request). */
+  defaultModel?: string;
 }
 
-const DEFAULT_CONFIG: AIRuntimeConfig = {
+const DEFAULT_RUNTIME_CONFIG: AtlasAIRuntimeConfig = {
+  fallback: getDefaultFallbackConfig(),
   defaultTimeoutMs: 30_000,
-  defaultMaxTokens: 2048,
-  defaultTemperature: 0.2,
-  retry: DEFAULT_RETRY_CONFIG,
-  enableLogging: true,
 };
 
 // ---------------------------------------------------------------------------
-// Runtime state
+// Runtime singleton
 // ---------------------------------------------------------------------------
 
-let _config: AIRuntimeConfig = { ...DEFAULT_CONFIG };
+let _config: AtlasAIRuntimeConfig = { ...DEFAULT_RUNTIME_CONFIG };
 let _initialized = false;
 
-// ---------------------------------------------------------------------------
-// Logger (structured, never logs secrets)
-// ---------------------------------------------------------------------------
+/**
+ * Initialize the Atlas AI Runtime.
+ * Must be called before any generation requests.
+ */
+export async function initAtlasAI(
+  config?: Partial<AtlasAIRuntimeConfig>,
+): Promise<void> {
+  if (config) {
+    _config = { ...DEFAULT_RUNTIME_CONFIG, ...config };
+  }
+  await initializeRegistry();
+  _initialized = true;
+}
 
-function log(event: string, data: Record<string, unknown> = {}): void {
-  if (!_config.enableLogging) return;
-  // Only log metadata: provider, model, latency, token counts — never
-  // prompts, completions, API keys, or customer content.
-  console.info(`[atlas-ai-runtime] ${event}`, data);
+/**
+ * Reset the runtime (for testing).
+ */
+export function resetAtlasAI(): void {
+  _config = { ...DEFAULT_RUNTIME_CONFIG };
+  _initialized = false;
 }
 
 // ---------------------------------------------------------------------------
-// Provider selection
+// Provider resolution
 // ---------------------------------------------------------------------------
 
-function selectProvider(request: AIGenerateRequest): {
-  provider: import("./types").AIProvider;
-  model: string;
-} | null {
-  // 1. Explicit provider requested
+function resolveProvider(request: {
+  provider?: ProviderId;
+  model?: string;
+}): AIProviderAdapter {
+  ensureInitialized();
+
+  // 1. Explicit provider
   if (request.provider) {
     const provider = getProvider(request.provider);
-    if (provider?.available) {
-      const cfg = getProviderConfig(request.provider);
-      return { provider, model: request.model ?? cfg?.defaultModel ?? "" };
-    }
-    return null;
+    if (provider && provider.isAvailable()) return provider;
   }
 
-  // 2. Find best available provider
-  const best = getBestProvider();
-  if (!best) return null;
-
-  // If a specific model is requested, find it across providers
+  // 2. Model-specific provider
   if (request.model) {
-    const found = findBestModelInTier("strong");
-    // Just use the best provider with the requested model
-    return { provider: best, model: request.model };
+    const provider = findProviderForModel(request.model);
+    if (provider) return provider;
   }
 
-  return { provider: best, model: "" };
+  // 3. Default provider
+  if (_config.defaultProvider) {
+    const provider = getProvider(_config.defaultProvider);
+    if (provider && provider.isAvailable()) return provider;
+  }
+
+  // 4. First available provider
+  const available = getAvailableProviders();
+  if (available.length > 0) return available[0];
+
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    "No AI providers are available. Configure GEMINI_API_KEY or NVIDIA_NIM_API_KEY.",
+  );
+}
+
+function getFallbackChain(request: {
+  provider?: ProviderId;
+  model?: string;
+}): AIProviderAdapter[] {
+  ensureInitialized();
+
+  const primary = resolveProvider(request);
+  const all = getAvailableProviders();
+
+  // Build chain: primary first, then others
+  return [primary, ...all.filter((p) => p.id !== primary.id)];
 }
 
 // ---------------------------------------------------------------------------
-// Log entry tracking (for observability)
+// Core generation with fallback
 // ---------------------------------------------------------------------------
 
-interface LogEntry {
-  timestamp: string;
-  provider: ProviderId;
-  model: string;
-  operation: "generate" | "generateStructured" | "stream" | "embed";
-  latencyMs: number;
-  tokens?: { prompt: number; completion: number; total: number };
-  success: boolean;
-  errorCode?: string;
-  retryCount?: number;
-}
+/**
+ * Generate text with automatic provider fallback.
+ */
+export async function generate(
+  request: GenerateRequest,
+): Promise<GenerateResult> {
+  const chain = getFallbackChain(request);
+  let lastError: AIRuntimeError | undefined;
 
-const _logHistory: LogEntry[] = [];
-const MAX_LOG_HISTORY = 100;
-
-function recordLog(entry: LogEntry): void {
-  _logHistory.push(entry);
-  if (_logHistory.length > MAX_LOG_HISTORY) {
-    _logHistory.shift();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main runtime API
-// ---------------------------------------------------------------------------
-
-class AtlasAIRuntime {
-  /** Whether the runtime has been initialized. */
-  get initialized(): boolean {
-    return _initialized;
-  }
-
-  /** Get the runtime configuration. */
-  get config(): Readonly<AIRuntimeConfig> {
-    return _config;
-  }
-
-  /**
-   * Initialize the runtime with provider configs.
-   * Call once at application startup or Edge Function cold start.
-   */
-  initialize(configs?: ProviderConfig[], runtimeConfig?: Partial<AIRuntimeConfig>): void {
-    initializeRegistry(configs);
-    if (runtimeConfig) {
-      _config = { ...DEFAULT_CONFIG, ...runtimeConfig };
-    }
-    _initialized = true;
-
-    const available = getAvailableProviders();
-    log("runtime-initialized", {
-      providers: available.length,
-      providerNames: available.map((p) => p.id),
-    });
-  }
-
-  /**
-   * Generate text completion.
-   *
-   * Automatically selects the best provider, applies retry logic, and
-   * falls back to the next available provider on transient failures.
-   */
-  async generate(request: AIGenerateRequest): Promise<AIGenerateResponse> {
-    this.ensureInitialized();
-
-    const resolved = selectProvider(request);
-    if (!resolved) {
-      return {
-        ok: false,
-        provider: "gemini",
-        model: request.model ?? "",
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-        latencyMs: 0,
-        error: {
-          code: "no_providers_available",
-          message: "No AI providers are configured. Add GEMINI_API_KEY or NVIDIA_NIM_API_KEY.",
-          retryable: false,
-        },
-      };
-    }
-
-  const { provider, model } = resolved;
-  const cfg = getProviderConfig(provider.id);
-  const effectiveModel = model || cfg?.defaultModel || "";
-
-  const result = await withRetry(
-    async (attempt) => {
-      const response = await provider.generate({
+  for (let i = 0; i < Math.min(chain.length, _config.fallback.maxAttempts); i++) {
+    const provider = chain[i];
+    try {
+      const result = await provider.generate({
         ...request,
-        model: effectiveModel,
-          timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
-          maxTokens: request.maxTokens ?? _config.defaultMaxTokens,
-          temperature: request.temperature ?? _config.defaultTemperature,
-        });
-        return response;
-      },
-      _config.retry,
-      request.signal,
-    );
+        timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
+      });
 
-    recordLog({
-      timestamp: new Date().toISOString(),
-      provider: provider.id,
-      model: effectiveModel,
-      operation: "generate",
-      latencyMs: result.latencyMs,
-      tokens: result.usage ? {
-        prompt: result.usage.promptTokens,
-        completion: result.usage.completionTokens,
-        total: result.usage.totalTokens,
-      } : undefined,
-      success: result.ok,
-      errorCode: result.error?.code,
-    });
+      // Record successful usage
+      recordUsage({
+        provider: result.provider,
+        model: result.model,
+        operation: "generate",
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        totalTokens: result.usage.totalTokens,
+        estimatedCostUsd: estimateCost(provider, result.usage.totalTokens),
+        latencyMs: result.latencyMs,
+        success: true,
+      });
 
-    log("generate-completed", {
-      provider: provider.id,
-      model: effectiveModel,
-      latencyMs: result.latencyMs,
-      success: result.ok,
-      tokens: result.usage.totalTokens,
-    });
+      // Tag fallback if different from requested provider
+      if (request.provider && result.provider !== request.provider) {
+        return { ...result, fallbackFrom: request.provider };
+      }
 
-    return result;
-  }
+      return result;
+    } catch (err) {
+      lastError = err as AIRuntimeError;
 
-  /**
-   * Generate structured JSON output conforming to a schema.
-   */
-  async generateStructured(request: AIStructuredRequest): Promise<AIGenerateResponse> {
-    this.ensureInitialized();
-
-    const resolved = selectProvider(request);
-    if (!resolved) {
-      return {
-        ok: false,
-        provider: "gemini",
-        model: request.model ?? "",
-        usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      // Record failed usage
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "generate",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
         latencyMs: 0,
-        error: {
-          code: "no_providers_available",
-          message: "No AI providers are configured.",
-          retryable: false,
-        },
-      };
+        success: false,
+        errorCode: lastError.code,
+      });
+
+      // Don't retry if not retryable
+      if (!lastError.retryable) break;
+
+      // Exponential backoff before next provider
+      if (i < chain.length - 1) {
+        const delay = Math.min(
+          _config.fallback.retryDelayMs * Math.pow(2, i),
+          _config.fallback.maxRetryDelayMs,
+        );
+        await sleep(delay);
+      }
     }
-
-    const { provider, model } = resolved;
-    const cfg = getProviderConfig(provider.id);
-    const effectiveModel = model || cfg?.defaultModel || "";
-
-    const result = await withRetry(
-      async () => {
-        return provider.generateStructured({
-          ...request,
-          model: effectiveModel,
-          timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
-          maxTokens: request.maxTokens ?? _config.defaultMaxTokens,
-          temperature: request.temperature ?? _config.defaultTemperature,
-        });
-      },
-      _config.retry,
-      request.signal,
-    );
-
-    recordLog({
-      timestamp: new Date().toISOString(),
-      provider: provider.id,
-      model: effectiveModel,
-      operation: "generateStructured",
-      latencyMs: result.latencyMs,
-      tokens: result.usage ? {
-        prompt: result.usage.promptTokens,
-        completion: result.usage.completionTokens,
-        total: result.usage.totalTokens,
-      } : undefined,
-      success: result.ok,
-      errorCode: result.error?.code,
-    });
-
-    return result;
   }
 
-  /**
-   * Generate text with streaming.
-   */
-  async *stream(request: AIGenerateRequest): AsyncIterable<AIStreamChunk> {
-    this.ensureInitialized();
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    `All ${chain.length} provider(s) failed. Last error: ${lastError?.message ?? "unknown"}`,
+    { retryable: false, cause: lastError },
+  );
+}
 
-    const resolved = selectProvider(request);
-    if (!resolved) {
-      yield { delta: "", done: true };
+/**
+ * Generate structured output (JSON) with automatic provider fallback.
+ */
+export async function generateStructured<T = Record<string, unknown>>(
+  request: StructuredOutputRequest,
+): Promise<StructuredOutputResult<T>> {
+  const chain = getFallbackChain(request);
+  let lastError: AIRuntimeError | undefined;
+
+  for (let i = 0; i < Math.min(chain.length, _config.fallback.maxAttempts); i++) {
+    const provider = chain[i];
+    try {
+      const result = await provider.generateStructured<T>({
+        ...request,
+        timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
+      });
+
+      recordUsage({
+        provider: result.provider,
+        model: result.model,
+        operation: "structured",
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        totalTokens: result.usage.totalTokens,
+        estimatedCostUsd: estimateCost(provider, result.usage.totalTokens),
+        latencyMs: result.latencyMs,
+        success: true,
+      });
+
+      if (request.provider && result.provider !== request.provider) {
+        return { ...result, fallbackFrom: request.provider };
+      }
+
+      return result;
+    } catch (err) {
+      lastError = err as AIRuntimeError;
+
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "structured",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: 0,
+        success: false,
+        errorCode: lastError.code,
+      });
+
+      if (!lastError.retryable) break;
+
+      if (i < chain.length - 1) {
+        const delay = Math.min(
+          _config.fallback.retryDelayMs * Math.pow(2, i),
+          _config.fallback.maxRetryDelayMs,
+        );
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    `All ${chain.length} provider(s) failed for structured generation. Last error: ${lastError?.message ?? "unknown"}`,
+    { retryable: false, cause: lastError },
+  );
+}
+
+/**
+ * Stream text generation with automatic provider fallback.
+ */
+export async function stream(request: StreamRequest): Promise<void> {
+  const chain = getFallbackChain(request);
+  let lastError: AIRuntimeError | undefined;
+
+  for (let i = 0; i < Math.min(chain.length, _config.fallback.maxAttempts); i++) {
+    const provider = chain[i];
+    try {
+      await provider.stream({
+        ...request,
+        timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
+      });
+
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "stream",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: 0,
+        success: true,
+      });
+
       return;
-    }
+    } catch (err) {
+      lastError = err as AIRuntimeError;
 
-    const { provider, model } = resolved;
-    const cfg = getProviderConfig(provider.id);
-    const effectiveModel = model || cfg?.defaultModel || "";
-
-    yield* provider.stream({
-      ...request,
-      model: effectiveModel,
-      timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
-      maxTokens: request.maxTokens ?? _config.defaultMaxTokens,
-      temperature: request.temperature ?? _config.defaultTemperature,
-    });
-  }
-
-  /**
-   * Generate embeddings.
-   */
-  async embed(request: AIEmbedRequest): Promise<AIEmbedResponse> {
-    this.ensureInitialized();
-
-    // Find a provider that supports embeddings
-    const available = getAvailableProviders();
-    const embeddingProvider = available.find((p) => p.capabilities.embeddings);
-
-    if (!embeddingProvider) {
-      return {
-        ok: false,
-        provider: "gemini",
-        model: request.model ?? "",
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "stream",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
         latencyMs: 0,
-        error: {
-          code: "no_providers_available",
-          message: "No AI provider with embedding support is configured.",
-          retryable: false,
-        },
-      };
-    }
+        success: false,
+        errorCode: lastError.code,
+      });
 
-    return embeddingProvider.embed(request);
-  }
+      if (!lastError.retryable) break;
 
-  /**
-   * Get the recent operation log (for observability dashboard).
-   */
-  getLogHistory(): readonly LogEntry[] {
-    return _logHistory;
-  }
-
-  /**
-   * Check if the runtime is healthy (at least one provider available).
-   */
-  healthCheck(): { healthy: boolean; providers: Array<{ id: string; available: boolean }> } {
-    const all = getAvailableProviders();
-    return {
-      healthy: all.length > 0,
-      providers: all.map((p) => ({ id: p.id, available: p.available })),
-    };
-  }
-
-  private ensureInitialized(): void {
-    if (!_initialized) {
-      this.initialize();
+      if (i < chain.length - 1) {
+        const delay = Math.min(
+          _config.fallback.retryDelayMs * Math.pow(2, i),
+          _config.fallback.maxRetryDelayMs,
+        );
+        await sleep(delay);
+      }
     }
   }
+
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    `All ${chain.length} provider(s) failed for streaming. Last error: ${lastError?.message ?? "unknown"}`,
+    { retryable: false, cause: lastError },
+  );
+}
+
+/**
+ * Generate embeddings with automatic provider fallback.
+ */
+export async function embed(request: EmbedRequest): Promise<EmbedResult> {
+  const chain = getFallbackChain(request);
+  let lastError: AIRuntimeError | undefined;
+
+  for (let i = 0; i < Math.min(chain.length, _config.fallback.maxAttempts); i++) {
+    const provider = chain[i];
+    try {
+      const result = await provider.embed({
+        ...request,
+        timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
+      });
+
+      recordUsage({
+        provider: result.provider,
+        model: result.model,
+        operation: "embed",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: result.latencyMs,
+        success: true,
+      });
+
+      return result;
+    } catch (err) {
+      lastError = err as AIRuntimeError;
+
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "embed",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: 0,
+        success: false,
+        errorCode: lastError.code,
+      });
+
+      if (!lastError.retryable) break;
+
+      if (i < chain.length - 1) {
+        const delay = Math.min(
+          _config.fallback.retryDelayMs * Math.pow(2, i),
+          _config.fallback.maxRetryDelayMs,
+        );
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    `All ${chain.length} provider(s) failed for embeddings. Last error: ${lastError?.message ?? "unknown"}`,
+    { retryable: false, cause: lastError },
+  );
+}
+
+/**
+ * Vision request (image understanding) with automatic provider fallback.
+ */
+export async function vision(request: VisionRequest): Promise<GenerateResult> {
+  const chain = getFallbackChain(request).filter((p) => p.vision);
+  if (chain.length === 0) {
+    throw createAIRuntimeError(
+      "not_implemented",
+      "No available provider supports vision requests.",
+    );
+  }
+
+  let lastError: AIRuntimeError | undefined;
+
+  for (let i = 0; i < Math.min(chain.length, _config.fallback.maxAttempts); i++) {
+    const provider = chain[i];
+    try {
+      const result = await provider.vision!({
+        ...request,
+        timeoutMs: request.timeoutMs ?? _config.defaultTimeoutMs,
+      });
+
+      recordUsage({
+        provider: result.provider,
+        model: result.model,
+        operation: "vision",
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        totalTokens: result.usage.totalTokens,
+        estimatedCostUsd: estimateCost(provider, result.usage.totalTokens),
+        latencyMs: result.latencyMs,
+        success: true,
+      });
+
+      return result;
+    } catch (err) {
+      lastError = err as AIRuntimeError;
+
+      recordUsage({
+        provider: provider.id,
+        model: request.model ?? provider.listModels()[0]?.id ?? "unknown",
+        operation: "vision",
+        promptTokens: 0,
+        completionTokens: 0,
+        totalTokens: 0,
+        estimatedCostUsd: 0,
+        latencyMs: 0,
+        success: false,
+        errorCode: lastError.code,
+      });
+
+      if (!lastError.retryable) break;
+
+      if (i < chain.length - 1) {
+        const delay = Math.min(
+          _config.fallback.retryDelayMs * Math.pow(2, i),
+          _config.fallback.maxRetryDelayMs,
+        );
+        await sleep(delay);
+      }
+    }
+  }
+
+  throw createAIRuntimeError(
+    "all_providers_failed",
+    `All ${chain.length} provider(s) failed for vision. Last error: ${lastError?.message ?? "unknown"}`,
+    { retryable: false, cause: lastError },
+  );
 }
 
 // ---------------------------------------------------------------------------
-// Singleton
+// Utility functions
 // ---------------------------------------------------------------------------
 
-export const atlasAI = new AtlasAIRuntime();
-
-// ---------------------------------------------------------------------------
-// Convenience functions (tree-shakable)
-// ---------------------------------------------------------------------------
-
-/** Quick check: is any AI provider configured? */
-export function isAIConfigured(): boolean {
-  if (!_initialized) atlasAI.initialize();
-  return getAvailableProviders().length > 0;
+function ensureInitialized(): void {
+  if (!_initialized) {
+    initializeRegistry();
+    _initialized = true;
+  }
 }
 
-/** Get the name of the currently active provider (for display). */
-export function getActiveProviderName(): string | null {
-  const best = getBestProvider();
-  return best?.name ?? null;
+function estimateCost(provider: AIProviderAdapter, totalTokens: number): number {
+  const models = provider.listModels();
+  if (models.length === 0) return 0;
+  const avgCostPer1k = models.reduce((sum, m) => sum + m.costPer1kTokens, 0) / models.length;
+  return Math.round((totalTokens / 1000) * avgCostPer1k * 1_000_000) / 1_000_000;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -1,0 +1,119 @@
+// ---------------------------------------------------------------------------
+// Atlas Voice Runtime — Barrel Export
+//
+// Import from "@/lib/voice-runtime" to access the provider-agnostic voice runtime.
+// ---------------------------------------------------------------------------
+
+// Runtime API
+export {
+  initVoiceRuntime,
+  resetVoiceRuntime,
+  isVoiceRuntimeInitialized,
+  startVoiceSession,
+  getCurrentSession,
+  closeCurrentSession,
+  sendVoiceText,
+  interruptVoice,
+  runVoiceAction,
+  getVoiceRuntimeStatus,
+} from "./runtime";
+
+// Provider registry
+export {
+  initializeVoiceRegistry,
+  registerVoiceProvider,
+  getVoiceProvider,
+  getAllVoiceProviders,
+  getAvailableVoiceProviders,
+  isVoiceProviderAvailable,
+  buildVoiceFallbackChain,
+  resetVoiceRegistry,
+} from "./registry";
+
+// Providers (for direct registration)
+export { BrowserVoiceProvider } from "./providers/browser-voice";
+export { NvidiaNimVoiceProvider } from "./providers/nvidia-nim-voice";
+
+// Configuration
+export {
+  loadVoiceProviderConfigs,
+  resetVoiceConfigCache,
+  isNvidiaNimVoiceConfigured,
+  getVoiceRuntimeConfig,
+  getNvidiaVoiceModel,
+} from "./config";
+
+// Session management
+export {
+  getActiveSession,
+  getActiveSessions,
+  getActiveSessionCount,
+  closeAllSessions,
+  resetSessionManager,
+} from "./session";
+
+// Events
+export {
+  subscribeToVoiceEvents,
+  emitVoiceEvent,
+  getVoiceEventHistory,
+  resetVoiceEvents,
+  createVoiceEvent,
+} from "./events";
+
+// Telemetry
+export {
+  recordVoiceSession,
+  getVoiceTelemetryRecords,
+  getVoiceTelemetryByProvider,
+  getVoiceTotalCost,
+  getVoiceErrorRateByProvider,
+  resetVoiceTelemetry,
+} from "./telemetry";
+
+// Actions
+export {
+  registerVoiceAction,
+  registerVoiceActions,
+  getVoiceAction,
+  getAllVoiceActions,
+  getVoiceActionsByCategory,
+  getVoiceActionsByRisk,
+  executeVoiceAction,
+  clearVoiceActions,
+  registerDefaultVoiceActions,
+} from "./actions";
+
+// Errors
+export {
+  createVoiceError,
+  isRetryableCode as isVoiceRetryableCode,
+  httpStatusToVoiceError,
+  sanitizeVoiceErrorMessage,
+} from "./errors";
+
+// Types
+export type {
+  VoiceProviderId,
+  VoiceProviderConfig,
+  VoiceProviderCapabilities,
+  VoiceSessionConfig,
+  VoiceSession,
+  VoiceSessionState,
+  VoiceSessionHandle,
+  VoiceEventType,
+  VoiceEvent,
+  VoiceEventHandler,
+  VoiceActionDefinition,
+  VoiceActionParameter,
+  VoiceActionContext,
+  VoiceActionResult,
+  VoiceActionRiskLevel,
+  VoiceProviderAdapter,
+  VoiceTelemetryRecord,
+  VoiceRuntimeConfig,
+} from "./types";
+export type {
+  VoiceErrorCode,
+  VoiceError,
+} from "./errors";

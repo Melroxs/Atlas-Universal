@@ -84,6 +84,38 @@ export {
   registerDefaultVoiceActions,
 } from "./actions";
 
+// Intent Router
+export {
+  classifyVoiceIntent,
+  intentRequiresConfirmation,
+  getAllIntentPatterns,
+} from "./intent-router";
+
+// Safety Gates
+export {
+  initSafetyGate,
+  resetSafetyGate,
+  checkConfirmationRequired,
+  confirmAction,
+  confirmLatestPending,
+  rejectAction,
+  getPendingConfirmations,
+  getSafetyAuditLog,
+  getConfirmationStats,
+} from "./safety";
+
+// Voice-AI Bridge
+export {
+  initVoiceBridge,
+  resetVoiceBridge,
+  setEntityContext,
+  setPageContext,
+  processVoiceTranscript,
+  handleAiResponse,
+  getConversationHistory,
+  getCurrentPendingConfirmations,
+} from "./voice-bridge";
+
 // Errors
 export {
   createVoiceError,
@@ -113,7 +145,28 @@ export type {
   VoiceTelemetryRecord,
   VoiceRuntimeConfig,
 } from "./types";
+
 export type {
   VoiceErrorCode,
   VoiceError,
 } from "./errors";
+
+export type {
+  VoiceIntent,
+  VoiceIntentCategory,
+  VoiceIntentEntity,
+} from "./intent-router";
+
+export type {
+  SafetyGateConfig,
+  PendingConfirmation,
+  SafetyAuditEntry,
+  ConfirmationStatus,
+} from "./safety";
+
+export type {
+  VoiceBridgeConfig,
+  VoiceBridgeTurn,
+  VoiceBridgeResult,
+  VoiceBridgeResponse,
+} from "./voice-bridge";

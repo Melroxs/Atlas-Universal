@@ -10,6 +10,14 @@ import {
   stopBrowserSpeaking,
   type WakeWordEngine,
 } from "@/lib/voice";
+import {
+  initVoiceRuntime,
+  isVoiceRuntimeInitialized,
+  getVoiceRuntimeStatus,
+  processVoiceTranscript,
+  initVoiceBridge,
+  initSafetyGate,
+} from "@/lib/voice-runtime";
 import { useAction, useQuery } from "@/hooks/use-supabase";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -54,6 +62,10 @@ export interface UseVoiceOptions {
   onTranscript: (text: string) => void;
   /** Called with an ambient wake-word command (auto-sent, no button). */
   onAmbientCommand?: (text: string) => void;
+  /** Entity context for voice sessions (e.g., current claim ID). */
+  entityContext?: string;
+  /** Page context for voice sessions (e.g., "Revenue Recovery"). */
+  pageContext?: string;
 }
 
 const AMBIENT_KEY = "atlas-ambient";
@@ -80,7 +92,7 @@ function storedAmbient(): boolean {
  *   TTS) can never wake it.
  * - A diagnostics event log is kept for the developer-visible Voice panel.
  */
-export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
+export function useVoice({ onTranscript, onAmbientCommand, entityContext, pageContext }: UseVoiceOptions) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [wakeState, setWakeState] = useState<WakeState>("off");
   const [ambientEnabled, setAmbientEnabled] = useState<boolean>(storedAmbient);
@@ -112,6 +124,27 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
   onAmbientCommandRef.current = onAmbientCommand;
   const statusRef = useRef<VoiceStatus>(status);
   statusRef.current = status;
+
+  // Initialize Voice Runtime on mount
+  const voiceRuntimeReadyRef = useRef(false);
+  useEffect(() => {
+    if (!voiceRuntimeReadyRef.current) {
+      void initVoiceRuntime().then(() => {
+        voiceRuntimeReadyRef.current = true;
+      }).catch(() => {
+        // Voice runtime init is best-effort; browser fallback always works
+      });
+      initSafetyGate();
+      initVoiceBridge({
+        defaultEntityContext: entityContext,
+        defaultPageContext: pageContext,
+      });
+    }
+  }, [entityContext, pageContext]);
+
+  const voiceRuntimeStatus = voiceRuntimeReadyRef.current
+    ? getVoiceRuntimeStatus()
+    : null;
 
   const supported = browserSpeechRecognitionSupported();
   const ttsSupported = browserSpeechSynthesisSupported();
@@ -525,5 +558,9 @@ export function useVoice({ onTranscript, onAmbientCommand }: UseVoiceOptions) {
     enableAmbient,
     disableAmbient,
     toggleAmbient,
+    /** Voice Runtime status (provider info, sessions, telemetry). */
+    voiceRuntimeStatus,
+    /** Process a transcript through the Voice Bridge (intent classification). */
+    processVoiceTranscript,
   };
 }

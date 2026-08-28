@@ -59,6 +59,7 @@ export {
   configureProviders,
   getAvailableProviders,
   markProviderAvailable,
+  syncWithAIRuntime,
   type ProviderConfig,
   type ModelConfig,
   type ResolvedModel,

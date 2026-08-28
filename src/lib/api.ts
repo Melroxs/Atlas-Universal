@@ -1212,13 +1212,30 @@ export const api = {
       sttProvider: string;
       ttsProvider: string;
       serverConfigured: boolean;
-    }>("voice_provider_status", "client", async () => ({
-      stt: "browser",
-      tts: "browser",
-      sttProvider: "browser",
-      ttsProvider: "browser",
-      serverConfigured: false,
-    })),
+      voiceRuntimeAvailable: boolean;
+      nvidiaVoiceAvailable: boolean;
+    }>("voice_provider_status", "client", async () => {
+      // Check Voice Runtime availability (Phase 6)
+      let voiceRuntimeAvailable = false;
+      let nvidiaVoiceAvailable = false;
+      try {
+        const { isVoiceRuntimeInitialized, isVoiceProviderAvailable } = await import("@/lib/voice-runtime");
+        voiceRuntimeAvailable = isVoiceRuntimeInitialized();
+        nvidiaVoiceAvailable = isVoiceProviderAvailable("nvidia-nim-voice");
+      } catch {
+        // Voice runtime not yet initialized — fall back to browser voice
+      }
+
+      return {
+        stt: nvidiaVoiceAvailable ? "server" : "browser",
+        tts: nvidiaVoiceAvailable ? "server" : "browser",
+        sttProvider: nvidiaVoiceAvailable ? "nvidia-nemotron" : "browser",
+        ttsProvider: nvidiaVoiceAvailable ? "nvidia-nemotron" : "browser",
+        serverConfigured: nvidiaVoiceAvailable,
+        voiceRuntimeAvailable,
+        nvidiaVoiceAvailable,
+      };
+    }),
     synthesizeSpeech: def<Obj>("voice-synthesize", "edge"),
     transcribeAudio: def<Obj>("voice-transcribe", "edge"),
   },

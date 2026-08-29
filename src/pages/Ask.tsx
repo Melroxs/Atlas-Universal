@@ -9,6 +9,7 @@ import {
 } from "@/components/atlas-ui";
 import { Button } from "@/components/ui/button";
 import { useVoice } from "@/hooks/use-voice";
+import { useVoiceSession } from "@/components/voice-session";
 import { useAction, useQuery } from "@/hooks/use-supabase";
 import {
   ArrowRight,
@@ -164,9 +165,32 @@ export default function Ask() {
   const [aiStatus, setAiStatus] = useState<AiStatusInfo | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const voiceSession = useVoiceSession();
   const voice = useVoice({
     onTranscript: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
   });
+
+  // Sync voice session turns into the Ask page conversation.
+  // When the user speaks via ambient voice or PTT, the session handles the
+  // command and adds turns to session.turns. We mirror those into the page's
+  // local state so they appear alongside typed questions.
+  const lastSessionTurnCountRef = useRef(0);
+  useEffect(() => {
+    const sessionTurns = voiceSession.turns;
+    if (sessionTurns.length > lastSessionTurnCountRef.current) {
+      const newTurns = sessionTurns.slice(lastSessionTurnCountRef.current);
+      lastSessionTurnCountRef.current = sessionTurns.length;
+      setTurns((prev) => [
+        ...prev,
+        ...newTurns.map((t) => ({
+          id: t.id,
+          role: t.role,
+          text: t.text,
+          timestamp: t.ts,
+        })),
+      ]);
+    }
+  }, [voiceSession.turns]);
 
   // Prefill from home quick-ask.
   useEffect(() => {

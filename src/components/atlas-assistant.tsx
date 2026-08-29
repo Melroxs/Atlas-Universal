@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useVoice } from "@/hooks/use-voice";
+import { useVoiceSession } from "@/components/voice-session";
 import { getMicPermissionState } from "@/lib/voice";
 import { useAction, useMutation } from "@/hooks/use-supabase";
 import { AnimatePresence, motion } from "framer-motion";
@@ -204,14 +205,41 @@ export function AtlasAssistant({
     }
   };
 
+  const voiceSession = useVoiceSession();
   const voice = useVoice({
     onTranscript: (text) => {
       setInput((prev) => (prev ? `${prev} ${text}` : text));
     },
-    // Phase 11 — ambient mode: a wake-word command is sent straight through the
-    // same conversational brain as a typed message.
     onAmbientCommand: (text) => void send(text),
   });
+
+  // Sync voice session turns into the assistant's conversation display.
+  // The shared session handles ambient commands and PTT via the Edge Function.
+  // We mirror its turns into the local state so the panel shows the full
+  // conversation regardless of whether the user typed or spoke.
+  //
+  // IMPORTANT: The voice session already calls speakTextLocal() for voice
+  // commands, so we do NOT call voice.speak() here — that would produce
+  // double-speech. Auto-speak only applies to typed messages (handled by
+  // the send() function below).
+  const lastSessionTurnCountRef = useRef(0);
+  useEffect(() => {
+    const sessionTurns = voiceSession.turns;
+    if (sessionTurns.length > lastSessionTurnCountRef.current) {
+      const newTurns = sessionTurns.slice(lastSessionTurnCountRef.current);
+      lastSessionTurnCountRef.current = sessionTurns.length;
+      setTurns((prev) => [
+        ...prev,
+        ...newTurns.map((t) => ({
+          id: t.id,
+          role: t.role,
+          text: t.text,
+          ts: t.ts,
+        })),
+      ]);
+      // Do NOT auto-speak here — the session handles its own TTS.
+    }
+  }, [voiceSession.turns]);
 
   useEffect(() => {
     if (open) {

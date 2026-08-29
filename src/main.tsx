@@ -3,7 +3,7 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireInternalAuth } from "@/components/RequireInternalAuth";
-import { AppShell } from "@/components/app-shell";
+import { AppShellWithProvider } from "@/components/app-shell";
 import { VoiceSessionProvider } from "@/components/voice-session";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
@@ -59,7 +59,7 @@ const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
-      <AppShell>{children}</AppShell>
+      <AppShellWithProvider>{children}</AppShellWithProvider>
     </RequireAuth>
   );
 }

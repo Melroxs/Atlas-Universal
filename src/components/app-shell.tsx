@@ -1,5 +1,7 @@
 import { AtlasAssistant } from "@/components/atlas-assistant";
 import { useVoiceSession } from "@/components/voice-session";
+import { CommandPalette } from "@/components/atlas-experience/CommandPalette";
+import { AtlasContextProvider, useAtlasContext, type AtlasBreadcrumb } from "@/lib/atlas-experience/context";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessPilotAdmin, canAccessCRM, canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
@@ -39,6 +41,7 @@ import {
   Building2,
   Cable,
   Calendar,
+  ChevronRight,
   Database,
   Landmark,
   LayoutGrid,
@@ -134,6 +137,12 @@ function GlobalVoiceIndicator() {
   );
 }
 
+/**
+ * Atlas Experience Navigation — organized around user work, not internal modules.
+ *
+ * Structure: Home / Work / Intelligence / Communication / Administration
+ * Each section represents a dimension of the user's work, not a code module.
+ */
 const NAV_SECTIONS: Array<{
   label: string;
   items: Array<{
@@ -144,58 +153,53 @@ const NAV_SECTIONS: Array<{
   }>;
 }> = [
   {
-    label: "Operations",
+    label: "Home",
     items: [
       { to: "/dashboard", label: "Atlas Home", icon: LayoutGrid },
+    ],
+  },
+  {
+    label: "Work",
+    items: [
       {
         to: "/dashboard/revenue-recovery",
         label: "Revenue Recovery",
         icon: TrendingUp,
       },
       { to: "/dashboard/workflows", label: "Workflows", icon: Workflow },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      { to: "/dashboard/intelligence", label: "Atlas Intelligence", icon: Layers },
-      { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
-      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
-      { to: "/dashboard/events", label: "Events", icon: Activity },
-    ],
-  },
-  {
-    label: "Atlas",
-    items: [
-      { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
-      { to: "/dashboard/actions", label: "Actions", icon: Zap },
       {
         to: "/dashboard/recommendations",
         label: "Recommendations",
         icon: Target,
         badge: "open",
       },
-      { to: "/dashboard/audit", label: "Activity / Audit", icon: ScrollText },
+      { to: "/dashboard/actions", label: "Actions", icon: Zap },
     ],
   },
   {
-    label: "Workspace",
+    label: "Intelligence",
+    items: [
+      { to: "/dashboard/ask", label: "Ask Atlas", icon: MessageSquareText },
+      { to: "/dashboard/intelligence", label: "Packs", icon: Layers },
+      { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
+      { to: "/dashboard/brain", label: "Business Brain", icon: Brain },
+      { to: "/dashboard/events", label: "Events", icon: Activity },
+    ],
+  },
+  {
+    label: "Communication",
+    items: [
+      { to: "/dashboard/mail", label: "Atlas Mail", icon: Mail },
+    ],
+  },
+  {
+    label: "Administration",
     items: [
       { to: "/dashboard/connections", label: "Connections", icon: Cable },
       { to: "/dashboard/team", label: "Team", icon: Users },
       { to: "/dashboard/settings", label: "Settings", icon: Settings2 },
-    ],
-  },
-  {
-    label: "Admin",
-    items: [
+      { to: "/dashboard/audit", label: "Activity Log", icon: ScrollText },
       { to: "/dashboard/users", label: "Users & Access", icon: Users },
-    ],
-  },
-  {
-    label: "Mail",
-    items: [
-      { to: "/dashboard/mail", label: "Atlas Mail", icon: Mail },
     ],
   },
   {
@@ -218,6 +222,16 @@ const NAV_SECTIONS: Array<{
     ],
   },
 ];
+
+/** Role gate per section — only Admin, Mail, Pilot require special access. */
+function isSectionVisible(label: string, role: string): boolean {
+  const atlasRole = role as import("@/lib/auth/access-gate").AtlasRole;
+  if (label === "Admin") return canAccessUserAdmin(atlasRole);
+  if (label === "Communication") return canAccessMail(atlasRole);
+  if (label === "Pilot") return canAccessPilotAdmin(atlasRole);
+  if (label === "Pilot Intelligence") return canAccessPilotAdmin(atlasRole);
+  return true;
+}
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard": "Atlas Home",
@@ -261,10 +275,141 @@ function initials(name?: string | null, email?: string | null): string {
   );
 }
 
+/**
+ * Compute a time-aware greeting for Atlas Home.
+ */
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Burning the midnight oil";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 21) return "Good evening";
+  return "Working late";
+}
+
+/**
+ * Atlas Header — a restrained, premium header containing workspace identity,
+ * system health, navigation context, and quick access.
+ */
+function AtlasHeader({
+  openRecs,
+  companyName,
+  role,
+  isEntityFocused,
+  entity,
+  health,
+}: {
+  openRecs: number;
+  companyName: string;
+  role: string;
+  isEntityFocused: boolean;
+  entity: { type: string; name?: string } | null;
+  health: { documents: number; entities: number; openSignals: number; pipelineActive: boolean };
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const pageTitle = PAGE_TITLES[location.pathname] ?? "Atlas";
+
+  // Determine system health status
+  const hasIssues = (health.pipelineActive) || openRecs > 3;
+  const isHealthy = health.documents > 0 && !hasIssues;
+
+  return (
+    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 px-4">
+      <SidebarTrigger className="-ml-1" />
+
+      {/* System health pulse — a subtle indicator showing Atlas is active */}
+      <div className="flex items-center gap-2">
+        <div
+          className={`relative flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
+            isHealthy
+              ? "text-emerald-600 dark:text-emerald-400"
+              : hasIssues
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-muted-foreground"
+          }`}
+        >
+          <span className="relative flex size-1.5">
+            <span
+              className={`absolute inline-flex size-full rounded-full opacity-60 ${
+                isHealthy
+                  ? "animate-ping bg-emerald-400"
+                  : hasIssues
+                    ? "animate-pulse bg-amber-400"
+                    : "bg-muted-foreground/40"
+              }`}
+            />
+            <span
+              className={`relative inline-flex size-1.5 rounded-full ${
+                isHealthy
+                  ? "bg-emerald-500"
+                  : hasIssues
+                    ? "bg-amber-500"
+                    : "bg-muted-foreground/40"
+              }`}
+            />
+          </span>
+          {isHealthy ? "Online" : hasIssues ? "Attention" : "Starting"}
+        </div>
+      </div>
+
+      {/* Breadcrumb trail — workspace → section → entity context */}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <NavLink
+          to="/dashboard"
+          className="flex items-center gap-1 transition-colors hover:text-teal-600 dark:hover:text-teal-300"
+        >
+          <Radar className="size-3" />
+          <span className="hidden sm:inline">{companyName}</span>
+        </NavLink>
+        {pageTitle !== "Atlas Home" && pageTitle !== "Atlas" && (
+          <>
+            <ChevronRight className="size-3 text-muted-foreground/40" />
+            <span className="font-medium text-foreground/80">{pageTitle}</span>
+          </>
+        )}
+        {entity?.name && (
+          <>
+            <ChevronRight className="size-3 text-muted-foreground/40" />
+            <span className="max-w-[200px] truncate font-medium text-teal-600 dark:text-teal-300">
+              {entity.name}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Attention indicator + quick actions */}
+      <div className="ml-auto flex items-center gap-2">
+        {openRecs > 0 && (
+          <Badge
+            variant="outline"
+            className="hidden gap-1 border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300 sm:inline-flex"
+          >
+            <Sparkles className="size-3" />
+            {openRecs} open signal{openRecs === 1 ? "" : "s"}
+          </Badge>
+        )}
+        {/* Atlas Experience: Command Palette trigger */}
+        <CommandPalette />
+        <ThemeToggle />
+        <Button
+          size="sm"
+          className="hidden gap-2 md:inline-flex"
+          onClick={() => navigate("/dashboard/ask")}
+        >
+          <MessageSquareText className="size-3.5" />
+          Ask Atlas
+        </Button>
+      </div>
+    </header>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, signOut, role } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const { entity, isEntityFocused, health, setHealth } = useAtlasContext();
   const workspace = useQuery(api.tenants.getMyWorkspace);
   // recommendationCounts calls requireTenant server-side, which throws for
   // signed-in users who don't have a workspace yet (fresh sign-in before
@@ -272,6 +417,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   // loading/null early returns below would otherwise still run this query.
   const recCounts = useQuery(
     api.recommendations.recommendationCounts,
+    workspace ? undefined : "skip",
+  );
+  const docStats = useQuery(
+    api.documents.documentStats,
+    workspace ? undefined : "skip",
+  );
+  const entityStats = useQuery(
+    api.knowledge.entityStats,
     workspace ? undefined : "skip",
   );
   const seedIntelligence = useMutation(api.intelligence.seedIntelligence);
@@ -306,6 +459,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       );
     });
   }, [seedIntelligence, claimInvites, runDueSyncs]);
+
+  // Feed workspace health data into the Atlas Experience context so any
+  // downstream component can access it without its own query subscriptions.
+  useEffect(() => {
+    setHealth({
+      documents: docStats?.total ?? 0,
+      entities: entityStats?.entities ?? 0,
+      openSignals: recCounts?.open ?? 0,
+      pipelineActive: (docStats?.processing ?? 0) > 0,
+    });
+  }, [docStats, entityStats, recCounts, setHealth]);
 
   if (workspace === undefined) {
     return (
@@ -369,16 +533,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </SidebarHeader>
 
         <SidebarContent>
-          {NAV_SECTIONS.filter((section) => {
-            // Filter nav sections by role
-            if (section.label === "Admin") return canAccessUserAdmin(role);
-            if (section.label === "Mail") return canAccessMail(role);
-            if (section.label === "Pilot") return canAccessPilotAdmin(role);
-            if (section.label === "Pilot Intelligence") return canAccessPilotAdmin(role);
-            if (section.label === "CRM") return canAccessCRM(role);
-            // Operations, Intelligence, Atlas, Workspace are visible to all authenticated users
-            return true;
-          }).map((section) => (
+          {NAV_SECTIONS.filter((section) => isSectionVisible(section.label, role)).map((section) => (
             <SidebarGroup key={section.label}>
               <SidebarGroupLabel>{section.label}</SidebarGroupLabel>
               <SidebarMenu>
@@ -471,43 +626,14 @@ export function AppShell({ children }: { children: ReactNode }) {
       </Sidebar>
 
       <SidebarInset>
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 px-4">
-          <SidebarTrigger className="-ml-1" />
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-foreground">
-              {PAGE_TITLES[location.pathname] ?? "Atlas"}
-            </span>
-            {openRecs > 0 && (
-              <Badge
-                variant="outline"
-                className="hidden gap-1 border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300 sm:inline-flex"
-              >
-                <Sparkles className="size-3" />
-                {openRecs} open signal{openRecs === 1 ? "" : "s"}
-              </Badge>
-            )}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <ThemeToggle />
-            <Button
-              size="sm"
-              className="hidden gap-2 md:inline-flex"
-              onClick={() => navigate("/dashboard/ask")}
-            >
-              <MessageSquareText className="size-3.5" />
-              Ask Atlas
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="hidden gap-2 md:inline-flex"
-              onClick={() => navigate("/dashboard/knowledge")}
-            >
-              <Database className="size-3.5 text-teal-600 dark:text-teal-300" />
-              Upload
-            </Button>
-          </div>
-        </header>
+        <AtlasHeader
+          openRecs={openRecs}
+          companyName={companyName}
+          role={role}
+          isEntityFocused={isEntityFocused}
+          entity={entity}
+          health={health}
+        />
         <main className="atlas-scroll flex-1 overflow-y-auto">
           <div className={cn("mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8")}>
             {children}
@@ -522,5 +648,17 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Phase 10 — persistent Atlas assistant, available across the app. */}
       <AtlasAssistant pageContext={location.pathname} />
     </SidebarProvider>
+  );
+}
+
+/**
+ * AppShellWithProvider — wraps the authenticated shell with Atlas Experience
+ * context so downstream components can access entity awareness.
+ */
+export function AppShellWithProvider({ children }: { children: ReactNode }) {
+  return (
+    <AtlasContextProvider>
+      <AppShell>{children}</AppShell>
+    </AtlasContextProvider>
   );
 }

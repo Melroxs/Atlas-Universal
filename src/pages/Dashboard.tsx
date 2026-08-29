@@ -1,8 +1,11 @@
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
+import { useAtlasContext } from "@/lib/atlas-experience/context";
+import { useIntelligence } from "@/lib/atlas-experience/useIntelligence";
+import { CommandCenter } from "@/components/atlas-experience/CommandCenter";
+import { ProactiveAtlas } from "@/components/atlas-experience/ProactiveAtlas";
 import {
   ConfidenceBar,
-  EmptyPanel,
   KnowledgeBadge,
   PageHeader,
   Panel,
@@ -32,9 +35,21 @@ import {
   Target,
   TrendingUp,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
+
+/**
+ * Compute a time-aware greeting for Atlas Home.
+ */
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 5) return "Burning the midnight oil";
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  if (h < 21) return "Good evening";
+  return "Working late";
+}
 
 const NODE_COLORS: Record<string, string> = {
   claim: "oklch(0.7 0.16 20)",
@@ -112,13 +127,13 @@ export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [quickAsk, setQuickAsk] = useState("");
+  const { entity } = useAtlasContext();
 
   const workspace = useQuery(api.tenants.getMyWorkspace);
   const docStats = useQuery(api.documents.documentStats);
   const entityStats = useQuery(api.knowledge.entityStats);
   const recCounts = useQuery(api.recommendations.recommendationCounts);
   const recs = useQuery(api.recommendations.listRecommendations);
-  const activity = useQuery(api.history.recentActivity);
   const graph = useQuery(api.knowledge.graphSnapshot);
   const claimCounts = useQuery(api.insurance.claims.claimCounts);
   const claims = useQuery(api.insurance.claims.listClaims, {});
@@ -129,6 +144,9 @@ export default function Dashboard() {
   const [detecting, setDetecting] = useState(false);
 
   const companyName = workspace?.profile?.companyName ?? "your workspace";
+
+  // ---- Atlas Intelligence Layer ----
+  const { items: attentionItems, counts, totalFinancialImpact, actionRequiredCount } = useIntelligence();
 
   const openRecs = (recs ?? []).filter((r) => r.status === "open");
   const pendingRecs = (recs ?? []).filter((r) => r.status !== "open" && r.status !== "dismissed");
@@ -170,14 +188,14 @@ export default function Dashboard() {
     navigate(q ? `/dashboard/ask?q=${encodeURIComponent(q)}` : "/dashboard/ask");
   };
 
-  const empty =
-    (docStats?.total ?? 0) === 0 && (entityStats?.entities ?? 0) === 0;
+  const empty = (docStats?.total ?? 0) === 0 && (entityStats?.entities ?? 0) === 0;
 
   return (
     <div className="flex flex-col gap-8">
+      {/* ---- Atlas Home: Operational Intelligence Header ---- */}
       <PageHeader
         eyebrow="Atlas Home"
-        title={`Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, ${user?.name?.split(" ")[0] ?? "there"}`}
+        title={`${getGreeting()}, ${user?.name?.split(" ")[0] ?? "there"}`}
         description={`This is the live state of ${companyName} as Atlas understands it — knowledge, signals and activity.`}
         actions={
           <Button
@@ -192,14 +210,26 @@ export default function Dashboard() {
         }
       />
 
-      {/* Quick ask */}
+      {/* ---- Command Center: The primary Atlas operating experience ---- */}
+      <CommandCenter />
+
+      {/* ---- Proactive Atlas: Atlas noticed meaningful changes ---- */}
+      <ProactiveAtlas />
+
+      {/* ---- Quick Ask ---- */}
       <div className="group relative">
         <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={quickAsk}
           onChange={(e) => setQuickAsk(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submitAsk()}
-          placeholder={`Ask Atlas about ${companyName}… e.g. "What's outstanding on claim 1042?"`}
+          placeholder={
+            entity?.type === "claim"
+              ? `Ask Atlas about this claim… e.g. "What's missing?"`
+              : entity?.type === "knowledge"
+                ? `Ask Atlas about this document…`
+                : `Ask Atlas about ${companyName}… e.g. "What's outstanding on claim 1042?"`
+          }
           className="h-12 w-full rounded-xl border border-border/70 bg-card/70 pl-11 pr-28 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20"
         />
         <button
@@ -212,7 +242,81 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Stats */}
+      {/* ---- Quick Commands ---- */}
+      <Panel
+        title="Quick commands"
+        description="The restoration demo journey — each command runs against your real claim records."
+      >
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("What money are we leaving on the table?")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-3 text-left transition-all hover:border-emerald-400/50 hover:bg-emerald-400/10"
+          >
+            <BadgeDollarSign className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Find missing revenue</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                "What are we leaving on the table?"
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/revenue-recovery")}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
+          >
+            <ClipboardList className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Review claims</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Claims, packages & supplements
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Build the claim package")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-sky-400/40 hover:bg-muted/40"
+          >
+            <Compass className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Build claim package</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Verified, derived & missing labels
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Find potential supplements")}`)}
+            className="group flex items-start gap-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-left transition-all hover:border-amber-400/50 hover:bg-amber-400/10"
+          >
+            <FileSearch className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Find supplements</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Scan claims for opportunities
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard/ask")}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
+          >
+            <MessageSquareText className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-foreground">Ask Atlas</span>
+              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
+                Talk or type anything
+              </span>
+            </span>
+          </button>
+        </div>
+      </Panel>
+
+      {/* ---- Stats ---- */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard icon={Database} label="Documents" value={docStats?.total ?? "—"} hint={`${docStats?.ready ?? 0} ready · ${docStats?.chunks ?? 0} chunks`} accent="text-cyan-600 dark:text-cyan-300" />
         <StatCard icon={Network} label="Entities" value={entityStats?.entities ?? "—"} hint={`${entityStats?.relationships ?? 0} relationships`} accent="text-teal-600 dark:text-teal-300" />
@@ -220,7 +324,7 @@ export default function Dashboard() {
         <StatCard icon={Target} label="Open signals" value={recCounts?.open ?? "—"} hint={`${recCounts?.executed ?? 0} executed · ${recCounts?.approved ?? 0} approved`} accent="text-amber-600 dark:text-amber-300" />
       </div>
 
-      {/* Phase 11 — Revenue recovery (first vertical) */}
+      {/* ---- Revenue Recovery ---- */}
       <Panel>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
@@ -334,242 +438,65 @@ export default function Dashboard() {
         </div>
       </Panel>
 
-      {/* Phase 12 — quick commands (restoration MVP) */}
-      <Panel
-        title="Quick commands"
-        description="The restoration demo journey — each command runs against your real claim records."
-      >
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <button
-            type="button"
-            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("What money are we leaving on the table?")}`)}
-            className="group flex items-start gap-3 rounded-xl border border-emerald-400/25 bg-emerald-400/5 p-3 text-left transition-all hover:border-emerald-400/50 hover:bg-emerald-400/10"
-          >
-            <BadgeDollarSign className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-300" />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Find missing revenue</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                “What are we leaving on the table?”
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard/revenue-recovery")}
-            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
-          >
-            <ClipboardList className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Review claims</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                Claims, packages & supplements
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Build the claim package")}`)}
-            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-sky-400/40 hover:bg-muted/40"
-          >
-            <Compass className="mt-0.5 size-4 shrink-0 text-sky-600 dark:text-sky-300" />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Build claim package</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                Verified, derived & missing labels
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate(`/dashboard/ask?q=${encodeURIComponent("Find potential supplements")}`)}
-            className="group flex items-start gap-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-left transition-all hover:border-amber-400/50 hover:bg-amber-400/10"
-          >
-            <FileSearch className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-300" />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Find supplements</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                Scan claims for opportunities
-              </span>
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard/ask")}
-            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-muted/20 p-3 text-left transition-all hover:border-teal-400/40 hover:bg-muted/40"
-          >
-            <MessageSquareText className="mt-0.5 size-4 shrink-0 text-teal-600 dark:text-teal-300" />
-            <span className="min-w-0">
-              <span className="block text-xs font-semibold text-foreground">Ask Atlas</span>
-              <span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">
-                Talk or type anything
-              </span>
-            </span>
-          </button>
-        </div>
-      </Panel>
-
-      {/* Knowledge graph + recommendations */}
-      <div className="grid gap-6 lg:grid-cols-5">
-        <Panel className="lg:col-span-3">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Network className="size-4 text-teal-600 dark:text-teal-300" />
-              Knowledge graph
-            </h2>
-            <button
-              type="button"
-              onClick={() => navigate("/dashboard/knowledge")}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
-            >
-              Open knowledge base <ArrowRight className="size-3" />
-            </button>
-          </div>
-          <div className="px-5 py-4">
-            {graph && graph.nodes.length > 0 ? (
-              <>
-                <MiniGraph nodes={graph.nodes} edges={graph.edges} />
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {Object.entries(entityStats?.typeCounts ?? {})
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 8)
-                    .map(([type, count]) => (
-                      <span
-                        key={type}
-                        className="flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
-                      >
-                        <span
-                          className="size-1.5 rounded-full"
-                          style={{ background: NODE_COLORS[type] ?? NODE_COLORS.unknown }}
-                        />
-                        {titleCase(type)} · {count}
-                      </span>
-                    ))}
-                </div>
-              </>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Network className="size-8 text-muted-foreground/40" />
-                <p className="mt-3 text-sm text-muted-foreground">
-                  No knowledge yet. Upload documents to grow your graph.
-                </p>
-                <div className="mt-4 flex gap-2">
-                  <Button size="sm" onClick={() => navigate("/dashboard/knowledge")}>
-                    <FileUp className="mr-2 size-3.5" />
-                    Upload documents
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={handleSeed} disabled={seeding}>
-                    <FlaskConical className="mr-2 size-3.5" />
-                    {seeding ? "Loading…" : "Load demo"}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </Panel>
-
-        <Panel className="lg:col-span-2">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Target className="size-4 text-amber-600 dark:text-amber-300" />
-              Priority signals
-            </h2>
-            <button
-              type="button"
-              onClick={() => navigate("/dashboard/recommendations")}
-              className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
-            >
-              All signals <ArrowRight className="size-3" />
-            </button>
-          </div>
-          <div className="divide-y divide-border/50">
-            {openRecs.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 px-5 py-8 text-center">
-                <Sparkles className="size-6 text-emerald-700/70 dark:text-emerald-600 dark:text-emerald-300/70" />
-                <p className="text-sm text-muted-foreground">
-                  No open signals. Run the comparison engine to scan for gaps and risks.
-                </p>
-              </div>
-            ) : (
-              openRecs.slice(0, 3).map((r) => (
-                <button
-                  key={r._id}
-                  type="button"
-                  onClick={() => navigate("/dashboard/recommendations")}
-                  className="block w-full px-5 py-3.5 text-left transition-colors hover:bg-muted/40"
-                >
-                  <div className="flex items-center gap-2">
-                    <PriorityBadge priority={r.priority} />
-                    <span className="text-xs font-medium text-muted-foreground">
-                      {formatDate(r.decidedAt ?? r._creationTime)}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 line-clamp-2 text-sm font-medium leading-5">{r.title}</p>
-                  <div className="mt-1.5">
-                    <ConfidenceBar value={r.confidence} />
-                  </div>
-                </button>
-              ))
-            )}
-            {pendingRecs.length > 0 && (
-              <div className="flex items-center justify-between px-5 py-2.5 text-xs text-muted-foreground">
-                <span>{pendingRecs.length} decided signal{pendingRecs.length === 1 ? "" : "s"} this period</span>
-                <RecStatusBadge status={pendingRecs[0].status} />
-              </div>
-            )}
-          </div>
-        </Panel>
-      </div>
-
-      {/* Activity */}
+      {/* ---- Knowledge Graph ---- */}
       <Panel>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3.5">
           <h2 className="flex items-center gap-2 text-sm font-semibold">
-            <Activity className="size-4 text-cyan-600 dark:text-cyan-300" />
-            Recent activity
+            <Network className="size-4 text-teal-600 dark:text-teal-300" />
+            Knowledge graph
           </h2>
           <button
             type="button"
-            onClick={() => navigate("/dashboard/audit")}
+            onClick={() => navigate("/dashboard/knowledge")}
             className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-700 dark:hover:text-teal-200"
           >
-            Audit log <ArrowRight className="size-3" />
+            Open knowledge base <ArrowRight className="size-3" />
           </button>
         </div>
-        <div className="divide-y divide-border/50">
-          {(activity ?? []).length === 0 ? (
-            <p className="px-5 py-6 text-sm text-muted-foreground">No activity yet.</p>
-          ) : (
-            (activity ?? []).slice(0, 8).map((log) => (
-              <div key={log._id} className="flex items-start gap-3 px-5 py-3">
-                <div className="mt-1 size-2 shrink-0 rounded-full bg-teal-400/70" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm">
-                    <span className="font-medium capitalize">
-                      {log.actionType.replace(/_/g, " ")}
-                    </span>{" "}
-                    <span className="text-muted-foreground">
-                      {log.targetType ? `· ${titleCase(log.targetType)}` : ""}
+        <div className="px-5 py-4">
+          {graph && graph.nodes.length > 0 ? (
+            <>
+              <MiniGraph nodes={graph.nodes} edges={graph.edges} />
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(entityStats?.typeCounts ?? {})
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 8)
+                  .map(([type, count]) => (
+                    <span
+                      key={type}
+                      className="flex items-center gap-1.5 rounded-full border border-border/70 px-2 py-0.5 font-mono text-[10px] text-muted-foreground"
+                    >
+                      <span
+                        className="size-1.5 rounded-full"
+                        style={{ background: NODE_COLORS[type] ?? NODE_COLORS.unknown }}
+                      />
+                      {titleCase(type)} · {count}
                     </span>
-                  </p>
-                  {log.metadata && (
-                    <p className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground/70">
-                      {JSON.stringify(log.metadata).slice(0, 120)}
-                    </p>
-                  )}
-                </div>
-                <div className="shrink-0 text-right">
-                  <p className="text-xs text-muted-foreground">{log.actorName ?? "system"}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground/60">
-                    {formatDate(log._creationTime)}
-                  </p>
-                </div>
+                  ))}
               </div>
-            ))
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <Network className="size-8 text-muted-foreground/40" />
+              <p className="mt-3 text-sm text-muted-foreground">
+                No knowledge yet. Upload documents to grow your graph.
+              </p>
+              <div className="mt-4 flex gap-2">
+                <Button size="sm" onClick={() => navigate("/dashboard/knowledge")}>
+                  <FileUp className="mr-2 size-3.5" />
+                  Upload documents
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleSeed} disabled={seeding}>
+                  <FlaskConical className="mr-2 size-3.5" />
+                  {seeding ? "Loading…" : "Load demo"}
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </Panel>
 
-      {/* Knowledge status strip */}
+      {/* ---- Pipeline Status ---- */}
       {!empty && docStats && docStats.total > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span className="font-mono uppercase tracking-wider">Pipeline</span>
@@ -595,23 +522,25 @@ export default function Dashboard() {
       )}
 
       {empty && (
-        <EmptyPanel
-          icon={Database}
-          title="Your knowledge base is empty"
-          description="Upload your first documents (SOPs, invoices, spreadsheets) or load the demo workspace to see Atlas in action."
-          action={
-            <div className="flex gap-2">
-              <Button onClick={() => navigate("/dashboard/knowledge")}>
-                <FileUp className="mr-2 size-4" />
-                Upload documents
-              </Button>
-              <Button variant="outline" onClick={handleSeed} disabled={seeding}>
-                <FlaskConical className="mr-2 size-4" />
-                {seeding ? "Loading demo…" : "Load demo knowledge"}
-              </Button>
-            </div>
-          }
-        />
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/70 py-16 text-center">
+          <Database className="size-8 text-muted-foreground/40" />
+          <div>
+            <p className="text-sm font-medium">Your knowledge base is empty</p>
+            <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
+              Upload your first documents (SOPs, invoices, spreadsheets) or load the demo workspace to see Atlas in action.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => navigate("/dashboard/knowledge")}>
+              <FileUp className="mr-2 size-4" />
+              Upload documents
+            </Button>
+            <Button variant="outline" onClick={handleSeed} disabled={seeding}>
+              <FlaskConical className="mr-2 size-4" />
+              {seeding ? "Loading demo…" : "Load demo knowledge"}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

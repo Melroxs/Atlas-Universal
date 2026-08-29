@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
 import { RequireInternalAuth } from "@/components/RequireInternalAuth";
 import { AppShell } from "@/components/app-shell";
+import { VoiceSessionProvider } from "@/components/voice-session";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
@@ -50,7 +51,11 @@ const PilotCRM = lazy(() => import("./pages/pilot/PilotCRM.tsx"));
 const PilotOutreach = lazy(() => import("./pages/pilot/PilotOutreach.tsx"));
 const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 
-/** Protected section: auth gate + workspace shell (workspace gate inside). */
+/** Protected section: auth gate + workspace shell.
+ * VoiceSessionProvider is mounted OUTSIDE the router (see render tree) so the
+ * voice session survives route navigation — the entire reason ambient listening
+ * previously died after the first wake-word cycle.
+ */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
@@ -155,6 +160,7 @@ createRoot(document.getElementById("root")!).render(
         <VlyToolbar />
       </ToolbarErrorBoundary>
       <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange storageKey="atlas-theme">
+        <VoiceSessionProvider>
         <BrowserRouter>
           <RouteSyncer />
           <Suspense fallback={<RouteLoading />}>
@@ -454,6 +460,7 @@ createRoot(document.getElementById("root")!).render(
           </Suspense>
         </BrowserRouter>
         <Toaster />
+        </VoiceSessionProvider>
       </ThemeProvider>
     </RootErrorBoundary>
   </StrictMode>,

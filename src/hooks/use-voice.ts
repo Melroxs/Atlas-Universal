@@ -1,4 +1,3 @@
-import { api } from "@/lib/api";
 import {
   browserSpeechRecognitionSupported,
   browserSpeechSynthesisSupported,
@@ -18,7 +17,9 @@ import {
   initVoiceBridge,
   initSafetyGate,
 } from "@/lib/voice-runtime";
+import { useVoiceSession, type VoiceStatus as SessionVoiceStatus } from "@/components/voice-session";
 import { useAction, useQuery } from "@/hooks/use-supabase";
+import { api } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export type VoiceStatus =
@@ -93,37 +94,16 @@ function storedAmbient(): boolean {
  * - A diagnostics event log is kept for the developer-visible Voice panel.
  */
 export function useVoice({ onTranscript, onAmbientCommand, entityContext, pageContext }: UseVoiceOptions) {
-  const [status, setStatus] = useState<VoiceStatus>("idle");
-  const [wakeState, setWakeState] = useState<WakeState>("off");
-  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(storedAmbient);
-  const [interim, setInterim] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [voiceEvents, setVoiceEvents] = useState<VoiceLogEntry[]>([]);
-  const providerStatus = useQuery(api.voice.voiceProviderStatus);
-  const synthesize = useAction(api.voice.synthesizeSpeech);
+  // Try to use the shared voice session. Falls back to local implementation
+  // when the provider is not mounted (landing page, tests).
+  const session = useVoiceSession();
+  const isShared = session.ambientSupported || session.status !== "idle" || session.ambientEnabled;
 
-  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
-  const wakeEngineRef = useRef<WakeWordEngine | null>(null);
-  /**
-   * Safety net: after an ambient command is handed to the brain, Atlas pauses
-   * the engine until it speaks. If the caller never speaks (auto-speak off,
-   * error, long think), this timer returns the engine to wake listening so
-   * ambient mode never silently dies.
-   */
-  const ambientRoundTripRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /**
-   * True while Atlas is processing an ambient command or capturing a
-   * push-to-talk utterance. While true, the transient-pause auto-resume in
-   * the state effect is suppressed so the engine stays paused (one
-   * SpeechRecognition at a time; Atlas never listens while processing).
-   */
-  const captureBusyRef = useRef(false);
-  const onTranscriptRef = useRef(onTranscript);
-  onTranscriptRef.current = onTranscript;
+  // Always register the ambient command handler so it's available when needed
   const onAmbientCommandRef = useRef(onAmbientCommand);
   onAmbientCommandRef.current = onAmbientCommand;
-  const statusRef = useRef<VoiceStatus>(status);
-  statusRef.current = status;
+  const onTranscriptRef = useRef(onTranscript);
+  onTranscriptRef.current = onTranscript;
 
   // Initialize Voice Runtime on mount
   const voiceRuntimeReadyRef = useRef(false);
@@ -145,6 +125,49 @@ export function useVoice({ onTranscript, onAmbientCommand, entityContext, pageCo
   const voiceRuntimeStatus = voiceRuntimeReadyRef.current
     ? getVoiceRuntimeStatus()
     : null;
+
+  // -- Shared session mode --
+  if (isShared) {
+    return {
+      status: session.status as VoiceStatus,
+      wakeState: session.wakeState as WakeState,
+      ambientEnabled: session.ambientEnabled,
+      ambientSupported: session.ambientSupported,
+      supported: session.supported,
+      ttsSupported: session.ttsSupported,
+      interim: session.interim,
+      error: session.error,
+      voiceEvents: [] as VoiceLogEntry[],
+      pushDiagnostic: () => {},
+      start: session.togglePtt,
+      stop: session.togglePtt,
+      toggle: session.togglePtt,
+      speak: session.speak,
+      stopSpeaking: session.stopSpeaking,
+      enableAmbient: session.enableAmbient,
+      disableAmbient: session.disableAmbient,
+      toggleAmbient: session.toggleAmbient,
+      voiceRuntimeStatus,
+      processVoiceTranscript,
+    };
+  }
+
+  // -- Fallback local implementation (no provider mounted) --
+  const [status, setStatus] = useState<VoiceStatus>("idle");
+  const [wakeState, setWakeState] = useState<WakeState>("off");
+  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(storedAmbient);
+  const [interim, setInterim] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [voiceEvents, setVoiceEvents] = useState<VoiceLogEntry[]>([]);
+  const providerStatus = useQuery(api.voice.voiceProviderStatus);
+  const synthesize = useAction(api.voice.synthesizeSpeech);
+
+  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
+  const wakeEngineRef = useRef<WakeWordEngine | null>(null);
+  const ambientRoundTripRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureBusyRef = useRef(false);
+  const statusRef = useRef<VoiceStatus>(status);
+  statusRef.current = status;
 
   const supported = browserSpeechRecognitionSupported();
   const ttsSupported = browserSpeechSynthesisSupported();

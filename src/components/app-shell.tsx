@@ -1,4 +1,5 @@
 import { AtlasAssistant } from "@/components/atlas-assistant";
+import { useVoiceSession } from "@/components/voice-session";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessPilotAdmin, canAccessCRM, canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
@@ -60,6 +61,78 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
+
+/**
+ * Global ambient voice indicator — a small pill in the bottom-left corner
+ * that shows the current voice session state. Visible even when the
+ * floating assistant panel is closed.
+ */
+function GlobalVoiceIndicator() {
+  const session = useVoiceSession();
+  const isActive =
+    session.ambientEnabled &&
+    session.status !== "idle" &&
+    session.status !== "unavailable" &&
+    session.status !== "permission_required";
+
+  if (!isActive) return null;
+
+  const dotColor = (() => {
+    switch (session.status) {
+      case "listening_for_wake_word":
+        return "bg-emerald-400";
+      case "wake_detected":
+        return "bg-amber-400 animate-pulse";
+      case "listening_for_command":
+        return "bg-rose-400 animate-pulse";
+      case "thinking":
+        return "bg-amber-400 animate-pulse";
+      case "speaking":
+        return "bg-teal-400 animate-pulse";
+      case "interrupted":
+        return "bg-slate-400";
+      case "paused":
+        return "bg-slate-400";
+      case "error":
+        return "bg-rose-500";
+      default:
+        return "bg-emerald-400";
+    }
+  })();
+
+  const label = (() => {
+    switch (session.status) {
+      case "listening_for_wake_word":
+        return "Listening";
+      case "wake_detected":
+        return "Yes?";
+      case "listening_for_command":
+        return "Listening…";
+      case "thinking":
+        return "Thinking…";
+      case "speaking":
+        return "Speaking…";
+      case "interrupted":
+        return "Stopped";
+      case "paused":
+        return "Paused";
+      case "error":
+        return "Error";
+      default:
+        return "Active";
+    }
+  })();
+
+  return (
+    <div className="fixed bottom-5 left-5 z-40">
+      <div className="flex items-center gap-2 rounded-full border border-border/70 bg-background/90 px-3 py-1.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur-sm">
+        <span className={`size-1.5 rounded-full ${dotColor}`} />
+        <span className="text-foreground">Atlas</span>
+        <span className="text-muted-foreground">{label}</span>
+      </div>
+    </div>
+  );
+}
 
 const NAV_SECTIONS: Array<{
   label: string;
@@ -441,6 +514,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </main>
       </SidebarInset>
+
+      {/* Global ambient voice indicator — visible when ambient listening is
+          active, even when the floating panel is closed. */}
+      <GlobalVoiceIndicator />
 
       {/* Phase 10 — persistent Atlas assistant, available across the app. */}
       <AtlasAssistant pageContext={location.pathname} />

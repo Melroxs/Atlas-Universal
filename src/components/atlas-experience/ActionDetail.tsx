@@ -172,7 +172,6 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   show_decision: FileText,
   prepare_supplement: Sparkles,
   prepare_email: Send,
-  prepare_crm_activity: FileText,
   submit_supplement: Send,
   send_email: Send,
   approve_recommendation: CheckCircle2,

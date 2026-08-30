@@ -1,9 +1,7 @@
 import { useAuth } from "@/hooks/use-auth";
 import {
-  canAccessPilotAdmin,
-  canAccessCRM,
-  canAccessMail,
   canAccessUserAdmin,
+  canAccessPlatformAdmin,
   type AtlasRole,
 } from "@/lib/auth/access-gate";
 import { Loader2, ShieldAlert } from "lucide-react";
@@ -14,36 +12,27 @@ import { Link, Navigate, useLocation } from "react-router";
  * Which internal section this guard protects.
  * Each section has specific role requirements.
  */
-type InternalSection = "pilot" | "crm" | "mail" | "users";
+type InternalSection = "users";
 
 const SECTION_LABELS: Record<InternalSection, string> = {
-  pilot: "Pilot Operations",
-  crm: "CRM",
-  mail: "Atlas Mail",
-  users: "Users & Access",
+  users: "Organizations",
 };
 
 function hasSectionAccess(role: AtlasRole, section: InternalSection): boolean {
   switch (section) {
-    case "pilot":
-      return canAccessPilotAdmin(role);
-    case "crm":
-      return canAccessCRM(role);
-    case "mail":
-      return canAccessMail(role);
     case "users":
-      return canAccessUserAdmin(role);
+      return canAccessUserAdmin(role) || canAccessPlatformAdmin(role);
     default:
       return false;
   }
 }
 
 /**
- * Route guard for internal Atlas sections (Pilot, CRM, Mail, Users).
+ * Route guard for internal Atlas sections (Users/Organizations).
  *
  * Unlike RequireAuth (which gates on authentication + account status),
  * RequireInternalAuth additionally gates on the user's platform_role.
- * Customer-level users who manually navigate to /dashboard/pilot/crm will
+ * Customer-level users who manually navigate to /dashboard/users will
  * see a clear "Insufficient Permissions" page instead of internal data.
  */
 export function RequireInternalAuth({

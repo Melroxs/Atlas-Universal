@@ -421,100 +421,6 @@ export interface BusinessBrainShape extends Obj {
 // The registry
 // ---------------------------------------------------------------------------
 
-// ---------------------------------------------------------------------------
-// Pilot Intelligence types
-// ---------------------------------------------------------------------------
-
-export interface PilotCompanyRow {
-  id: string;
-  tenant_id: string;
-  name: string;
-  contact_name?: string | null;
-  contact_email?: string | null;
-  contact_phone?: string | null;
-  website?: string | null;
-  company_type?: string | null;
-  company_size?: string | null;
-  claims_volume?: string | null;
-  status?: string;
-  notes?: string | null;
-  created_at: string;
-  updated_at?: string;
-}
-
-export interface PilotSessionRow {
-  id: string;
-  tenant_id: string;
-  company_id?: string | null;
-  session_type: string;
-  title?: string | null;
-  summary?: string | null;
-  notes?: string | null;
-  attendee?: string | null;
-  scheduled_at?: string | null;
-  duration_min?: number | null;
-  outcome?: string | null;
-  created_at: string;
-}
-
-export interface PilotInsightRow {
-  id: string;
-  tenant_id: string;
-  company_id?: string | null;
-  session_id?: string | null;
-  insight_type: string;
-  title: string;
-  description?: string | null;
-  priority?: string;
-  status?: string;
-  source?: string | null;
-  tags?: string[];
-  created_at: string;
-  updated_at?: string;
-}
-
-export interface PilotOutcomeRow {
-  id: string;
-  tenant_id: string;
-  company_id?: string | null;
-  outcome_type: string;
-  title: string;
-  description?: string | null;
-  financial_impact?: number | null;
-  claim_id?: string | null;
-  recommendation_id?: string | null;
-  evidence_count?: number;
-  status?: string;
-  created_at: string;
-}
-
-export interface PilotTestimonialRow {
-  id: string;
-  tenant_id: string;
-  company_id?: string | null;
-  quote: string;
-  author_name?: string | null;
-  author_role?: string | null;
-  is_public?: boolean;
-  created_at: string;
-}
-
-export interface PilotAnalyticsShape {
-  totalCompanies: number;
-  activeCompanies: number;
-  totalSessions: number;
-  totalInsights: number;
-  openInsights: number;
-  totalOutcomes: number;
-  totalRevenueRecovery: number;
-  totalTestimonials: number;
-  insightsByType: Array<{ type: string; count: number }>;
-  insightsByPriority: Array<{ priority: string; count: number }>;
-  companiesByStatus: Array<{ status: string; count: number }>;
-  recentActivity: Obj[];
-}
-
-
 export const api = {
   users: {
     currentUser: def<UserRow | null>("users_current_user", "query"),
@@ -1425,30 +1331,7 @@ export const api = {
     seedDemoData: def<Obj>("seed_demo_data", "mutation"),
     seedDemoClaims: def<{ ok: boolean }>("seed_demo_claims", "mutation"),
   },
-pilotIntelligence: {
-    listCompanies: def<PilotCompanyRow[]>("pilot_companies_list", "query"),
-    createCompany: def<PilotCompanyRow>("pilot_companies_create", "mutation"),
-    updateCompany: def<PilotCompanyRow>("pilot_companies_update", "mutation"),
-    deleteCompany: def<boolean>("pilot_companies_delete", "mutation"),
-    listSessions: def<PilotSessionRow[]>("pilot_sessions_list", "query"),
-    createSession: def<PilotSessionRow>("pilot_sessions_create", "mutation"),
-    deleteSession: def<boolean>("pilot_sessions_delete", "mutation"),
-    listInsights: def<PilotInsightRow[]>("pilot_insights_list", "query"),
-    createInsight: def<PilotInsightRow>("pilot_insights_create", "mutation"),
-    updateInsightStatus: def<PilotInsightRow>("pilot_insights_update_status", "mutation"),
-    deleteInsight: def<boolean>("pilot_insights_delete", "mutation"),
-    listOutcomes: def<PilotOutcomeRow[]>("pilot_outcomes_list", "query"),
-    createOutcome: def<PilotOutcomeRow>("pilot_outcomes_create", "mutation"),
-    deleteOutcome: def<boolean>("pilot_outcomes_delete", "mutation"),
-    listTestimonials: def<PilotTestimonialRow[]>("pilot_testimonials_list", "query"),
-    createTestimonial: def<PilotTestimonialRow>("pilot_testimonials_create", "mutation"),
-    getAnalytics: def<PilotAnalyticsShape>("pilot_analytics", "query"),
-  },
-  admin: {
-    listPilotApplications: def<ObjArray>("pilot_list_applications", "query"),
-    getApplication: def<Obj | null>("pilot_get_application", "query"),
-    reviewPilotApplication: def<{ ok: boolean }>("pilot_review_application", "mutation"),
-    pilotApplicationStats: def<Obj>("pilot_application_stats", "query"),
+admin: {
     provisionUser: def<Obj>("admin_provision_user", "mutation"),
     listProvisions: def<ObjArray>("admin_list_provisions", "query"),
     listAuditLog: def<ObjArray>("admin_list_audit_log", "query"),
@@ -1461,35 +1344,6 @@ pilotIntelligence: {
     listTenants: def<ObjArray>("admin_list_tenants", "query"),
     createTenant: def<{ ok: boolean }>("admin_create_tenant", "mutation"),
     inviteUser: def<{ ok: boolean; user_id?: string; action?: string; message?: string }>("admin_invite_user", "mutation"),
-  },
-  crm: {
-    listLeads: def<ObjArray>("crm_list_leads", "query"),
-    getLead: def<Obj | null>("crm_get_lead", "query"),
-    createLead: def<Obj>("crm_create_lead", "mutation"),
-    updateLead: def<Obj>("crm_update_lead", "mutation"),
-    deleteLead: def<{ ok: boolean }>("crm_delete_lead", "mutation"),
-    addActivity: def<Obj>("crm_add_activity", "mutation"),
-    listTasks: def<ObjArray>("crm_list_tasks", "query"),
-    createTask: def<Obj>("crm_create_task", "mutation"),
-    completeTask: def<{ ok: boolean }>("crm_complete_task", "mutation"),
-    dashboardStats: def<Obj>("crm_dashboard_stats", "query"),
-    // Custom fields
-    listCustomFields: def<ObjArray>("crm_list_custom_fields", "query"),
-    createCustomField: def<Obj>("crm_create_custom_field", "mutation"),
-    deleteCustomField: def<{ ok: boolean }>("crm_delete_custom_field", "mutation"),
-    getCustomFieldValues: def<ObjArray>("crm_get_custom_field_values", "query"),
-    upsertCustomFieldValue: def<Obj>("crm_upsert_custom_field_value", "mutation"),
-    bulkUpsertCustomFieldValues: def<{ count: number }>("crm_bulk_upsert_custom_field_values", "mutation"),
-  },
-  email: {
-    listTemplates: def<ObjArray>("email_list_templates", "query"),
-    saveTemplate: def<Obj>("email_save_template", "mutation"),
-    deleteTemplate: def<{ ok: boolean }>("email_delete_template", "mutation"),
-    createOutreach: def<Obj>("email_create_outreach", "mutation"),
-    listOutreach: def<ObjArray>("email_list_outreach", "query"),
-    listSignatures: def<ObjArray>("email_list_signatures", "query"),
-    saveSignature: def<Obj>("email_save_signature", "mutation"),
-    deleteSignature: def<{ ok: boolean }>("email_delete_signature", "mutation"),
   },
   industryKnowledge: {
     // Industry knowledge layer — Layer 1 (global, shared across all customers)

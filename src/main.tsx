@@ -2,7 +2,6 @@ import '@vly-ai/integrations';
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { RequireInternalAuth } from "@/components/RequireInternalAuth";
 import { AppShell } from "@/components/app-shell";
 import { VoiceSessionProvider } from "@/components/voice-session";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
@@ -13,7 +12,6 @@ import "./index.css";
 
 // Lazy load route components for better code splitting
 const Landing = lazy(() => import("./pages/Landing.tsx"));
-const Pilot = lazy(() => import("./pages/Pilot.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Setup = lazy(() => import("./pages/Setup.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
@@ -35,21 +33,9 @@ const Team = lazy(() => import("./pages/Team.tsx"));
 const Audit = lazy(() => import("./pages/Audit.tsx"));
 const Settings = lazy(() => import("./pages/Settings.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
-const PilotIntelligence = lazy(() => import("./pages/PilotIntelligence.tsx"));
-const PilotCompanies = lazy(() => import("./pages/PilotCompanies.tsx"));
-const PilotSessions = lazy(() => import("./pages/PilotSessions.tsx"));
-const PilotInsights = lazy(() => import("./pages/PilotInsights.tsx"));
-const PilotOutcomes = lazy(() => import("./pages/PilotOutcomes.tsx"));
-const MailInbox = lazy(() => import("./pages/mail/MailInbox.tsx"));
-const MailSettings = lazy(() => import("./pages/mail/MailSettings.tsx"));
-const PilotApply = lazy(() => import("./pages/PilotApply.tsx"));
+const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
-const PilotHub = lazy(() => import("./pages/pilot/PilotHub.tsx"));
-const PilotApplications = lazy(() => import("./pages/pilot/PilotApplications.tsx"));
-const PilotCRM = lazy(() => import("./pages/pilot/PilotCRM.tsx"));
-const PilotOutreach = lazy(() => import("./pages/pilot/PilotOutreach.tsx"));
-const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 
 /** Protected section: auth gate + workspace shell.
  * VoiceSessionProvider is mounted OUTSIDE the router (see render tree) so the
@@ -166,7 +152,6 @@ createRoot(document.getElementById("root")!).render(
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />
-              <Route path="/pilot" element={<Pilot />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}
@@ -324,128 +309,12 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
               <Route
-                path="/dashboard/pilot-intelligence"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotIntelligence />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot-intelligence/companies"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotCompanies />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot-intelligence/sessions"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotSessions />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot-intelligence/insights"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotInsights />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot-intelligence/outcomes"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotOutcomes />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotHub />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot/applications"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotApplications />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot/crm"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="crm">
-                      <PilotCRM />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/pilot/outreach"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="pilot">
-                      <PilotOutreach />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/mail"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="mail">
-                      <MailInbox />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/mail/settings"
-                element={
-                  <ProtectedLayout>
-                    <RequireInternalAuth section="mail">
-                      <MailSettings />
-                    </RequireInternalAuth>
-                  </ProtectedLayout>
-                }
-              />
-              <Route
                 path="/dashboard/users"
                 element={
                   <ProtectedLayout>
-                    <RequireInternalAuth section="users">
-                      <UsersAccess />
-                    </RequireInternalAuth>
+                    <UsersAccess />
                   </ProtectedLayout>
                 }
-              />
-              <Route
-                path="/pilot-apply"
-                element={<PilotApply />}
               />
               <Route
                 path="/access-denied"

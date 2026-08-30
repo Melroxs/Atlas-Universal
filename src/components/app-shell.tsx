@@ -2,7 +2,7 @@ import { AtlasAssistant } from "@/components/atlas-assistant";
 import { useVoiceSession } from "@/components/voice-session";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessPilotAdmin, canAccessCRM, canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
+import { canAccessUserAdmin, canAccessPlatformAdmin } from "@/lib/auth/access-gate";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,14 +36,11 @@ import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   Brain,
-  Building2,
   Cable,
-  Calendar,
   Database,
   Landmark,
   LayoutGrid,
   Layers,
-  Lightbulb,
   LogOut,
   MessageSquareText,
   Radar,
@@ -55,9 +52,7 @@ import {
   Users,
   Workflow,
   Zap,
-  Mail,
-  FileText,
-  Send,
+  Globe,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
@@ -187,34 +182,9 @@ const NAV_SECTIONS: Array<{
     ],
   },
   {
-    label: "Admin",
+    label: "Platform",
     items: [
-      { to: "/dashboard/users", label: "Users & Access", icon: Users },
-    ],
-  },
-  {
-    label: "Mail",
-    items: [
-      { to: "/dashboard/mail", label: "Atlas Mail", icon: Mail },
-    ],
-  },
-  {
-    label: "Pilot",
-    items: [
-      { to: "/dashboard/pilot", label: "Command Center", icon: Radar },
-      { to: "/dashboard/pilot/applications", label: "Applications", icon: FileText },
-      { to: "/dashboard/pilot/crm", label: "CRM", icon: Users },
-      { to: "/dashboard/pilot/outreach", label: "Outreach", icon: Send },
-    ],
-  },
-  {
-    label: "Pilot Intelligence",
-    items: [
-      { to: "/dashboard/pilot-intelligence", label: "Intelligence", icon: Radar },
-      { to: "/dashboard/pilot-intelligence/companies", label: "Companies", icon: Building2 },
-      { to: "/dashboard/pilot-intelligence/sessions", label: "Sessions", icon: Calendar },
-      { to: "/dashboard/pilot-intelligence/insights", label: "Insights", icon: Lightbulb },
-      { to: "/dashboard/pilot-intelligence/outcomes", label: "Outcomes", icon: Target },
+      { to: "/dashboard/users", label: "Organizations", icon: Globe },
     ],
   },
 ];
@@ -235,18 +205,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",
-  "/dashboard/pilot-intelligence": "Pilot Intelligence",
-  "/dashboard/pilot-intelligence/companies": "Pilot Companies",
-  "/dashboard/pilot-intelligence/sessions": "Pilot Sessions",
-  "/dashboard/pilot-intelligence/insights": "Pilot Insights",
-  "/dashboard/pilot-intelligence/outcomes": "Pilot Outcomes",
-  "/dashboard/mail": "Atlas Mail",
-  "/dashboard/mail/settings": "Mail Settings",
-  "/dashboard/pilot": "Pilot Command Center",
-  "/dashboard/pilot/applications": "Pilot Applications",
-  "/dashboard/pilot/crm": "CRM",
-  "/dashboard/pilot/outreach": "Outreach Center",
-  "/dashboard/users": "Users & Access",
+  "/dashboard/users": "Organizations",
 };
 
 function initials(name?: string | null, email?: string | null): string {
@@ -266,10 +225,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const location = useLocation();
   const workspace = useQuery(api.tenants.getMyWorkspace);
-  // recommendationCounts calls requireTenant server-side, which throws for
-  // signed-in users who don't have a workspace yet (fresh sign-in before
-  // /setup completes). Subscribe only once a workspace actually exists; the
-  // loading/null early returns below would otherwise still run this query.
   const recCounts = useQuery(
     api.recommendations.recommendationCounts,
     workspace ? undefined : "skip",
@@ -278,16 +233,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   const claimInvites = useMutation(api.tenants.claimInvites);
   const runDueSyncs = useAction(api.connectionsSync.runDueSyncs);
 
-  // Track whether we just claimed invites so invited users aren't redirected
-  // to /setup before their workspace data loads.
   const [justClaimedInvites, setJustClaimedInvites] = useState(false);
   const hasClaimed = useRef(false);
 
-  // Idempotent: ensure the pack catalog exists, claim any invites, and let
-  // background syncs pick up connected sources that are due for a refresh.
-  // Connections sync is optional infrastructure — a failure (edge function
-  // not deployed, CORS, timeout) is logged once for diagnostics and NEVER
-  // blocks the app.
   useEffect(() => {
     void seedIntelligence();
     void claimInvites().then((result) => {
@@ -295,7 +243,6 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (claimed > 0 && !hasClaimed.current) {
         hasClaimed.current = true;
         setJustClaimedInvites(true);
-        // Clear the flag after a short delay to allow workspace data to reload
         setTimeout(() => setJustClaimedInvites(false), 3000);
       }
     });
@@ -318,9 +265,6 @@ export function AppShell({ children }: { children: ReactNode }) {
     );
   }
 
-  // For invited users who just claimed their invite, allow a brief grace
-  // period before enforcing the onboarding check (workspace data may not
-  // have reloaded yet).
   if (!justClaimedInvites) {
     if (
       workspace === null ||
@@ -370,13 +314,8 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <SidebarContent>
           {NAV_SECTIONS.filter((section) => {
-            // Filter nav sections by role
-            if (section.label === "Admin") return canAccessUserAdmin(role);
-            if (section.label === "Mail") return canAccessMail(role);
-            if (section.label === "Pilot") return canAccessPilotAdmin(role);
-            if (section.label === "Pilot Intelligence") return canAccessPilotAdmin(role);
-            if (section.label === "CRM") return canAccessCRM(role);
-            // Operations, Intelligence, Atlas, Workspace are visible to all authenticated users
+            // Platform section only visible to super_admin and atlas_admin
+            if (section.label === "Platform") return canAccessPlatformAdmin(role) || canAccessUserAdmin(role);
             return true;
           }).map((section) => (
             <SidebarGroup key={section.label}>
@@ -515,11 +454,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </SidebarInset>
 
-      {/* Global ambient voice indicator — visible when ambient listening is
-          active, even when the floating panel is closed. */}
+      {/* Global ambient voice indicator */}
       <GlobalVoiceIndicator />
 
-      {/* Phase 10 — persistent Atlas assistant, available across the app. */}
+      {/* Persistent Atlas assistant */}
       <AtlasAssistant pageContext={location.pathname} />
     </SidebarProvider>
   );

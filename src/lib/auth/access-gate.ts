@@ -7,16 +7,15 @@
  *
  * The model:
  *   Roles (platform_role):
- *     super_admin     → full platform access
- *     atlas_admin     → Atlas + CRM + Mail + Users (no Pilot admin)
- *     customer_admin  → customer dashboard + company settings
+ *     super_admin     → full platform access + organization administration
+ *     atlas_admin     → Atlas product access + user management
+ *     customer_admin  → customer dashboard + team management
  *     customer_user   → customer dashboard only
- *     pilot_user      → pilot experience only
  *     user            → default (treated as customer_user)
  *
  *   Account status (account_status):
  *     active          → allowed
- *     pending         → denied (pilot gating)
+ *     pending         → denied (onboarding gating)
  *     suspended       → denied
  *     revoked         → denied
  *     null/missing    → denied (fail-closed)
@@ -31,7 +30,6 @@ export type AtlasRole =
   | "atlas_admin"
   | "customer_admin"
   | "customer_user"
-  | "pilot_user"
   | "user";
 
 export type AtlasAccountStatus = "active" | "pending" | "suspended" | "revoked";
@@ -98,7 +96,6 @@ const VALID_ROLES: AtlasRole[] = [
   "atlas_admin",
   "customer_admin",
   "customer_user",
-  "pilot_user",
   "user",
 ];
 
@@ -133,27 +130,11 @@ export function isInternalRole(role: AtlasRole): boolean {
 }
 
 /**
- * Can this role access the Pilot admin section?
- * Only super_admin has Pilot admin access.
+ * Can this role access the platform administration section?
+ * Only super_admin has platform admin access (organization management).
  */
-export function canAccessPilotAdmin(role: AtlasRole): boolean {
+export function canAccessPlatformAdmin(role: AtlasRole): boolean {
   return role === "super_admin";
-}
-
-/**
- * Can this role access the CRM section?
- * super_admin and atlas_admin.
- */
-export function canAccessCRM(role: AtlasRole): boolean {
-  return role === "super_admin" || role === "atlas_admin";
-}
-
-/**
- * Can this role access the Mail/outreach section?
- * super_admin and atlas_admin.
- */
-export function canAccessMail(role: AtlasRole): boolean {
-  return role === "super_admin" || role === "atlas_admin";
 }
 
 /**
@@ -198,10 +179,9 @@ export function getDefaultLandingPath(role: AtlasRole): string {
     case "atlas_admin":
       return "/dashboard";
     case "customer_admin":
+      return "/dashboard";
     case "customer_user":
       return "/dashboard";
-    case "pilot_user":
-      return "/dashboard/pilot";
     default:
       return "/dashboard";
   }

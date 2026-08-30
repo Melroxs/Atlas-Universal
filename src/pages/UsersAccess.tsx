@@ -38,7 +38,6 @@ const ROLES = [
   { value: "atlas_admin", label: "Atlas Admin", color: "default" },
   { value: "customer_admin", label: "Customer Admin", color: "secondary" },
   { value: "customer_user", label: "Customer User", color: "secondary" },
-  { value: "pilot_user", label: "Pilot User", color: "outline" },
   { value: "user", label: "User", color: "outline" },
 ] as const;
 

@@ -168,7 +168,7 @@ export function resolveEntityParent(
       type: "company",
       id: String(entityData.companyId),
       label: String(entityData.customer ?? "Company"),
-      href: `/dashboard/pilot`,
+      href: `/dashboard`,
     };
   }
 
@@ -325,7 +325,7 @@ export function getEntityHierarchy(
       type: "company",
       id: String(entityData.companyId ?? "company"),
       label: String(entityData.customer ?? entityData.companyName ?? "Company"),
-      href: "/dashboard/pilot",
+      href: "/dashboard",
     });
   }
 

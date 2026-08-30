@@ -8,10 +8,10 @@
  * The model:
  *   Roles (platform_role):
  *     super_admin     → full platform access
- *     atlas_admin     → Atlas + CRM + Mail + Users (no Pilot admin)
+ *     atlas_admin     → Atlas + Mail + Users
  *     customer_admin  → customer dashboard + company settings
  *     customer_user   → customer dashboard only
- *     pilot_user      → pilot experience only
+ *     pilot_user      → @deprecated mapped to customer_user
  *     user            → default (treated as customer_user)
  *
  *   Account status (account_status):
@@ -130,22 +130,18 @@ export function normalizeStatus(raw?: string | null): AtlasAccountStatus {
  */
 export function isInternalRole(role: AtlasRole): boolean {
   return role === "super_admin" || role === "atlas_admin";
+}/**
+ * @deprecated Pilot product removed. Pilot users are now customer_user.
+ */
+export function canAccessPilotAdmin(_role: AtlasRole): boolean {
+  return false;
 }
 
 /**
- * Can this role access the Pilot admin section?
- * Only super_admin has Pilot admin access.
+ * @deprecated CRM product removed from Atlas.
  */
-export function canAccessPilotAdmin(role: AtlasRole): boolean {
-  return role === "super_admin";
-}
-
-/**
- * Can this role access the CRM section?
- * super_admin and atlas_admin.
- */
-export function canAccessCRM(role: AtlasRole): boolean {
-  return role === "super_admin" || role === "atlas_admin";
+export function canAccessCRM(_role: AtlasRole): boolean {
+  return false;
 }
 
 /**
@@ -201,7 +197,7 @@ export function getDefaultLandingPath(role: AtlasRole): string {
     case "customer_user":
       return "/dashboard";
     case "pilot_user":
-      return "/dashboard/pilot";
+      return "/dashboard";
     default:
       return "/dashboard";
   }

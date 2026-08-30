@@ -59,14 +59,6 @@ export type ActivityCategory =
   | "recovery_amount_updated"
   | "knowledge_entity_created"
   | "knowledge_entity_confirmed"
-  | "crm_lead_created"
-  | "crm_lead_stage_changed"
-  | "crm_email_sent"
-  | "crm_email_received"
-  | "crm_reply_received"
-  | "crm_task_created"
-  | "crm_task_completed"
-  | "crm_demo_scheduled"
   | "user_action"
   | "system_error"
   | "integration_sync"
@@ -169,14 +161,6 @@ export const CATEGORY_SIGNIFICANCE: Record<ActivityCategory, ActivitySignificanc
   recovery_amount_updated: "notable",
   knowledge_entity_created: "routine",
   knowledge_entity_confirmed: "routine",
-  crm_lead_created: "notable",
-  crm_lead_stage_changed: "notable",
-  crm_email_sent: "routine",
-  crm_email_received: "notable",
-  crm_reply_received: "important",
-  crm_task_created: "routine",
-  crm_task_completed: "routine",
-  crm_demo_scheduled: "important",
   user_action: "routine",
   system_error: "important",
   integration_sync: "routine",
@@ -215,14 +199,6 @@ export const CATEGORY_LABELS: Record<ActivityCategory, string> = {
   recovery_amount_updated: "Recovery amount updated",
   knowledge_entity_created: "Knowledge entity created",
   knowledge_entity_confirmed: "Knowledge entity confirmed",
-  crm_lead_created: "Lead created",
-  crm_lead_stage_changed: "Lead stage changed",
-  crm_email_sent: "Email sent",
-  crm_email_received: "Email received",
-  crm_reply_received: "Reply received",
-  crm_task_created: "Task created",
-  crm_task_completed: "Task completed",
-  crm_demo_scheduled: "Demo scheduled",
   user_action: "User action",
   system_error: "System error",
   integration_sync: "Integration sync",
@@ -367,37 +343,4 @@ export function documentEventToActivity(event: {
   };
 }
 
-/**
- * Create an activity from a CRM event.
- */
-export function crmEventToActivity(event: {
-  _id: string;
-  type: string;
-  title?: string;
-  description?: string;
-  companyName?: string;
-  _creationTime: number;
-}): AtlasActivity {
-  const eventType = event.type;
-  let category: ActivityCategory = "crm_task_created";
-  const lower = eventType.toLowerCase();
-  if (lower.includes("lead") && lower.includes("created")) category = "crm_lead_created";
-  else if (lower.includes("stage")) category = "crm_lead_stage_changed";
-  else if (lower.includes("email") && lower.includes("sent")) category = "crm_email_sent";
-  else if (lower.includes("email") && lower.includes("received")) category = "crm_email_received";
-  else if (lower.includes("reply")) category = "crm_reply_received";
-  else if (lower.includes("task") && lower.includes("complete")) category = "crm_task_completed";
-  else if (lower.includes("demo")) category = "crm_demo_scheduled";
 
-  return {
-    id: nextId("crm"),
-    entity: { type: "lead", id: event._id, label: event.companyName ?? "CRM" },
-    category,
-    actor: { type: "user", label: "User" },
-    title: event.title ?? CATEGORY_LABELS[category],
-    summary: event.description,
-    timestamp: event._creationTime,
-    source: "crm",
-    significance: CATEGORY_SIGNIFICANCE[category],
-  };
-}

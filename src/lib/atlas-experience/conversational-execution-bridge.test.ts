@@ -107,7 +107,7 @@ describe("bridgeIntentToAction", () => {
   it("creates prepare email action for lead entity", () => {
     const leadCtx = {
       ...baseContext,
-      currentEntity: { type: "lead" as const, id: "lead-1", label: "Acme Roofing" },
+      currentEntity: { type: "organization" as const, id: "lead-1", label: "Acme Roofing" },
     };
     const result = bridgeIntentToAction("Prepare the email", leadCtx);
     expect(result.hasAction).toBe(true);

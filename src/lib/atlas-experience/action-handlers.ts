@@ -295,147 +295,41 @@ export async function handleUpdateSupplementStatus(
 // ---------------------------------------------------------------------------
 
 /**
- * Prepare an outreach email draft.
- * Uses the existing CRM AI outreach infrastructure.
+ * Prepare an email draft.
+ * @deprecated CRM-based email prepare removed. Future Atlas email integration TBD.
  */
 export async function handlePrepareEmail(
   action: AtlasExecutableAction,
-  context: ActionHandlerContext,
+  _context: ActionHandlerContext,
 ): Promise<AtlasActionResult> {
-  const leadId = action.parameters.leadId as string;
-  if (!leadId) {
-    return createFailureResult(
-      action.id,
-      "Missing lead ID",
-      "validation_error",
-    );
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return createFailureResult(
-      action.id,
-      "Supabase is not configured",
-      "integration_unavailable",
-    );
-  }
-
-  try {
-    // Fetch lead context for email preparation
-    const leads = (await rpcCall(supabase, "crm_list_leads")) as Array<
-      Record<string, unknown>
-    >;
-    const lead = leads.find((l) => String(l.id ?? l._id) === leadId);
-    if (!lead) {
-      return createFailureResult(
-        action.id,
-        `Lead ${leadId} not found`,
-        "validation_error",
-      );
-    }
-
-    // Generate draft using AI outreach
-    const { generateOutreach } = await import("@/lib/crm/ai-outreach");
-    const leadContext = {
-      firstName: String(lead.first_name ?? lead.firstName ?? ""),
-      lastName: String(lead.last_name ?? lead.lastName ?? ""),
-      fullName: String(lead.name ?? `${lead.first_name ?? ""} ${lead.last_name ?? ""}`),
-      companyName: String(lead.company ?? ""),
-      industry: String(lead.industry ?? "roofing"),
-      city: String(lead.city ?? ""),
-      state: String(lead.state ?? ""),
-      serviceArea: String(lead.service_area ?? lead.serviceArea ?? ""),
-      website: String(lead.website ?? ""),
-      jobTitle: String(lead.title ?? lead.job_title ?? ""),
-      notes: String(lead.notes ?? ""),
-      previousActivities: [],
-    };
-
-    const instruction = (action.parameters.instruction as string) ??
-      "Follow up on Atlas recommendation. Be professional and concise.";
-
-    const draft = await generateOutreach({
-      leadContext,
-      instruction,
-      tone: (action.parameters.tone as "professional" | "friendly" | "direct" | "concise") ?? "professional",
-      length: "medium",
-    });
-
-    return createSuccessResult(
-      action.id,
-      action.entity,
-      "Email draft prepared",
-      {
-        artifact: {
-          subject: draft.subject,
-          body: draft.body,
-          cta: draft.cta,
-          personalizationUsed: draft.personalizationUsed,
-          leadId,
-        },
-      },
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return createFailureResult(action.id, msg, "backend_error");
-  }
+  return createFailureResult(
+    action.id,
+    "Email preparation is not available. This capability will be added through a future Atlas email integration.",
+    "unsupported_action",
+  );
 }
 
 /**
- * Send an outreach email.
- * Uses the existing `outreach-send` Edge Function via outreach-api.ts.
+ * Send an email.
+ * @deprecated CRM outreach-api removed. Future Atlas email integration TBD.
  */
 export async function handleSendEmail(
   action: AtlasExecutableAction,
-  context: ActionHandlerContext,
+  _context: ActionHandlerContext,
 ): Promise<AtlasActionResult> {
   const to = action.parameters.to as string;
-  const subject = action.parameters.subject as string;
-  const body = action.parameters.body as string;
-
-  if (!to || !subject || !body) {
+  if (!to) {
     return createFailureResult(
       action.id,
-      "Missing required email parameters (to, subject, body)",
+      "Missing required email parameters",
       "validation_error",
     );
   }
-
-  try {
-    const { sendOutreachEmail } = await import("@/lib/crm/outreach-api");
-    const result = await sendOutreachEmail({
-      to,
-      subject,
-      body,
-      leadId: action.parameters.leadId as string | undefined,
-      leadName: action.parameters.leadName as string | undefined,
-      outreachType: "ai_generated",
-    });
-
-    if (!result.ok) {
-      return createFailureResult(
-        action.id,
-        result.error ?? "Email send failed",
-        "backend_error",
-      );
-    }
-
-    return createSuccessResult(
-      action.id,
-      action.entity,
-      `Email sent to ${to}`,
-      {
-        artifact: {
-          messageId: result.messageId,
-          testMode: result.testMode,
-          recipient: result.recipient,
-        },
-      },
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return createFailureResult(action.id, msg, "backend_error");
-  }
+  return createFailureResult(
+    action.id,
+    "Email sending is not available. This capability will be added through a future Atlas email integration.",
+    "unsupported_action",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -446,147 +340,18 @@ export async function handleSendEmail(
  * Create a CRM task for a lead.
  * Uses the existing `crm_create_task` RPC.
  */
-export async function handleCreateCrmTask(
-  action: AtlasExecutableAction,
-  context: ActionHandlerContext,
-): Promise<AtlasActionResult> {
-  const leadId = action.parameters.leadId as string;
-  const title = action.parameters.title as string;
-
-  if (!leadId || !title) {
-    return createFailureResult(
-      action.id,
-      "Missing lead ID or task title",
-      "validation_error",
-    );
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return createFailureResult(
-      action.id,
-      "Supabase is not configured",
-      "integration_unavailable",
-    );
-  }
-
-  try {
-    const result = await rpcCall(supabase, "crm_create_task", {
-      leadId,
-      title,
-      description: (action.parameters.description as string) ?? "",
-      dueDate: action.parameters.dueDate as string | undefined,
-      priority: (action.parameters.priority as string) ?? "medium",
-    });
-
-    return createSuccessResult(
-      action.id,
-      action.entity,
-      `Task created: ${title}`,
-      {
-        artifact: {
-          taskId: (result as Record<string, unknown>)?.taskId ?? (result as Record<string, unknown>)?._id,
-          leadId,
-        },
-      },
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return createFailureResult(action.id, msg, "backend_error");
-  }
-}
-
 /**
- * Record a CRM interaction for a lead.
- * Uses the existing `crm_record_interaction` RPC.
+ * @deprecated CRM handlers removed. Kept as generic record handler placeholder.
  */
-export async function handleRecordInteraction(
+export async function handleGenericUpdate(
   action: AtlasExecutableAction,
-  context: ActionHandlerContext,
+  _context: ActionHandlerContext,
 ): Promise<AtlasActionResult> {
-  const leadId = action.parameters.leadId as string;
-  const interactionType = action.parameters.interactionType as string;
-  const notes = action.parameters.notes as string;
-
-  if (!leadId || !interactionType) {
-    return createFailureResult(
-      action.id,
-      "Missing lead ID or interaction type",
-      "validation_error",
-    );
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return createFailureResult(
-      action.id,
-      "Supabase is not configured",
-      "integration_unavailable",
-    );
-  }
-
-  try {
-    await rpcCall(supabase, "crm_record_interaction", {
-      leadId,
-      interactionType,
-      notes: notes ?? "",
-      performedBy: context.userId,
-    });
-
-    return createSuccessResult(
-      action.id,
-      action.entity,
-      `Interaction recorded: ${interactionType}`,
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return createFailureResult(action.id, msg, "backend_error");
-  }
-}
-
-/**
- * Update lead stage in CRM.
- * Uses the existing `crm_update_lead_stage` RPC.
- */
-export async function handleUpdateLeadStage(
-  action: AtlasExecutableAction,
-  context: ActionHandlerContext,
-): Promise<AtlasActionResult> {
-  const leadId = action.parameters.leadId as string;
-  const newStage = action.parameters.stage as string;
-
-  if (!leadId || !newStage) {
-    return createFailureResult(
-      action.id,
-      "Missing lead ID or stage",
-      "validation_error",
-    );
-  }
-
-  const supabase = getSupabaseClient();
-  if (!supabase) {
-    return createFailureResult(
-      action.id,
-      "Supabase is not configured",
-      "integration_unavailable",
-    );
-  }
-
-  try {
-    await rpcCall(supabase, "crm_update_lead", {
-      leadId,
-      stage: newStage,
-    });
-
-    return createSuccessResult(
-      action.id,
-      action.entity,
-      `Lead stage updated to ${newStage}`,
-    );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
-    return createFailureResult(action.id, msg, "backend_error");
-  }
+  return createFailureResult(
+    action.id,
+    "This action type is no longer supported. Please specify a claim or document action.",
+    "unsupported_action",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -615,10 +380,9 @@ const HANDLER_REGISTRY: Partial<Record<AtlasActionType, ActionHandler>> = {
   prepare_email: handlePrepareEmail,
   send_email: handleSendEmail,
 
-  // CRM actions
-  prepare_crm_activity: handleCreateCrmTask,
-  create_record: handleCreateCrmTask,
-  update_record: handleUpdateLeadStage,
+  // Generic record actions
+  create_record: handleGenericUpdate,
+  update_record: handleGenericUpdate,
 };
 
 /**
@@ -809,68 +573,36 @@ export async function prepareSupplement(
 }
 
 /**
- * Prepare an email draft for a lead.
+ * @deprecated CRM removed. Email preparation will be added through a future Atlas email integration.
  */
 export async function prepareEmail(
-  leadId: string,
-  userRole: AtlasUserRole,
-  userId: string,
-  options?: {
+  _leadId: string,
+  _userRole: AtlasUserRole,
+  _userId: string,
+  _options?: {
     instruction?: string;
     tone?: "professional" | "friendly" | "direct" | "concise";
   },
 ): Promise<{ action: AtlasExecutableAction; draft?: Record<string, unknown> }> {
   const action = createAction(
     "prepare_email",
-    `Prepare email for lead`,
-    `Atlas is preparing an outreach email`,
+    `Prepare email`,
+    `Atlas email preparation is not available yet`,
     {
-      type: "lead",
-      id: leadId,
-      label: `Lead`,
+      type: "organization",
+      id: _leadId,
+      label: `Email`,
     },
-    { leadId, instruction: options?.instruction, tone: options?.tone },
-    userId,
+    {},
+    _userId,
   );
 
   return { action };
 }
 
 /**
- * Prepare a CRM task for a lead.
+ * @deprecated CRM removed. This function no longer exists.
  */
-export async function prepareCrmTask(
-  leadId: string,
-  userRole: AtlasUserRole,
-  userId: string,
-  options?: {
-    title?: string;
-    description?: string;
-    dueDate?: string;
-    priority?: string;
-  },
-): Promise<{ action: AtlasExecutableAction; draft?: Record<string, unknown> }> {
-  const action = createAction(
-    "prepare_crm_activity",
-    `Prepare CRM task`,
-    `Atlas is preparing a task for this lead`,
-    {
-      type: "lead",
-      id: leadId,
-      label: `Lead`,
-    },
-    {
-      leadId,
-      title: options?.title ?? "Follow up",
-      description: options?.description,
-      dueDate: options?.dueDate,
-      priority: options?.priority,
-    },
-    userId,
-  );
-
-  return { action };
-}
 
 // ---------------------------------------------------------------------------
 // Unsupported action handler

@@ -11,7 +11,6 @@ import {
   jobEventToActivity,
   recommendationEventToActivity,
   documentEventToActivity,
-  crmEventToActivity,
 } from "./activity";
 import {
   getDateLabel,
@@ -132,17 +131,6 @@ describe("AtlasActivity model", () => {
     expect(activity.significance).toBe("important");
   });
 
-  it("crmEventToActivity maps reply_received correctly", () => {
-    const activity = crmEventToActivity({
-      _id: "crm-1",
-      type: "reply_received",
-      companyName: "NPP Roofing",
-      _creationTime: NOW,
-    });
-
-    expect(activity.category).toBe("crm_reply_received");
-    expect(activity.significance).toBe("important");
-  });
 });
 
 // ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ import {
 import { AtlasDecisionSummary } from "./DecisionCard";
 import { AtlasActionPanel, useAtlasActions } from "./AtlasActionPanel";
 import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
+import { ActiveActionsWidget } from "./ActiveActionsWidget";
 import {
   Activity,
   AlertTriangle,
@@ -465,6 +466,9 @@ export function CommandCenter() {
 
       {/* What Atlas Recommends */}
       <WhatRecommends />
+
+      {/* Active Actions Widget */}
+      <ActiveActionsWidget />
 
       {/* Ask Atlas Entry */}
       <AskAtlasEntry />

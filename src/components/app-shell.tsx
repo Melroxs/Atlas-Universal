@@ -4,7 +4,7 @@ import { CommandPalette } from "@/components/atlas-experience/CommandPalette";
 import { AtlasContextProvider, useAtlasContext, type AtlasBreadcrumb } from "@/lib/atlas-experience/context";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessPilotAdmin, canAccessCRM, canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
+import { canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -202,34 +202,13 @@ const NAV_SECTIONS: Array<{
       { to: "/dashboard/users", label: "Users & Access", icon: Users },
     ],
   },
-  {
-    label: "Pilot",
-    items: [
-      { to: "/dashboard/pilot", label: "Command Center", icon: Radar },
-      { to: "/dashboard/pilot/applications", label: "Applications", icon: FileText },
-      { to: "/dashboard/pilot/crm", label: "CRM", icon: Users },
-      { to: "/dashboard/pilot/outreach", label: "Outreach", icon: Send },
-    ],
-  },
-  {
-    label: "Pilot Intelligence",
-    items: [
-      { to: "/dashboard/pilot-intelligence", label: "Intelligence", icon: Radar },
-      { to: "/dashboard/pilot-intelligence/companies", label: "Companies", icon: Building2 },
-      { to: "/dashboard/pilot-intelligence/sessions", label: "Sessions", icon: Calendar },
-      { to: "/dashboard/pilot-intelligence/insights", label: "Insights", icon: Lightbulb },
-      { to: "/dashboard/pilot-intelligence/outcomes", label: "Outcomes", icon: Target },
-    ],
-  },
 ];
 
-/** Role gate per section — only Admin, Mail, Pilot require special access. */
+/** Role gate per section — only Admin, Mail require special access. */
 function isSectionVisible(label: string, role: string): boolean {
   const atlasRole = role as import("@/lib/auth/access-gate").AtlasRole;
   if (label === "Admin") return canAccessUserAdmin(atlasRole);
   if (label === "Communication") return canAccessMail(atlasRole);
-  if (label === "Pilot") return canAccessPilotAdmin(atlasRole);
-  if (label === "Pilot Intelligence") return canAccessPilotAdmin(atlasRole);
   return true;
 }
 
@@ -249,17 +228,8 @@ const PAGE_TITLES: Record<string, string> = {
   "/dashboard/team": "Team",
   "/dashboard/audit": "Activity / Audit",
   "/dashboard/settings": "Workspace Settings",
-  "/dashboard/pilot-intelligence": "Pilot Intelligence",
-  "/dashboard/pilot-intelligence/companies": "Pilot Companies",
-  "/dashboard/pilot-intelligence/sessions": "Pilot Sessions",
-  "/dashboard/pilot-intelligence/insights": "Pilot Insights",
-  "/dashboard/pilot-intelligence/outcomes": "Pilot Outcomes",
   "/dashboard/mail": "Atlas Mail",
   "/dashboard/mail/settings": "Mail Settings",
-  "/dashboard/pilot": "Pilot Command Center",
-  "/dashboard/pilot/applications": "Pilot Applications",
-  "/dashboard/pilot/crm": "CRM",
-  "/dashboard/pilot/outreach": "Outreach Center",
   "/dashboard/users": "Users & Access",
 };
 

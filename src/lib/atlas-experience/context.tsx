@@ -19,15 +19,12 @@ export type AtlasEntityType =
   | "workspace"
   | "claim"
   | "company"
-  | "contact"
   | "document"
   | "knowledge"
   | "recommendation"
   | "workflow"
   | "supplement"
   | "evidence"
-  | "lead"
-  | "task"
   | "archive"
   | "unknown";
 

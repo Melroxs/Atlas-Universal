@@ -267,37 +267,6 @@ export const BUILTIN_COMMANDS: AtlasCommand[] = [
     keywords: ["missing", "gap", "incomplete"],
   },
 
-  // CRM
-  {
-    id: "nav:crm",
-    label: "CRM",
-    description: "Companies, contacts, outreach",
-    category: "navigation",
-    icon: Users,
-    href: "/dashboard/pilot/crm",
-    keywords: ["crm", "companies", "contacts"],
-    requiredRole: ["super_admin", "atlas_admin"],
-  },
-  {
-    id: "nav:outreach",
-    label: "Outreach",
-    description: "Email campaigns and sequences",
-    category: "navigation",
-    icon: Send,
-    href: "/dashboard/pilot/outreach",
-    keywords: ["outreach", "email", "campaigns", "sequences"],
-    requiredRole: ["super_admin", "atlas_admin"],
-  },
-  {
-    id: "nav:pilot",
-    label: "Pilot Command Center",
-    description: "Pilot intelligence and analytics",
-    category: "navigation",
-    icon: Radar,
-    href: "/dashboard/pilot",
-    keywords: ["pilot", "command", "center", "analytics"],
-    requiredRole: ["super_admin"],
-  },
 ];
 
 // ---------------------------------------------------------------------------

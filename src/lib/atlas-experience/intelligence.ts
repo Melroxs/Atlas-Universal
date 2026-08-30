@@ -81,7 +81,6 @@ const SOURCE_WEIGHT: Record<string, number> = {
   recommendations: 15,
   documents: 20,
   workflows: 25,
-  crm: 30,
   system: 40,
   integration: 35,
 };

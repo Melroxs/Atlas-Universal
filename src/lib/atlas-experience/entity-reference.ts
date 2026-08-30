@@ -20,9 +20,9 @@ export type EntityType =
   | "document"
   | "evidence"
   | "recommendation"
-  | "lead"
-  | "contact"
-  | "task"
+  | "activity"
+  | "action"
+  | "organization"
   | "workflow"
   | "archive"
   | "knowledge"
@@ -176,42 +176,6 @@ export function createSupplementReference(sup: {
 }
 
 /**
- * Create an entity reference from a lead.
- */
-export function createLeadReference(lead: {
-  _id: string;
-  companyName?: string | null;
-  contactName?: string | null;
-  status?: string;
-}): AtlasEntityReference {
-  return {
-    type: "lead",
-    id: lead._id,
-    label: lead.companyName ?? lead.contactName ?? "Unnamed lead",
-    subtitle: lead.status?.replace(/_/g, " "),
-    href: `/dashboard/crm`,
-    status: lead.status ?? undefined,
-  };
-}
-
-/**
- * Create an entity reference from a contact.
- */
-export function createContactReference(contact: {
-  _id: string;
-  name?: string | null;
-  email?: string | null;
-  role?: string | null;
-}): AtlasEntityReference {
-  return {
-    type: "contact",
-    id: contact._id,
-    label: contact.name ?? contact.email ?? "Unnamed contact",
-    subtitle: contact.role ?? undefined,
-  };
-}
-
-/**
  * Create an entity reference from a workflow.
  */
 export function createWorkflowReference(wf: {
@@ -258,9 +222,9 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   document: "Document",
   evidence: "Evidence",
   recommendation: "Recommendation",
-  lead: "Lead",
-  contact: "Contact",
-  task: "Task",
+  activity: "Activity",
+  action: "Action",
+  organization: "Organization",
   workflow: "Workflow",
   archive: "Archive",
   knowledge: "Knowledge",
@@ -283,18 +247,15 @@ export function entityTypeToReferenceType(entityType: AtlasEntityType): EntityTy
     workspace: "workspace",
     company: "company",
     claim: "claim",
-    contact: "contact",
     document: "document",
     knowledge: "knowledge",
     recommendation: "recommendation",
     workflow: "workflow",
     supplement: "supplement",
     evidence: "evidence",
-    lead: "lead",
-    task: "task",
     archive: "archive",
     unknown: "unknown",
-  };
+  } as Record<AtlasEntityType, EntityType>;
   return mapping[entityType] ?? "unknown";
 }
 
@@ -309,9 +270,9 @@ export const ENTITY_TYPE_ICONS: Record<EntityType, string> = {
   document: "FileText",
   evidence: "Shield",
   recommendation: "Sparkles",
-  lead: "UserPlus",
-  contact: "User",
-  task: "CheckSquare",
+  organization: "Building2",
+  activity: "Activity",
+  action: "Zap",
   workflow: "GitBranch",
   archive: "Archive",
   knowledge: "Brain",

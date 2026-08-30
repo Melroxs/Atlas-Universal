@@ -88,8 +88,6 @@ export {
   createDocumentReference,
   createSupplementReference,
   createRecommendationReference,
-  createLeadReference,
-  createContactReference,
 } from "./entity-reference";
 
 // Entity relationships
@@ -120,7 +118,6 @@ export {
   jobEventToActivity,
   recommendationEventToActivity,
   documentEventToActivity,
-  crmEventToActivity,
 } from "./activity";
 
 // Activity aggregation
@@ -131,7 +128,6 @@ export {
   collectJobActivity,
   collectRecommendationActivity,
   collectDocumentActivity,
-  collectCrmActivity,
   computeWorkspaceActivitySummary,
   filterBySignificance,
   filterByCategory,
@@ -304,15 +300,11 @@ export {
   handleUpdateSupplementStatus,
   handlePrepareEmail,
   handleSendEmail,
-  handleCreateCrmTask,
-  handleRecordInteraction,
-  handleUpdateLeadStage,
   getActionHandler,
   registerActionHandler,
   executeAction,
   prepareSupplement,
   prepareEmail,
-  prepareCrmTask,
   handleUnsupportedAction,
 } from "./action-handlers";
 
@@ -326,3 +318,50 @@ export {
   handleConfirmationResponse,
   generateProactiveActionSuggestions,
 } from "./conversational-execution-bridge";
+
+// Action persistence
+export {
+  type PersistedAction,
+  type ActionStoreSummary,
+  type RecoveryResult,
+  createAction as createActionRecord,
+  transitionActionStatus,
+  confirmAction,
+  getAction as getServerAction,
+  listActions as listServerActions,
+  setActionResult,
+  getPersistedAction,
+  getActiveActions,
+  getActionsForEntity,
+  recoverPersistedActions,
+  loadCachedActions,
+  cacheAction,
+  removeCachedAction,
+  clearCachedActions,
+} from "./action-persistence";
+
+// Action availability (entity-state-aware)
+export {
+  type ActionAvailability,
+  type EntityActionContext,
+  getAvailableActions,
+  getExecutableActions,
+  createActionProposals,
+} from "./action-availability";
+
+// Staleness protection
+export {
+  type StalenessCheckResult,
+  checkStaleness,
+  captureSourceFingerprint,
+  createActionWithFingerprint,
+} from "./staleness";
+
+// Action deduplication
+export {
+  type ActionProposalInput,
+  type DeduplicatedAction,
+  type AtlasSurfaceProposals,
+  deduplicateActionProposals,
+  collectAndDeduplicate,
+} from "./action-deduplication";

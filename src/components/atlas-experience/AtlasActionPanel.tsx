@@ -14,6 +14,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
+import { usePersistedActions } from "@/hooks/use-persisted-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +32,8 @@ import {
   DEFAULT_CONFIRMATION_TIMEOUT_MS,
 } from "@/lib/atlas-experience/execution";
 import { executeAction, type ActionHandlerContext } from "@/lib/atlas-experience/action-handlers";
+import { checkStaleness } from "@/lib/atlas-experience/staleness";
+import { getSupabaseClient } from "@/lib/supabase";
 import type { AtlasEntityReference } from "@/lib/atlas-experience/entity-reference";
 import {
   ActionConfirmationDialog,
@@ -117,7 +120,6 @@ const ACTION_ICONS: Record<AtlasActionType, typeof FileText> = {
   show_decision: FileText,
   prepare_supplement: Sparkles,
   prepare_email: Send,
-  prepare_crm_activity: FileText,
   submit_supplement: Send,
   send_email: Send,
   approve_recommendation: CheckCircle2,
@@ -152,6 +154,7 @@ export function AtlasActionPanel({
 }: AtlasActionPanelProps) {
   const navigate = useNavigate();
   const [flowState, setFlowState] = useState<ActionFlowState>({ phase: "idle" });
+  const { createAction: persistNewAction, transitionStatus: persistTransitionStatus } = usePersistedActions();
 
   const handleProposeAction = useCallback(
     (proposal: ActionProposal) => {
@@ -181,6 +184,9 @@ export function AtlasActionPanel({
         userId,
       );
 
+      // Persist the proposed action
+      persistNewAction(action);
+
       // Low-risk actions skip confirmation
       if (risk === "low") {
         handleExecute(action, proposal);
@@ -189,6 +195,7 @@ export function AtlasActionPanel({
 
       // Prepare for confirmation
       const prepared = prepareForConfirmation(action, DEFAULT_CONFIRMATION_TIMEOUT_MS);
+      persistTransitionStatus(prepared.id, "awaiting_confirmation", userId, "Awaiting user confirmation");
       setFlowState({ phase: "confirming", action: prepared, proposal });
     },
     [userRole, userId],
@@ -208,6 +215,25 @@ export function AtlasActionPanel({
       setFlowState({ phase: "executing", action, proposal });
 
       try {
+        // Staleness check before execution (skip for navigate/ask actions)
+        if (action.type !== "navigate" && action.type !== "ask_followup" && action.type !== "show_evidence" && action.type !== "show_decision") {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            const staleness = await checkStaleness(supabase, action);
+            if (staleness.stale) {
+              persistTransitionStatus(action.id, "stale", userId, staleness.explanation ?? "Source data changed");
+              setFlowState({
+                phase: "failed",
+                error: `This action is stale: ${staleness.explanation ?? "The source data changed since this action was prepared."}`,
+                proposal,
+              });
+              return;
+            }
+          }
+        }
+
+        persistTransitionStatus(action.id, "executing", userId, "Executing action");
+
         // Confirm the action before executing
         const confirmedAction = transitionAction(action, "confirmed", userId, "User confirmed");
 
@@ -219,8 +245,10 @@ export function AtlasActionPanel({
         const result = await executeAction(confirmedAction, context);
 
         if (result.status === "executed") {
+          persistTransitionStatus(confirmedAction.id, "executed", userId, "Action executed successfully");
           setFlowState({ phase: "completed", result, proposal });
         } else {
+          persistTransitionStatus(confirmedAction.id, "failed", userId, result.error?.message ?? result.message);
           setFlowState({
             phase: "failed",
             error: result.error?.message ?? result.message,
@@ -228,6 +256,7 @@ export function AtlasActionPanel({
           });
         }
       } catch (e) {
+        persistTransitionStatus(action.id, "failed", userId, e instanceof Error ? e.message : "Unknown error");
         setFlowState({
           phase: "failed",
           error: e instanceof Error ? e.message : "Unknown error",

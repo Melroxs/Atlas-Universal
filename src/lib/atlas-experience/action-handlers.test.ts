@@ -9,7 +9,6 @@ import {
   executeAction,
   prepareSupplement,
   prepareEmail,
-  prepareCrmTask,
   handleUnsupportedAction,
   type ActionHandlerContext,
 } from "./action-handlers";
@@ -127,17 +126,6 @@ describe("prepareEmail", () => {
       instruction: "Follow up",
     });
     expect(action.type).toBe("prepare_email");
-    expect(action.entity.type).toBe("lead");
-  });
-});
-
-describe("prepareCrmTask", () => {
-  it("creates CRM task action", async () => {
-    const { action } = await prepareCrmTask("lead-1", "atlas_admin", "user-1", {
-      title: "Follow up call",
-    });
-    expect(action.type).toBe("prepare_crm_activity");
-    expect(action.entity.type).toBe("lead");
-    expect(action.parameters.title).toBe("Follow up call");
+    expect(action.entity.type).toBe("organization");
   });
 });

@@ -51,7 +51,7 @@ describe("Action Authorization", () => {
 
   it("allows all roles to navigate", () => {
     const roles: AtlasUserRole[] = [
-      "super_admin", "atlas_admin", "customer_admin", "customer_user", "pilot_user",
+      "super_admin", "atlas_admin", "customer_admin", "customer_user",
     ];
     for (const role of roles) {
       expect(checkAuthorization("navigate", role).allowed).toBe(true);

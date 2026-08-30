@@ -300,6 +300,36 @@ export function NextBestActionCard() {
     return selectNextBestAction({ attentionItems, decisions, activities });
   }, [attentionItems, decisions, activities]);
 
+  // IMPORTANT: All hooks must be called before any early return to satisfy
+  // React's Rules of Hooks. These hooks always execute in the same order
+  // regardless of whether nextAction is null.
+  const { generateAttentionActions, generateDecisionActions } = useAtlasActions();
+  const auth = useAtlasActionAuth();
+
+  const actionProposals = useMemo(() => {
+    if (!nextAction?.entity) return [];
+    const entity: import("@/lib/atlas-experience/entity-reference").AtlasEntityReference = {
+      type: (nextAction.entity.type as import("@/lib/atlas-experience/entity-reference").AtlasEntityReference["type"]) ?? "claim",
+      id: nextAction.entity.id,
+      label: nextAction.entity.label ?? `${nextAction.entity.type} ${nextAction.entity.id}`,
+      href: nextAction.entity.href,
+    };
+    if (nextAction.actionType === "approve") {
+      return [{
+        type: "approve_recommendation" as const,
+        label: "Approve",
+        entity,
+        params: { recommendationId: nextAction.entity.id },
+      }];
+    }
+    return [{
+      type: "prepare_supplement" as const,
+      label: "Prepare Supplement",
+      entity,
+      params: { claimId: nextAction.entity.id },
+    }];
+  }, [nextAction]);
+
   if (!nextAction) return null;
 
   const ACTION_ICONS: Record<string, LucideIcon> = {
@@ -309,35 +339,6 @@ export function NextBestActionCard() {
     follow_up: MessageSquareText,
   };
   const ActionIcon = ACTION_ICONS[nextAction.actionType] ?? Target;
-
-  // Generate action proposals from the next best action
-  const { generateAttentionActions, generateDecisionActions } = useAtlasActions();
-  const auth = useAtlasActionAuth();
-  const actionProposals = useMemo(() => {
-    if (nextAction.entity) {
-      const entity: import("@/lib/atlas-experience/entity-reference").AtlasEntityReference = {
-        type: (nextAction.entity.type as import("@/lib/atlas-experience/entity-reference").AtlasEntityReference["type"]) ?? "claim",
-        id: nextAction.entity.id,
-        label: nextAction.entity.label ?? `${nextAction.entity.type} ${nextAction.entity.id}`,
-        href: nextAction.entity.href,
-      };
-      if (nextAction.actionType === "approve") {
-        return [{
-          type: "approve_recommendation" as const,
-          label: "Approve",
-          entity,
-          params: { recommendationId: nextAction.entity.id },
-        }];
-      }
-      return [{
-        type: "prepare_supplement" as const,
-        label: "Prepare Supplement",
-        entity,
-        params: { claimId: nextAction.entity.id },
-      }];
-    }
-    return [];
-  }, [nextAction]);
 
   return (
     <Panel className="border-teal-400/25 bg-teal-400/5 p-5">

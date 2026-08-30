@@ -48,7 +48,10 @@ export type AtlasActionStatus =
   | "blocked"                 // Authorization denied
   | "rejected"                // Human rejected
   | "expired"                 // Confirmation timed out
-  | "stale";                  // Source data changed before execution
+  | "stale"                   // Source data changed before execution
+  | "cancelled"               // Cancelled by user or system
+  | "retry_pending"           // Failed but safe to retry
+  | "verification_pending";   // Executed but verification pending/ambiguous
 
 /** The happy-path lifecycle states for visualization */
 export const DEFAULT_ACTION_LIFECYCLE: AtlasActionStatus[] = [
@@ -64,19 +67,22 @@ export const DEFAULT_ACTION_LIFECYCLE: AtlasActionStatus[] = [
 
 /** Valid status transitions — deterministic state machine */
 const VALID_TRANSITIONS: Record<AtlasActionStatus, AtlasActionStatus[]> = {
-  proposed:               ["preparing", "blocked", "rejected"],
-  preparing:              ["prepared", "failed"],
-  prepared:               ["awaiting_confirmation", "executing", "rejected"],
-  awaiting_confirmation:  ["confirmed", "rejected", "expired"],
-  confirmed:              ["executing", "expired", "stale"],
-  executing:              ["executed", "failed"],
-  executed:               ["verified", "failed"],
+  proposed:               ["preparing", "blocked", "rejected", "cancelled"],
+  preparing:              ["prepared", "failed", "cancelled"],
+  prepared:               ["awaiting_confirmation", "executing", "rejected", "cancelled"],
+  awaiting_confirmation:  ["confirmed", "rejected", "expired", "cancelled"],
+  confirmed:              ["executing", "expired", "stale", "cancelled"],
+  executing:              ["executed", "failed", "cancelled"],
+  executed:               ["verified", "failed", "verification_pending"],
   verified:               [],
-  failed:                 ["preparing"],  // retry
+  failed:                 ["preparing", "retry_pending"],  // retry or retry later
   blocked:                [],
   rejected:               [],
   expired:                ["preparing"],  // re-prepare
   stale:                  ["preparing"],  // re-evaluate
+  cancelled:              [],  // terminal
+  retry_pending:          ["preparing", "cancelled"],  // can retry or cancel
+  verification_pending:   ["verified", "failed"],  // verification outcome
 };
 
 /** The action safety risk level */
@@ -233,14 +239,12 @@ export function safetyLevelToActionRisk(level: SafetyLevel): ActionRisk {
 
 /**
  * Atlas user roles — maps to existing RBAC.
- * @deprecated pilot_user is deprecated and maps to customer_user.
  */
 export type AtlasUserRole =
   | "super_admin"
   | "atlas_admin"
   | "customer_admin"
-  | "customer_user"
-  | "pilot_user";
+  | "customer_user";
 
 /** Permission check result */
 export interface PermissionCheck {
@@ -656,10 +660,24 @@ export interface AtlasActionResult {
   activityId?: string;
   /** Prepared artifact data (draft content, etc.) */
   artifact?: Record<string, unknown>;
+  /** Whether verification is required after execution */
+  verificationRequired?: boolean;
+  /** The source system that executed the action */
+  sourceSystem?: string;
+  /** Record ID in the source system */
+  sourceRecordId?: string;
+  /** Whether the action is safe to retry */
+  retryable?: boolean;
+  /** Whether this was an idempotent duplicate */
+  idempotent?: boolean;
+  /** Execution duration in milliseconds */
+  durationMs?: number;
   error?: {
     code: string;
     message: string;
     retryable: boolean;
+    /** Whether this is an unsafe retry (ambiguous outcome) */
+    unsafeRetry?: boolean;
   };
 }
 
@@ -1117,4 +1135,251 @@ export function resolveSubmitIntent(
     parameters,
     createdBy,
   );
+}
+
+// ---------------------------------------------------------------------------
+// 20. Pre-Execution Validation Pipeline
+// ---------------------------------------------------------------------------
+
+/** Structured failure reason for pre-execution validation */
+export interface PreExecutionValidationFailure {
+  valid: false;
+  reason: string;
+  /** Machine-readable code */
+  code: PreExecutionFailureCode;
+  /** Whether this is safe to retry after resolving the issue */
+  retryable: boolean;
+}
+
+export interface PreExecutionValidationSuccess {
+  valid: true;
+}
+
+export type PreExecutionValidationResult = PreExecutionValidationFailure | PreExecutionValidationSuccess;
+
+export type PreExecutionFailureCode =
+  | "action_not_found"
+  | "action_not_confirmable"
+  | "authorization_changed"
+  | "confirmation_expired"
+  | "entity_not_found"
+  | "entity_changed"
+  | "action_stale"
+  | "invalid_parameters"
+  | "duplicate_action"
+  | "tenant_context_changed"
+  | "action_cancelled"
+  | "action_terminal";
+
+/**
+ * Server-authoritative pre-execution validation pipeline.
+ * Must pass ALL checks before execution proceeds.
+ */
+export function validateBeforeExecution(
+  action: AtlasExecutableAction,
+  context: {
+    userRole: AtlasUserRole;
+    currentFingerprint?: string;
+    idempotencyKeyExists?: boolean;
+  },
+): PreExecutionValidationResult {
+  // 1. Action must exist and be in a confirmable state
+  if (!action.id) {
+    return { valid: false, reason: "Action not found", code: "action_not_found", retryable: false };
+  }
+
+  // 2. Action must be in confirmed state
+  if (action.status !== "confirmed") {
+    if (action.status === "cancelled") {
+      return { valid: false, reason: "This action has been cancelled", code: "action_cancelled", retryable: false };
+    }
+    if (["verified", "blocked", "rejected", "expired", "stale"].includes(action.status)) {
+      return { valid: false, reason: `Action is in terminal state: ${action.status}`, code: "action_terminal", retryable: false };
+    }
+    return { valid: false, reason: `Action must be confirmed before execution (current: ${action.status})`, code: "action_not_confirmable", retryable: false };
+  }
+
+  // 3. Authorization check — actor must still be authorized
+  const auth = checkAuthorization(action.type, context.userRole);
+  if (!auth.allowed) {
+    return { valid: false, reason: "You no longer have permission to perform this action", code: "authorization_changed", retryable: false };
+  }
+
+  // 4. Confirmation not expired
+  if (action.expiresAt && new Date(action.expiresAt) < new Date()) {
+    return { valid: false, reason: "Confirmation has expired", code: "confirmation_expired", retryable: true };
+  }
+
+  // 5. Staleness check — source fingerprint must match
+  if (action.sourceFingerprint && context.currentFingerprint) {
+    if (action.sourceFingerprint !== context.currentFingerprint) {
+      return {
+        valid: false,
+        reason: "This action is no longer safe to execute because the source data changed",
+        code: "action_stale",
+        retryable: true,
+      };
+    }
+  }
+
+  // 6. Idempotency check — if already executed, return success
+  if (context.idempotencyKeyExists) {
+    return {
+      valid: false,
+      reason: "This action has already been executed",
+      code: "duplicate_action",
+      retryable: false,
+    };
+  }
+
+  // All checks passed
+  return { valid: true };
+}
+
+// ---------------------------------------------------------------------------
+// 21. Retry Policy
+// ---------------------------------------------------------------------------
+
+/** Classification of whether a retry is safe */
+export type RetrySafety = "safe" | "unsafe" | "manual_review";
+
+/** Retry classification based on error type */
+export function classifyRetry(errorCode: string, actionType: AtlasActionType): RetrySafety {
+  // Safe to auto-retry: transient infrastructure issues
+  const safeRetryCodes = new Set([
+    "network_timeout",
+    "temporary_failure",
+    "supabase_transient",
+    "verification_timeout",
+    "source_system_transient",
+  ]);
+
+  // Unsafe: ambiguous outcomes that may have already succeeded
+  const unsafeRetryCodes = new Set([
+    "ambiguous_result",
+    "idempotency_conflict",
+    "entity_changed",
+    "authorization_changed",
+  ]);
+
+  if (safeRetryCodes.has(errorCode)) return "safe";
+  if (unsafeRetryCodes.has(errorCode)) return "unsafe";
+
+  // High-risk actions always require manual review on retry
+  const risk = getActionRisk(actionType);
+  if (risk === "high") return "manual_review";
+
+  return "safe";
+}
+
+/** Maximum retry attempts for safe retries */
+export const MAX_SAFE_RETRIES = 3;
+
+/** Base delay for exponential backoff (ms) */
+export const RETRY_BASE_DELAY_MS = 1000;
+
+/** Calculate retry delay with exponential backoff */
+export function calculateRetryDelay(attempt: number): number {
+  return Math.min(
+    RETRY_BASE_DELAY_MS * Math.pow(2, attempt),
+    30_000, // max 30 seconds
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 22. Ambiguous Execution Handler
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle the case where execution completed but we cannot confirm the result.
+ * This is the most critical safety mechanism — it prevents false success
+ * and avoids dangerous duplicate execution.
+ */
+export function handleAmbiguousExecution(
+  action: AtlasExecutableAction,
+  error: unknown,
+): {
+  action: AtlasExecutableAction;
+  result: AtlasActionResult;
+  userMessage: string;
+} {
+  const now = new Date().toISOString();
+
+  // Transition to verification_pending — the action may or may not have succeeded
+  const updatedAction: AtlasExecutableAction = {
+    ...action,
+    status: "verification_pending",
+    auditTrail: [
+      ...action.auditTrail,
+      {
+        timestamp: now,
+        from: "executing",
+        to: "verification_pending",
+        actor: "system",
+        reason: `Execution result ambiguous: ${error instanceof Error ? error.message : "Unknown error"}`,
+      },
+    ],
+  };
+
+  return {
+    action: updatedAction,
+    result: {
+      actionId: action.id,
+      status: "executed",
+      message: "Execution result is ambiguous",
+      verificationRequired: true,
+      retryable: false, // Must NOT auto-retry — must verify first
+    },
+    userMessage: "I couldn't confirm whether the action completed. I have not repeated it. Atlas will verify the result.",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// 23. Human-Readable Feedback
+// ---------------------------------------------------------------------------
+
+/** Build human-readable feedback based on action outcome */
+export function buildActionFeedback(
+  action: AtlasExecutableAction,
+  result?: AtlasActionResult,
+): string {
+  const status = result?.status ?? action.status;
+
+  switch (status) {
+    case "executed":
+      if (result?.verificationRequired) {
+        return `The action was submitted, but Atlas couldn't verify the resulting state. I have not retried it.`;
+      }
+      return `${action.label} completed successfully.`;
+
+    case "verified":
+      return `${action.label} completed and verified.`;
+
+    case "failed":
+      if (result?.error?.retryable) {
+        return `I couldn't complete ${action.label.toLowerCase()}. This is a temporary issue and may succeed on retry.`;
+      }
+      if (result?.error?.unsafeRetry) {
+        return `I couldn't complete ${action.label.toLowerCase()}. The result is ambiguous — I have not retried it to avoid potential duplicate actions.`;
+      }
+      return `I couldn't complete ${action.label.toLowerCase()}. ${result?.error?.message ?? ""}`;
+
+    case "blocked":
+      return `You no longer have permission to perform this action.`;
+
+    case "stale":
+      return `This action is no longer safe to execute because the source data changed after Atlas prepared it.`;
+
+    case "expired":
+      return `This action expired before it could be confirmed. Atlas can prepare a new one.`;
+
+    case "cancelled":
+      return `This action was cancelled.`;
+
+    case "verification_pending":
+      return `I couldn't confirm whether the action completed. I haven't repeated it.`;
+
+    default:
+      return `${action.label} — ${status}.`;
+  }
 }

@@ -2,7 +2,7 @@ import '@vly-ai/integrations';
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
 import { RequireAuth } from "@/components/RequireAuth";
-import { AppShell } from "@/components/app-shell";
+import { AppShellWithProvider } from "@/components/app-shell";
 import { VoiceSessionProvider } from "@/components/voice-session";
 import { VlyToolbar } from "../vly-toolbar-readonly.tsx";
 import React, { StrictMode, useEffect, lazy, Suspense } from "react";
@@ -45,7 +45,7 @@ const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
-      <AppShell>{children}</AppShell>
+      <AppShellWithProvider>{children}</AppShellWithProvider>
     </RequireAuth>
   );
 }
@@ -308,6 +308,7 @@ createRoot(document.getElementById("root")!).render(
                   </ProtectedLayout>
                 }
               />
+
               <Route
                 path="/dashboard/users"
                 element={
@@ -316,6 +317,7 @@ createRoot(document.getElementById("root")!).render(
                   </ProtectedLayout>
                 }
               />
+
               <Route
                 path="/access-denied"
                 element={<AccessDenied />}

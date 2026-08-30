@@ -127,8 +127,14 @@ export function normalizeStatus(raw?: string | null): AtlasAccountStatus {
  */
 export function isInternalRole(role: AtlasRole): boolean {
   return role === "super_admin" || role === "atlas_admin";
+}/**
+ * @deprecated Pilot product removed. Pilot users are now customer_user.
+ */
+export function canAccessPilotAdmin(_role: AtlasRole): boolean {
+  return false;
 }
 
+/**
 /**
  * Can this role access the platform administration section?
  * Only super_admin has platform admin access (organization management).
@@ -182,6 +188,7 @@ export function getDefaultLandingPath(role: AtlasRole): string {
       return "/dashboard";
     case "customer_user":
       return "/dashboard";
+
     default:
       return "/dashboard";
   }

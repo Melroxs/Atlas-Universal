@@ -7,6 +7,9 @@ import {
   Panel,
   formatDate,
 } from "@/components/atlas-ui";
+import { EntityHeader } from "@/components/atlas-experience/EntityHeader";
+import { EntityIntelligencePanel } from "@/components/atlas-experience/EntityIntelligencePanel";
+import { useIntelligence } from "@/lib/atlas-experience";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,6 +58,9 @@ import {
   type WorkflowKey,
 } from "../../supabase/functions/conversation-converse/source/evidence-requirements.ts";
 import { PackageBuilder } from "@/components/package-builder";
+import { AtlasActionPanel } from "@/components/atlas-experience/AtlasActionPanel";
+import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
+import { getExecutableActions, createActionProposals } from "@/lib/atlas-experience/action-availability";
 
 function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
@@ -124,6 +130,7 @@ export default function ClaimDetail() {
   const [docSup, setDocSup] = useState<Id<"claimSupplements"> | null>(null);
   const [pkgOpen, setPkgOpen] = useState(false);
   const [readinessWorkflow, setReadinessWorkflow] = useState<WorkflowKey>("supplement_readiness");
+  const auth = useAtlasActionAuth();
 
   /**
    * Deterministic readiness assessment (evidence-requirements engine):
@@ -283,98 +290,96 @@ export default function ClaimDetail() {
   // pkg is narrowed non-null above, so the claim always exists here.
   const claim = pkg.claim;
 
+  // Intelligence context for this claim
+  const { items: intelligenceItems } = useIntelligence();
+  const claimIntelligence = intelligenceItems.filter(
+    (item) => item.navigationTarget?.includes(String(claimId)) || item.category === "supplement_opportunity"
+  );
+
+  // Entity-state-aware action proposals
+  const claimActions = useMemo(() => {
+    const supp = supplements[0];
+    return createActionProposals({
+      entityType: "claim",
+      entityId: String(claimId),
+      entityLabel: claim.customer ?? claim.property ?? claim.claimNumber ?? "Claim",
+      entityState: {
+        status: claim.status,
+        hasSupplement: supplements.length > 0,
+        supplementStatus: supp?.status ?? "",
+        hasOpenFindings: openFindings.length > 0,
+        hasRecommendation: false,
+      },
+      userRole: auth.userRole,
+      userId: auth.userId,
+    });
+  }, [claimId, claim, supplements, openFindings, auth.userRole, auth.userId]);
+
   return (
     <div className="space-y-6">
-      <div>
-        <button
-          type="button"
-          onClick={() => navigate("/dashboard/revenue-recovery")}
-          className="mb-2 flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-teal-600 dark:hover:text-teal-300"
-        >
-          <ArrowLeft className="size-3.5" />
-          Revenue Recovery
-        </button>
-        <PageHeader
-          eyebrow="Insurance claim package"
-          title={claim.customer ?? claim.property ?? claim.claimNumber ?? "Unnamed claim"}
-          description={`${claim.claimNumber ?? "No claim number"} · ${claim.property ?? "No property"} · ${claim.carrier ?? "No carrier"}`}
-          actions={
-            <>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => {
-                  setAnalyzing(true);
-                  void runAnalysis({ claimId })
-                    .then(() => toast.success("Analysis refreshed — findings are potential, not guarantees."))
-                    .catch((e) => toast.error(e instanceof Error ? e.message : "Analysis failed."))
-                    .finally(() => setAnalyzing(false));
-                }}
-                disabled={analyzing}
-              >
-                {analyzing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                Run analysis
-              </Button>
-              <Dialog open={supOpen} onOpenChange={setSupOpen}>
-                <DialogTrigger asChild>
-                  <Button className="gap-2">
-                    <ClipboardCheck className="size-4" />
-                    Draft supplement
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                  <DialogHeader>
-                    <DialogTitle>Draft a supplement</DialogTitle>
-                    <DialogDescription>
-                      This creates a draft — Atlas never submits without your review.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-3 py-2">
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="sup-reason" className="text-xs font-medium">Reason</Label>
-                      <Input
-                        id="sup-reason"
-                        value={supForm.reason}
-                        onChange={(e) => setSupForm((f) => ({ ...f, reason: e.target.value }))}
-                        placeholder="e.g. Additional drying equipment days"
-                        className="h-9"
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="sup-amount" className="text-xs font-medium">Requested amount (optional)</Label>
-                      <Input
-                        id="sup-amount"
-                        value={supForm.amount}
-                        onChange={(e) => setSupForm((f) => ({ ...f, amount: e.target.value }))}
-                        placeholder="e.g. 2400"
-                        inputMode="numeric"
-                        className="h-9"
-                      />
-                    </div>
-                    <div className="grid gap-1.5">
-                      <Label htmlFor="sup-just" className="text-xs font-medium">Justification (optional)</Label>
-                      <Input
-                        id="sup-just"
-                        value={supForm.justification}
-                        onChange={(e) => setSupForm((f) => ({ ...f, justification: e.target.value }))}
-                        placeholder="What supports this request?"
-                        className="h-9"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setSupOpen(false)}>Cancel</Button>
-                    <Button onClick={() => void submitSupplement()} disabled={creating}>
-                      {creating && <Loader2 className="size-4 animate-spin" />}
-                      Create draft
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </>
-          }
+      {/* Entity Header with breadcrumbs */}
+      <EntityHeader
+        entity={{
+          type: "claim",
+          id: String(claimId),
+          label: claim.customer ?? claim.property ?? claim.claimNumber ?? "Unnamed claim",
+          subtitle: `${claim.claimNumber ?? "No claim number"} · ${claim.property ?? "No property"} · ${claim.carrier ?? "No carrier"}`,
+          status: claim.status ?? "opened",
+          financialImpact: reconciliation.outstanding,
+        }}
+        parent={{
+          type: "company",
+          id: String(claim.companyId ?? ""),
+          label: claim.customer ?? "Company",
+        }}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => {
+                setAnalyzing(true);
+                void runAnalysis({ claimId })
+                  .then(() => toast.success("Analysis refreshed — findings are potential, not guarantees."))
+                  .catch((e) => toast.error(e instanceof Error ? e.message : "Analysis failed."))
+                  .finally(() => setAnalyzing(false));
+              }}
+              disabled={analyzing}
+            >
+              {analyzing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              Run analysis
+            </Button>
+            <Button className="gap-2" onClick={() => setSupOpen(true)}>
+              <ClipboardCheck className="size-4" />
+              Draft supplement
+            </Button>
+          </>
+        }
+      />
+
+      {/* Entity Intelligence Panel */}
+      {claimIntelligence.length > 0 && (
+        <EntityIntelligencePanel
+          entity={{ type: "claim", id: String(claimId), label: claim.claimNumber ?? "Claim" }}
+          attentionItems={claimIntelligence.slice(0, 5)}
         />
-      </div>
+      )}
+
+      {/* Atlas Actions Panel */}
+      {claimActions.length > 0 && (
+        <Panel className="p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="size-4 text-teal-600 dark:text-teal-300" />
+            <h3 className="text-sm font-semibold">Atlas Actions</h3>
+          </div>
+          <AtlasActionPanel
+            actions={claimActions}
+            userRole={auth.userRole}
+            userId={auth.userId}
+            layout="vertical"
+          />
+        </Panel>
+      )}
 
       {/* Overview stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -421,7 +426,7 @@ export default function ClaimDetail() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Left column: overview + completeness + evidence */}
         <div className="space-y-6 lg:col-span-2">
-          <Panel title="Claim overview">
+          <Panel title="Claim overview" description="Core claim information from the carrier and your records.">
             <dl className="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs text-muted-foreground">Status</dt>

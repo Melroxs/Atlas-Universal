@@ -197,7 +197,6 @@ const NAV_SECTIONS: Array<{
 /** Role gate per section — only Admin, Mail require special access. */
 function isSectionVisible(label: string, role: string): boolean {
   const atlasRole = role as import("@/lib/auth/access-gate").AtlasRole;
-  if (label === "Admin") return canAccessUserAdmin(atlasRole);
   if (label === "Administration") return canAccessPlatformAdmin(atlasRole) || canAccessUserAdmin(atlasRole);
   return true;
 }

@@ -124,14 +124,8 @@ export function normalizeStatus(raw?: string | null): AtlasAccountStatus {
 
 /**
  * Is this role an internal Atlas operator (not a customer)?
- */
-export function isInternalRole(role: AtlasRole): boolean {
+ */export function isInternalRole(role: AtlasRole): boolean {
   return role === "super_admin" || role === "atlas_admin";
-}/**
- * @deprecated Pilot product removed. Pilot users are now customer_user.
- */
-export function canAccessPilotAdmin(_role: AtlasRole): boolean {
-  return false;
 }
 
 /**

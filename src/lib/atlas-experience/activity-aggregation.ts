@@ -18,7 +18,6 @@ import {
   jobEventToActivity,
   recommendationEventToActivity,
   documentEventToActivity,
-  crmEventToActivity,
 } from "./activity";
 
 // ---------------------------------------------------------------------------
@@ -129,20 +128,6 @@ export function collectDocumentActivity(events: Array<{
   _creationTime: number;
 }>): AtlasActivity[] {
   return events.map(documentEventToActivity);
-}
-
-/**
- * Collect activity from CRM events.
- */
-export function collectCrmActivity(events: Array<{
-  _id: string;
-  type: string;
-  title?: string;
-  description?: string;
-  companyName?: string;
-  _creationTime: number;
-}>): AtlasActivity[] {
-  return events.map(crmEventToActivity);
 }
 
 // ---------------------------------------------------------------------------

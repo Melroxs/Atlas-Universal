@@ -1,7 +1,5 @@
 import { useAuth } from "@/hooks/use-auth";
 import {
-  canAccessPilotAdmin,
-  canAccessCRM,
   canAccessMail,
   canAccessUserAdmin,
   type AtlasRole,
@@ -14,21 +12,15 @@ import { Link, Navigate, useLocation } from "react-router";
  * Which internal section this guard protects.
  * Each section has specific role requirements.
  */
-type InternalSection = "pilot" | "crm" | "mail" | "users";
+type InternalSection = "mail" | "users";
 
 const SECTION_LABELS: Record<InternalSection, string> = {
-  pilot: "Pilot Operations",
-  crm: "CRM",
   mail: "Atlas Mail",
   users: "Users & Access",
 };
 
 function hasSectionAccess(role: AtlasRole, section: InternalSection): boolean {
   switch (section) {
-    case "pilot":
-      return canAccessPilotAdmin(role);
-    case "crm":
-      return canAccessCRM(role);
     case "mail":
       return canAccessMail(role);
     case "users":
@@ -43,7 +35,7 @@ function hasSectionAccess(role: AtlasRole, section: InternalSection): boolean {
  *
  * Unlike RequireAuth (which gates on authentication + account status),
  * RequireInternalAuth additionally gates on the user's platform_role.
- * Customer-level users who manually navigate to /dashboard/pilot/crm will
+ * Customer-level users who navigate to internal sections will
  * see a clear "Insufficient Permissions" page instead of internal data.
  */
 export function RequireInternalAuth({

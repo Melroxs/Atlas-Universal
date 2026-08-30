@@ -25,7 +25,6 @@ export type AtlasActionType =
   | "show_decision"
   | "prepare_supplement"
   | "prepare_email"
-  | "prepare_crm_activity"
   | "submit_supplement"
   | "send_email"
   | "approve_recommendation"
@@ -50,6 +49,18 @@ export type AtlasActionStatus =
   | "rejected"                // Human rejected
   | "expired"                 // Confirmation timed out
   | "stale";                  // Source data changed before execution
+
+/** The happy-path lifecycle states for visualization */
+export const DEFAULT_ACTION_LIFECYCLE: AtlasActionStatus[] = [
+  "proposed",
+  "preparing",
+  "prepared",
+  "awaiting_confirmation",
+  "confirmed",
+  "executing",
+  "executed",
+  "verified",
+];
 
 /** Valid status transitions — deterministic state machine */
 const VALID_TRANSITIONS: Record<AtlasActionStatus, AtlasActionStatus[]> = {
@@ -188,7 +199,6 @@ const ACTION_RISK_MAP: Record<AtlasActionType, ActionRisk> = {
   ask_followup: "low",
   prepare_supplement: "medium",
   prepare_email: "medium",
-  prepare_crm_activity: "medium",
   submit_supplement: "high",
   send_email: "high",
   approve_recommendation: "high",
@@ -221,7 +231,10 @@ export function safetyLevelToActionRisk(level: SafetyLevel): ActionRisk {
 // 4. Permission Model
 // ---------------------------------------------------------------------------
 
-/** Atlas user roles — maps to existing RBAC */
+/**
+ * Atlas user roles — maps to existing RBAC.
+ * @deprecated pilot_user is deprecated and maps to customer_user.
+ */
 export type AtlasUserRole =
   | "super_admin"
   | "atlas_admin"
@@ -238,24 +251,23 @@ export interface PermissionCheck {
 
 /** Permission matrix — deterministic, role-based */
 const PERMISSION_MATRIX: Record<AtlasActionType, Partial<Record<AtlasUserRole, boolean>>> = {
-  navigate:               { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true, pilot_user: true },
-  show_evidence:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true, pilot_user: true },
-  show_decision:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true, pilot_user: true },
-  ask_followup:           { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true, pilot_user: true },
-  prepare_supplement:     { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  prepare_email:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  prepare_crm_activity:   { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  submit_supplement:      { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  send_email:             { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  approve_recommendation: { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  reject_recommendation:  { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  execute_workflow:       { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  update_record:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
-  create_record:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false, pilot_user: false },
+  navigate:               { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true },
+  show_evidence:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true },
+  show_decision:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true },
+  ask_followup:           { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: true },
+  prepare_supplement:     { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  prepare_email:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  submit_supplement:      { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  send_email:             { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  approve_recommendation: { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  reject_recommendation:  { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  execute_workflow:       { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  update_record:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
+  create_record:          { super_admin: true, atlas_admin: true, customer_admin: true, customer_user: false },
 };
 
 /** Roles that need approval for high-risk actions */
-const ROLES_REQUIRING_APPROVAL: AtlasUserRole[] = ["customer_user", "pilot_user"];
+const ROLES_REQUIRING_APPROVAL: AtlasUserRole[] = ["customer_user"];
 
 /**
  * Check if the user is authorized to perform this action.
@@ -891,7 +903,7 @@ export function registerDefaultCapabilities(): void {
       description: "Search for entities (claims, documents, companies)",
       actionType: "navigate",
       risk: "low",
-      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user", "pilot_user"],
+      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user"],
       requiresConfirmation: false,
       requiresApproval: false,
       parameters: [{ name: "query", type: "string", required: true, description: "Search query" }],
@@ -903,7 +915,7 @@ export function registerDefaultCapabilities(): void {
       description: "View claim details and status",
       actionType: "navigate",
       risk: "low",
-      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user", "pilot_user"],
+      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user"],
       requiresConfirmation: false,
       requiresApproval: false,
       parameters: [{ name: "claimId", type: "string", required: true, description: "Claim ID" }],
@@ -915,7 +927,7 @@ export function registerDefaultCapabilities(): void {
       description: "Display evidence for an entity",
       actionType: "show_evidence",
       risk: "low",
-      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user", "pilot_user"],
+      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user"],
       requiresConfirmation: false,
       requiresApproval: false,
       parameters: [{ name: "entityId", type: "string", required: true, description: "Entity ID" }],
@@ -927,7 +939,7 @@ export function registerDefaultCapabilities(): void {
       description: "Display decision details and reasoning",
       actionType: "show_decision",
       risk: "low",
-      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user", "pilot_user"],
+      requiredRoles: ["super_admin", "atlas_admin", "customer_admin", "customer_user"],
       requiresConfirmation: false,
       requiresApproval: false,
       parameters: [{ name: "decisionId", type: "string", required: true, description: "Decision ID" }],
@@ -962,21 +974,6 @@ export function registerDefaultCapabilities(): void {
       parameters: [
         { name: "recipientId", type: "string", required: true, description: "Recipient ID" },
         { name: "subject", type: "string", required: false, description: "Email subject" },
-      ],
-      category: "prepare",
-    },
-    {
-      id: "prepare_crm_activity",
-      name: "Prepare CRM Activity",
-      description: "Create a CRM activity draft",
-      actionType: "prepare_crm_activity",
-      risk: "medium",
-      requiredRoles: ["super_admin", "atlas_admin", "customer_admin"],
-      requiresConfirmation: true,
-      requiresApproval: false,
-      parameters: [
-        { name: "leadId", type: "string", required: true, description: "Lead ID" },
-        { name: "activityType", type: "string", required: true, description: "Activity type" },
       ],
       category: "prepare",
     },
@@ -1085,7 +1082,7 @@ export function resolvePrepareIntent(
     supplement: "prepare_supplement",
     lead: "prepare_email",
     contact: "prepare_email",
-    company: "prepare_crm_activity",
+
   };
 
   const actionType = typeMap[entityType] ?? "create_record";

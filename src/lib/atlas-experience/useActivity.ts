@@ -18,7 +18,6 @@ import {
   collectJobActivity,
   collectRecommendationActivity,
   collectDocumentActivity,
-  collectCrmActivity,
   groupActivitiesByDate,
   computeWorkspaceActivitySummary,
   filterByEntity,

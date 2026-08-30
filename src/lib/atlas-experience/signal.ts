@@ -35,10 +35,6 @@ export type SignalType =
   | "workflow_failed"
   | "workflow_completed"
   | "workflow_blocked"
-  | "crm_lead_created"
-  | "crm_reply_received"
-  | "crm_stage_changed"
-  | "crm_task_overdue"
   | "revenue_opportunity_identified"
   | "supplement_opportunity_found"
   | "atlas_analysis_completed"
@@ -75,8 +71,6 @@ export const SIGNAL_SIGNIFICANCE: Record<SignalType, SignalSignificance> = {
   contradiction_discovered: "critical",
   evidence_gap_discovered: "critical",
   document_processing_failed: "critical",
-  crm_task_overdue: "critical",
-
   // Important
   claim_status_changed: "important",
   claim_financial_changed: "important",
@@ -85,9 +79,6 @@ export const SIGNAL_SIGNIFICANCE: Record<SignalType, SignalSignificance> = {
   revenue_opportunity_identified: "important",
   supplement_opportunity_found: "important",
   workflow_completed: "important",
-  crm_reply_received: "important",
-  crm_stage_changed: "important",
-
   // Notable
   document_uploaded: "notable",
   document_processing_completed: "notable",
@@ -95,7 +86,6 @@ export const SIGNAL_SIGNIFICANCE: Record<SignalType, SignalSignificance> = {
   contradiction_resolved: "notable",
   evidence_sufficiency_changed: "notable",
   atlas_analysis_completed: "notable",
-  crm_lead_created: "notable",
   workflow_blocked: "notable",
 
   // Routine

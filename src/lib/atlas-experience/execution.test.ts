@@ -233,10 +233,6 @@ describe("Safety Classification", () => {
     expect(getActionRisk("prepare_email")).toBe("medium");
   });
 
-  it("prepare_crm_activity is medium risk", () => {
-    expect(getActionRisk("prepare_crm_activity")).toBe("medium");
-  });
-
   it("submit_supplement is high risk", () => {
     expect(getActionRisk("submit_supplement")).toBe("high");
   });
@@ -305,12 +301,6 @@ describe("Authorization", () => {
     expect(checkAuthorization("prepare_supplement", "customer_user").allowed).toBe(false);
     expect(checkAuthorization("submit_supplement", "customer_user").allowed).toBe(false);
     expect(checkAuthorization("send_email", "customer_user").allowed).toBe(false);
-  });
-
-  it("pilot_user can read but not write", () => {
-    expect(checkAuthorization("navigate", "pilot_user").allowed).toBe(true);
-    expect(checkAuthorization("prepare_supplement", "pilot_user").allowed).toBe(false);
-    expect(checkAuthorization("submit_supplement", "pilot_user").allowed).toBe(false);
   });
 
   it("customer_user gets requiresApproval for high-risk actions (if allowed)", () => {

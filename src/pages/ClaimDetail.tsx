@@ -58,6 +58,9 @@ import {
   type WorkflowKey,
 } from "../../supabase/functions/conversation-converse/source/evidence-requirements.ts";
 import { PackageBuilder } from "@/components/package-builder";
+import { AtlasActionPanel } from "@/components/atlas-experience/AtlasActionPanel";
+import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
+import { getExecutableActions, createActionProposals } from "@/lib/atlas-experience/action-availability";
 
 function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
@@ -127,6 +130,7 @@ export default function ClaimDetail() {
   const [docSup, setDocSup] = useState<Id<"claimSupplements"> | null>(null);
   const [pkgOpen, setPkgOpen] = useState(false);
   const [readinessWorkflow, setReadinessWorkflow] = useState<WorkflowKey>("supplement_readiness");
+  const auth = useAtlasActionAuth();
 
   /**
    * Deterministic readiness assessment (evidence-requirements engine):
@@ -292,6 +296,25 @@ export default function ClaimDetail() {
     (item) => item.navigationTarget?.includes(String(claimId)) || item.category === "supplement_opportunity"
   );
 
+  // Entity-state-aware action proposals
+  const claimActions = useMemo(() => {
+    const supp = supplements[0];
+    return createActionProposals({
+      entityType: "claim",
+      entityId: String(claimId),
+      entityLabel: claim.customer ?? claim.property ?? claim.claimNumber ?? "Claim",
+      entityState: {
+        status: claim.status,
+        hasSupplement: supplements.length > 0,
+        supplementStatus: supp?.status ?? "",
+        hasOpenFindings: openFindings.length > 0,
+        hasRecommendation: false,
+      },
+      userRole: auth.userRole,
+      userId: auth.userId,
+    });
+  }, [claimId, claim, supplements, openFindings, auth.userRole, auth.userId]);
+
   return (
     <div className="space-y-6">
       {/* Entity Header with breadcrumbs */}
@@ -340,6 +363,22 @@ export default function ClaimDetail() {
           entity={{ type: "claim", id: String(claimId), label: claim.claimNumber ?? "Claim" }}
           attentionItems={claimIntelligence.slice(0, 5)}
         />
+      )}
+
+      {/* Atlas Actions Panel */}
+      {claimActions.length > 0 && (
+        <Panel className="p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Sparkles className="size-4 text-teal-600 dark:text-teal-300" />
+            <h3 className="text-sm font-semibold">Atlas Actions</h3>
+          </div>
+          <AtlasActionPanel
+            actions={claimActions}
+            userRole={auth.userRole}
+            userId={auth.userId}
+            layout="vertical"
+          />
+        </Panel>
       )}
 
       {/* Overview stats */}

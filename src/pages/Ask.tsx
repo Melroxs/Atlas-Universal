@@ -34,6 +34,15 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import { bridgeIntentToAction } from "@/lib/atlas-experience/conversational-execution-bridge";
+import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
+import { buildConversationContext } from "@/lib/atlas-experience/conversational-intelligence";
+import { useAtlasContext } from "@/lib/atlas-experience/context";
+import { useIntelligence } from "@/lib/atlas-experience";
+import { useActivity } from "@/lib/atlas-experience/useActivity";
+import { useDecisions } from "@/lib/atlas-experience/useDecisions";
+import { AtlasActionPanel } from "@/components/atlas-experience/AtlasActionPanel";
+import type { AtlasActionStatus } from "@/lib/atlas-experience/execution";
 
 interface Evidence {
   kind: string;
@@ -97,6 +106,14 @@ interface Turn {
   contradictions?: EvidenceContradiction[];
   recommendations?: string[];
   timestamp: number;
+  /** Conversational action proposal from bridgeIntentToAction */
+  actionProposal?: {
+    hasAction: boolean;
+    action?: import("@/lib/atlas-experience/execution").AtlasExecutableAction;
+    requiresConfirmation: boolean;
+    authorized: boolean;
+    authorizationReason?: string;
+  };
 }
 
 interface ToolPlan {
@@ -170,6 +187,29 @@ export default function Ask() {
     onTranscript: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
   });
 
+  // Atlas action integration
+  const auth = useAtlasActionAuth();
+  const { health } = useAtlasContext();
+  const { items: attentionItems } = useIntelligence();
+  const { activities } = useActivity();
+  const { decisions } = useDecisions();
+  const [conversationEntity, setConversationEntity] = useState<import("@/lib/atlas-experience/entity-reference").AtlasEntityReference | undefined>();
+
+  // Build conversation context for the execution bridge
+  const conversationContext = useMemo(() => {
+    return buildConversationContext({
+      workspaceId: auth.userId || "",
+      workspaceName: undefined,
+      userRole: auth.userRole,
+      health,
+      attentionItems,
+      activities,
+      decisions,
+      signals: [],
+      currentEntity: conversationEntity,
+    });
+  }, [health, attentionItems, activities, decisions, auth.userId, auth.userRole, conversationEntity]);
+
   // Sync voice session turns into the Ask page conversation.
   // When the user speaks via ambient voice or PTT, the session handles the
   // command and adds turns to session.turns. We mirror those into the page's
@@ -216,6 +256,19 @@ export default function Ask() {
     };
     setTurns((t) => [...t, userTurn]);
     setBusy(true);
+
+    // Run conversational execution bridge for action detection
+    const actionProposal = bridgeIntentToAction(q, {
+      userRole: auth.userRole,
+      userId: auth.userId,
+      currentEntity: conversationEntity,
+      conversationContext,
+    });
+
+    // Update entity context if the bridge resolved one
+    if (actionProposal.hasAction && actionProposal.action?.entity) {
+      setConversationEntity(actionProposal.action.entity);
+    }
     try {
       const res = await converse({
         sessionId: (sessionId ?? undefined) as Id<"conversationSessions"> | undefined,
@@ -246,6 +299,13 @@ export default function Ask() {
           contradictions: (res.contradictions as EvidenceContradiction[] | undefined) ?? undefined,
           recommendations: (res.recommendations as string[] | undefined) ?? undefined,
           timestamp: Date.now(),
+          actionProposal: actionProposal.hasAction ? {
+            hasAction: true,
+            action: actionProposal.action,
+            requiresConfirmation: actionProposal.requiresConfirmation,
+            authorized: actionProposal.authorized,
+            authorizationReason: actionProposal.authorizationReason,
+          } : undefined,
         },
       ]);
     } catch (e) {
@@ -592,6 +652,41 @@ export default function Ask() {
                             </div>
                           </div>
                         )}
+                      {/* Action proposal from conversational execution bridge */}
+                      {t.actionProposal?.hasAction && t.actionProposal.action && (
+                        <div className="mt-3 border-t border-teal-400/20 pt-2.5">
+                          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-teal-700 dark:text-teal-300">
+                            <Zap className="size-3" />
+                            Atlas can do this
+                          </p>
+                          <p className="mt-1.5 text-xs font-semibold text-foreground">
+                            {t.actionProposal.action.description}
+                          </p>
+                          {!t.actionProposal.authorized && t.actionProposal.authorizationReason && (
+                            <p className="mt-1 text-[11px] text-rose-600 dark:text-rose-300">
+                              {t.actionProposal.authorizationReason}
+                            </p>
+                          )}
+                          {t.actionProposal.requiresConfirmation && (
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              This action requires your confirmation before execution.
+                            </p>
+                          )}
+                          <div className="mt-2">
+                            <AtlasActionPanel
+                              actions={[{
+                                type: t.actionProposal.action.type,
+                                label: t.actionProposal.action.description,
+                                entity: t.actionProposal.action.entity,
+                                params: t.actionProposal.action.parameters,
+                              }]}
+                              userRole={auth.userRole}
+                              userId={auth.userId}
+                              layout="compact"
+                            />
+                          </div>
+                        </div>
+                      )}
                       {t.limitations && (
                         <p className="mt-3 text-[11px] italic leading-5 text-muted-foreground">
                           ⚠ {t.limitations}

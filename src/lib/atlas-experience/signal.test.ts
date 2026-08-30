@@ -113,7 +113,7 @@ function makeActivity(overrides: Partial<AtlasActivity> = {}): AtlasActivity {
 
 describe("Signal Significance Map", () => {
   it("has entries for all signal types", () => {
-    expect(Object.keys(SIGNAL_SIGNIFICANCE).length).toBeGreaterThan(20);
+    expect(Object.keys(SIGNAL_SIGNIFICANCE).length).toBeGreaterThanOrEqual(20);
   });
 
   it("maps critical types correctly", () => {

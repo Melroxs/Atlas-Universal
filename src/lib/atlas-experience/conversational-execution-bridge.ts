@@ -134,7 +134,7 @@ export function resolveConversationEntity(
   }
 
   // Pronoun / ambiguous references → use current entity
-  const pronounPatterns = /\b(it|this|that|them|the (claim|supplement|document|lead|recommendation|decision))\b/i;
+  const pronounPatterns = /\b(it|this|that|them|the (claim|supplement|document|recommendation|decision))\b/i;
   if (pronounPatterns.test(lower) && context.currentEntity) {
     return context.currentEntity;
   }
@@ -249,7 +249,7 @@ function bridgePrepareIntent(
   if (!entity) {
     return {
       hasAction: false,
-      answer: "What would you like me to prepare? Please specify a claim, lead, or document.",
+      answer: "What would you like me to prepare? Please specify a claim or document.",
       requiresConfirmation: false,
       authorized: true,
     };
@@ -262,12 +262,12 @@ function bridgePrepareIntent(
   if (entity.type === "claim") {
     actionType = "prepare_supplement";
     label = `Prepare supplement for ${entity.label}`;
-  } else if (entity.type === "lead") {
+  } else if (entity.type === "organization" && /email/i.test(message)) {
     actionType = "prepare_email";
-    label = `Prepare outreach email for ${entity.label}`;
+    label = `Prepare email for ${entity.label}`;
   } else {
-    actionType = "prepare_crm_activity";
-    label = `Prepare activity for ${entity.label}`;
+    actionType = "update_record";
+    label = `Update ${entity.label}`;
   }
 
   const risk = getActionRisk(actionType);
@@ -490,7 +490,7 @@ export function generateProactiveActionSuggestions(
     if (nba.entity && nba.label) {
       suggestions.push({
         label: `Prepare ${nba.label}`,
-        actionType: nba.entity.type === "claim" ? "prepare_supplement" : "prepare_crm_activity",
+        actionType: nba.entity.type === "claim" ? "prepare_supplement" : "update_record",
         entity: nba.entity,
       });
     }

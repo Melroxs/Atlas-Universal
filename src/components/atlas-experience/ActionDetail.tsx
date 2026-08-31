@@ -143,6 +143,27 @@ const STATUS_CONFIG: Record<
     bg: "bg-amber-50 dark:bg-amber-950/30",
     description: "Source data changed before execution",
   },
+  cancelled: {
+    label: "Cancelled",
+    icon: XCircle,
+    color: "text-muted-foreground",
+    bg: "bg-muted/50",
+    description: "Action was cancelled",
+  },
+  retry_pending: {
+    label: "Retry Pending",
+    icon: Loader2,
+    color: "text-amber-600 dark:text-amber-300",
+    bg: "bg-amber-50 dark:bg-amber-950/30",
+    description: "Failed but safe to retry",
+  },
+  verification_pending: {
+    label: "Verifying",
+    icon: Loader2,
+    color: "text-blue-600 dark:text-blue-300",
+    bg: "bg-blue-50 dark:bg-blue-950/30",
+    description: "Execution result pending verification",
+  },
 };
 
 const ACTION_ICONS: Record<string, LucideIcon> = {
@@ -151,7 +172,6 @@ const ACTION_ICONS: Record<string, LucideIcon> = {
   show_decision: FileText,
   prepare_supplement: Sparkles,
   prepare_email: Send,
-  prepare_crm_activity: FileText,
   submit_supplement: Send,
   send_email: Send,
   approve_recommendation: CheckCircle2,

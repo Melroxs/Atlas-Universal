@@ -51,9 +51,9 @@ export default function Audit() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Audit Log"
-        title="Every action, on the record"
-        description="A tamper-evident trail of who did what in your workspace — from document uploads to recommendation approvals."
+        eyebrow="Activity"
+        title="Atlas Activity"
+        description="What Atlas and your team have been doing — from document uploads to recommendation approvals. Every consequential action is recorded."
       />
 
       <div className="relative max-w-sm">
@@ -66,21 +66,27 @@ export default function Audit() {
         />
       </div>
 
+      {/* Atlas narrative summary — only from real data */}
+      {logs && logs.length > 0 && !q && (
+        <p className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+          Atlas has recorded {logs.length} activit{logs.length === 1 ? "y" : "ies"} in this organization.
+        </p>
+      )}
+
       {logs === undefined ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
           Loading audit trail…
         </div>
-      ) : filtered.length === 0 ? (
-        <EmptyPanel
-          icon={ScrollText}
-          title={q ? "No matching entries" : "No audit entries yet"}
-          description={
-            q
-              ? "Try a different filter."
-              : "Actions like uploads, detections, approvals and role changes will appear here."
-          }
-        />
+      ) : filtered.length === 0 ? (          <EmptyPanel
+            icon={ScrollText}
+            title={q ? "No matching entries" : "No recorded activity yet"}
+            description={
+              q
+                ? "Try a different filter."
+                : "Actions like uploads, detections, approvals and role changes will appear here."
+            }
+          />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card/50">
           <div className="divide-y divide-border/50">

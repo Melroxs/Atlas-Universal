@@ -295,10 +295,41 @@ export function NextBestActionCard() {
   const { items: attentionItems } = useIntelligence();
   const { activities } = useActivity();
   const { decisions } = useDecisions();
+  const { setInvestigation } = useAtlasContext();
 
   const nextAction = useMemo(() => {
     return selectNextBestAction({ attentionItems, decisions, activities });
   }, [attentionItems, decisions, activities]);
+
+  // IMPORTANT: All hooks must be called before any early return to satisfy
+  // React's Rules of Hooks. These hooks always execute in the same order
+  // regardless of whether nextAction is null.
+  const { generateAttentionActions, generateDecisionActions } = useAtlasActions();
+  const auth = useAtlasActionAuth();
+
+  const actionProposals = useMemo(() => {
+    if (!nextAction?.entity) return [];
+    const entity: import("@/lib/atlas-experience/entity-reference").AtlasEntityReference = {
+      type: (nextAction.entity.type as import("@/lib/atlas-experience/entity-reference").AtlasEntityReference["type"]) ?? "claim",
+      id: nextAction.entity.id,
+      label: nextAction.entity.label ?? `${nextAction.entity.type} ${nextAction.entity.id}`,
+      href: nextAction.entity.href,
+    };
+    if (nextAction.actionType === "approve") {
+      return [{
+        type: "approve_recommendation" as const,
+        label: "Approve",
+        entity,
+        params: { recommendationId: nextAction.entity.id },
+      }];
+    }
+    return [{
+      type: "prepare_supplement" as const,
+      label: "Prepare Supplement",
+      entity,
+      params: { claimId: nextAction.entity.id },
+    }];
+  }, [nextAction]);
 
   if (!nextAction) return null;
 
@@ -309,35 +340,6 @@ export function NextBestActionCard() {
     follow_up: MessageSquareText,
   };
   const ActionIcon = ACTION_ICONS[nextAction.actionType] ?? Target;
-
-  // Generate action proposals from the next best action
-  const { generateAttentionActions, generateDecisionActions } = useAtlasActions();
-  const auth = useAtlasActionAuth();
-  const actionProposals = useMemo(() => {
-    if (nextAction.entity) {
-      const entity: import("@/lib/atlas-experience/entity-reference").AtlasEntityReference = {
-        type: (nextAction.entity.type as import("@/lib/atlas-experience/entity-reference").AtlasEntityReference["type"]) ?? "claim",
-        id: nextAction.entity.id,
-        label: nextAction.entity.label ?? `${nextAction.entity.type} ${nextAction.entity.id}`,
-        href: nextAction.entity.href,
-      };
-      if (nextAction.actionType === "approve") {
-        return [{
-          type: "approve_recommendation" as const,
-          label: "Approve",
-          entity,
-          params: { recommendationId: nextAction.entity.id },
-        }];
-      }
-      return [{
-        type: "prepare_supplement" as const,
-        label: "Prepare Supplement",
-        entity,
-        params: { claimId: nextAction.entity.id },
-      }];
-    }
-    return [];
-  }, [nextAction]);
 
   return (
     <Panel className="border-teal-400/25 bg-teal-400/5 p-5">
@@ -361,7 +363,24 @@ export function NextBestActionCard() {
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={() => nextAction.entity.href && navigate(nextAction.entity.href)}
+              onClick={() => {
+                if (nextAction.entity.href) {
+                  setInvestigation({
+                    entity: {
+                      id: nextAction.entity.id,
+                      type: (nextAction.entity.type as import("@/lib/atlas-experience/context").AtlasEntityType) ?? "claim",
+                      name: nextAction.entity.label,
+                    },
+                    originatingInsight: {
+                      title: nextAction.title,
+                      description: nextAction.reason,
+                    },
+                    confidence: undefined,
+                    returnTo: { label: "Back to Atlas", path: "/dashboard" },
+                  });
+                  navigate(nextAction.entity.href);
+                }
+              }}
             >
               {nextAction.actionType === "approve" ? "Review" : "Investigate"}
               <ArrowRight className="size-3" />
@@ -425,12 +444,11 @@ export function AskAtlasEntry() {
         <MessageSquareText className="size-4 text-teal-600 dark:text-teal-300" />
         <h3 className="text-sm font-semibold text-foreground">Ask Atlas</h3>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {suggestedPrompts.map((prompt) => (
+      <div className="mt-3 flex flex-wrap gap-2">            {suggestedPrompts.map((prompt) => (
           <button
             key={prompt}
             type="button"
-            onClick={() => navigate("/dashboard/ask")}
+            onClick={() => navigate("/dashboard/talk")}
             className="rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-teal-400/30 hover:text-teal-600 dark:hover:text-teal-300"
           >
             {prompt}

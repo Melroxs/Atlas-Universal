@@ -29,7 +29,6 @@ function mapProfileRoleToActionRole(
   if (r === "super_admin" || r === "atlas_admin") return r;
   if (r === "customer_admin") return r;
   if (r === "customer_user" || r === "user" || r === "") return "customer_user";
-  if (r === "pilot_user") return r;
   return "customer_user";
 }
 

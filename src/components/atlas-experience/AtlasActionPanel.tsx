@@ -550,13 +550,6 @@ export function useAtlasActions() {
           entity,
           params: { claimId: item.entityId },
         });
-      } else if (item.category === "crm" || item.category === "outreach") {
-        actions.push({
-          type: "prepare_email",
-          label: "Prepare Email",
-          entity,
-          params: { leadId: item.entityId },
-        });
       } else if (item.category === "evidence") {
         actions.push({
           type: "show_evidence",

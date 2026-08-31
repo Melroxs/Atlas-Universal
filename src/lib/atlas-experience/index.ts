@@ -215,6 +215,7 @@ export {
 // Conversational Intelligence Layer
 export {
   type AtlasConversationContext,
+  type AtlasInvestigationContext,
   type ContextBuilderInput,
   type ConversationalIntent,
   type IntentClassification,
@@ -365,6 +366,18 @@ export {
   deduplicateActionProposals,
   collectAndDeduplicate,
 } from "./action-deduplication";
+
+// Opportunity engine
+export {
+  type ChangeSeverity,
+  type OpportunityType,
+  type DetectedChange,
+  type GeneratedOpportunity,
+  type CausalTraceEntry,
+  classifyChange,
+  generateOpportunity,
+  opportunityToAttentionItem,
+} from "./opportunity-engine";
 
 // Onboarding & activation state
 export {

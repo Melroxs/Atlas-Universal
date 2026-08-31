@@ -100,7 +100,7 @@ describe("executeAction validation", () => {
     // action is in "proposed" status — not confirmed
     const result = await executeAction(action, adminContext);
     expect(result.status).toBe("failed");
-    expect(result.error?.code).toBe("validation_error");
+    expect(result.error?.code).toBe("action_not_confirmable");
   });
 });
 

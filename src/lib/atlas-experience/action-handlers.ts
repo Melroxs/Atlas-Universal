@@ -32,6 +32,11 @@ import {
   generateSourceFingerprint,
   isActionStale,
   isActionExpired,
+  validateBeforeExecution,
+  handleAmbiguousExecution,
+  classifyRetry,
+  MAX_SAFE_RETRIES,
+  logActionTelemetry,
 } from "./execution";
 import type { AtlasEntityReference } from "./entity-reference";
 
@@ -408,9 +413,9 @@ export function registerActionHandler(actionType: AtlasActionType, handler: Acti
  * Execute a confirmed action through the real system.
  *
  * This is the single entry point that:
- *   1. Validates the action is ready for execution
- *   2. Checks authorization
- *   3. Dispatches to the appropriate handler
+ *   1. Runs the full pre-execution validation pipeline
+ *   2. Dispatches to the appropriate handler
+ *   3. Handles ambiguous execution results
  *   4. Records audit telemetry
  *   5. Returns the result
  *
@@ -419,32 +424,34 @@ export function registerActionHandler(actionType: AtlasActionType, handler: Acti
 export async function executeAction(
   action: AtlasExecutableAction,
   context: ActionHandlerContext,
+  options?: {
+    /** Current source fingerprint for staleness check */
+    currentFingerprint?: string;
+    /** Whether this idempotency key was already executed */
+    idempotencyKeyExists?: boolean;
+  },
 ): Promise<AtlasActionResult> {
-  // 1. Validate the action is in a state ready for execution
-  if (action.status !== "confirmed") {
-    return createFailureResult(
-      action.id,
-      `Action cannot be executed in status: ${action.status}. Must be confirmed.`,
-      "validation_error",
-    );
+  // 1. Run the full pre-execution validation pipeline
+  const validation = validateBeforeExecution(action, {
+    userRole: context.userRole,
+    currentFingerprint: options?.currentFingerprint,
+    idempotencyKeyExists: options?.idempotencyKeyExists,
+  });
+
+  if (!validation.valid) {
+    // If it's a duplicate, return success without re-executing
+    if (validation.code === "duplicate_action") {
+      return {
+        actionId: action.id,
+        status: "executed",
+        message: "This action has already been executed",
+        idempotent: true,
+      };
+    }
+    return createFailureResult(action.id, validation.reason, validation.code, validation.retryable);
   }
 
-  // 2. Check for expiration
-  if (isActionExpired(action)) {
-    return createFailureResult(
-      action.id,
-      "This action has expired. Please propose it again.",
-      "expired_action",
-    );
-  }
-
-  // 3. Authorization check (defense in depth — UI should have already checked)
-  const auth = checkAuthorization(action.type, context.userRole);
-  if (!auth.allowed) {
-    return createFailureResult(action.id, auth.reason, "unauthorized");
-  }
-
-  // 4. Get the handler
+  // 2. Get the handler
   const handler = getActionHandler(action.type);
   if (!handler) {
     return createFailureResult(
@@ -454,10 +461,9 @@ export async function executeAction(
     );
   }
 
-  // 5. Transition to executing
-  let executingAction: AtlasExecutableAction;
+  // 3. Transition to executing
   try {
-    executingAction = transitionAction(action, "executing", context.userId, "Execution started");
+    action = transitionAction(action, "executing", context.userId, "Execution started");
   } catch (e) {
     return createFailureResult(
       action.id,
@@ -466,14 +472,58 @@ export async function executeAction(
     );
   }
 
-  // 6. Execute through the handler
+  // 4. Execute through the handler
   const startTime = Date.now();
-  const result = await handler(action, context);
+  let result: AtlasActionResult;
+  try {
+    result = await handler(action, context);
+  } catch (error) {
+    // Network or unexpected failure — check if it might be ambiguous
+    const isNetworkError = error instanceof Error && (
+      error.message.includes("timeout") ||
+      error.message.includes("network") ||
+      error.message.includes("fetch")
+    );
+
+    if (isNetworkError) {
+      // Ambiguous: we don't know if the source system received and executed
+      const ambiguous = handleAmbiguousExecution(action, error);
+      result = {
+        ...ambiguous.result,
+        durationMs: Date.now() - startTime,
+      };
+      try {
+        logActionTelemetry({
+          event: "action_executed",
+          timestamp: new Date().toISOString(),
+          actionId: action.id,
+          actionType: action.type,
+          entityType: action.entity.type,
+          risk: action.risk,
+          outcome: "verification_pending",
+          durationMs: Date.now() - startTime,
+          actor: context.userId,
+        });
+      } catch { /* telemetry failure should not block */ }
+      return result;
+    }
+    result = createFailureResult(
+      action.id,
+      error instanceof Error ? error.message : "Unknown error",
+      "backend_error",
+    );
+  }
+
   const durationMs = Date.now() - startTime;
 
-  // 7. Record telemetry
+  // 5. If execution succeeded, check if verification is needed
+  if (result.status === "executed" && !result.verificationRequired) {
+    // Mark as verification_pending if no verification was performed
+    result.verificationRequired = true;
+  }
+
+  // 6. Record telemetry
   try {
-    const { logActionTelemetry } = await import("./execution");
     logActionTelemetry({
       event: result.status === "executed" ? "action_executed" : "action_failed",
       timestamp: new Date().toISOString(),
@@ -490,6 +540,8 @@ export async function executeAction(
     // Telemetry failure should not block execution
   }
 
+  // 7. Attach duration to result
+  result.durationMs = durationMs;
   return result;
 }
 

@@ -79,6 +79,18 @@ export interface ConversationResolutionContext {
 
   /** Conversation context from the intelligence layer */
   conversationContext: AtlasConversationContext;
+
+  /** Whether the current action/preparation is stale */
+  isStaleAction?: boolean;
+
+  /** What changed since preparation, if known */
+  staleChanges?: Array<{ label: string; description?: string }>;
+
+  /** Current persisted action status, if available */
+  actionStatus?: string;
+
+  /** When the preparation was created */
+  preparedAt?: string;
 }
 
 /** A conversation turn with execution context */
@@ -199,6 +211,19 @@ export function bridgeIntentToAction(
 
   // Handle "submit" / "send" / "approve" intents
   if (/(submit|send|approve|execute)/i.test(message)) {
+    // Check if the current action is stale before executing
+    if (context.isStaleAction) {
+      const changeSummary = context.staleChanges && context.staleChanges.length > 0
+        ? ` The information changed: ${context.staleChanges.map((c) => c.label).join(", ")}.`
+        : " The source information changed since this was prepared.";
+      return {
+        hasAction: false,
+        answer: `I wouldn't submit it yet.${changeSummary} I recommend reviewing the updated information first, then re-preparing if it still looks right.`,
+        requiresConfirmation: false,
+        authorized: true,
+        suggestedFollowUps: ["Review changes", "Re-prepare", "Cancel"],
+      };
+    }
     return bridgeExecuteIntent(message, intent, entity, context);
   }
 
@@ -224,16 +249,23 @@ export function bridgeIntentToAction(
       requiresConfirmation: false,
       authorized: auth.allowed,
     };
-  }
+  }  // For informational intents, generate an answer but no action
 
-  // For informational intents, generate an answer but no action
   const answerResult: AtlasAnswer = generateAnswer(message, context.conversationContext, intent);
+
+  // For evidence intent inside a claim, suggest navigating to the evidence section
+  const suggestedFollowUps: string[] = [];
+  if (intent.intent === "evidence" && entity && entity.type === "claim") {
+    suggestedFollowUps.push("Show me the evidence for this claim");
+    suggestedFollowUps.push("What's missing?");
+  }
 
   return {
     hasAction: false,
     answer: answerResult.text,
     requiresConfirmation: false,
     authorized: true,
+    suggestedFollowUps: suggestedFollowUps.length > 0 ? suggestedFollowUps : undefined,
   };
 }
 

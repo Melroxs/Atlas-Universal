@@ -162,9 +162,9 @@ export default function Settings() {
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
-        eyebrow="Workspace Settings"
-        title="Company profile & environment"
-        description="Atlas uses this context to pick intelligence packs and calibrate expectations."
+        eyebrow="Organization"
+        title="Organization"
+        description="Your workspace and business information. Atlas uses this context to calibrate intelligence and understand your operations."
       />
 
       {/* Company profile */}

@@ -14,6 +14,7 @@ import {
   FolderOpen,
   Github,
   HardDrive,
+  Info,
   KeyRound,
   Loader2,
   Lock,
@@ -27,9 +28,16 @@ import {
   Unplug,
   Users,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 const MANAGER_ROLES = ["owner", "admin", "manager"];
 
@@ -162,6 +170,41 @@ const CAPABILITY_LABELS: Record<string, string> = {
   search: "Search",
 };
 
+/** Translate connector capabilities into Atlas-oriented descriptions */
+function atlasCapabilities(capabilities: string[]): {
+  see: string[];
+  do: string[];
+  cannot: string[];
+} {
+  const see: string[] = [];
+  const doItems: string[] = [];
+  const cannot: string[] = [];
+
+  if (capabilities.includes("read")) {
+    see.push("Information from this system");
+  }
+  if (capabilities.includes("search")) {
+    doItems.push("Search for information");
+  }
+  if (capabilities.includes("write")) {
+    doItems.push("Modify records");
+  } else {
+    cannot.push("Modify records");
+  }
+  if (capabilities.includes("sync_documents")) {
+    see.push("Documents and files");
+    doItems.push("Synchronize documents");
+  }
+  if (capabilities.includes("webhook")) {
+    doItems.push("Receive real-time updates");
+  }
+  if (capabilities.includes("polling")) {
+    doItems.push("Check for changes periodically");
+  }
+
+  return { see, do: doItems, cannot };
+}
+
 function CatalogStatusBadge({ status }: { status: string }) {
   const meta = STATUS_META[status] ?? STATUS_META.roadmap;
   return (
@@ -191,6 +234,7 @@ export default function Connections() {
   const [syncBusyId, setSyncBusyId] = useState<string | null>(null);
   const [testBusyId, setTestBusyId] = useState<string | null>(null);
   const [showKeysHint, setShowKeysHint] = useState(false);
+  const [detailEntry, setDetailEntry] = useState<CatalogEntry | null>(null);
 
   const isManager = MANAGER_ROLES.includes(workspace?.membership?.role ?? "");
   const entries = catalog ?? [];
@@ -517,6 +561,15 @@ export default function Connections() {
                 )}
 
                 <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1.5 text-muted-foreground"
+                    onClick={() => setDetailEntry(entry)}
+                  >
+                    <Info className="size-3.5" />
+                    View details
+                  </Button>
                   {isLive && conn ? (
                     <>
                       <Button
@@ -670,6 +723,172 @@ export default function Connections() {
         <ShieldCheck className="size-3.5" />
         No connector is ever shown as connected without a real connection and a live API check —
         nothing here is simulated.
+      </p>
+
+      {/* Connection detail dialog */}
+      <Dialog open={detailEntry !== null} onOpenChange={(o) => !o && setDetailEntry(null)}>
+        <DialogContent className="sm:max-w-lg">
+          {detailEntry && <ConnectionDetail entry={detailEntry} icon={iconFor(detailEntry)} />}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Connection detail panel
+// ---------------------------------------------------------------------------
+
+function ConnectionDetail({
+  entry,
+  icon: Icon,
+}: {
+  entry: CatalogEntry;
+  icon: typeof HardDrive;
+}) {
+  const caps = atlasCapabilities(entry.capabilities);
+  const conn = entry.connection;
+  const isLive =
+    conn &&
+    ["connected", "healthy", "degraded", "syncing"].includes(entry.displayStatus);
+  const isError = entry.displayStatus === "error";
+  const isDegraded = entry.displayStatus === "degraded";
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <DialogHeader>
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex size-10 shrink-0 items-center justify-center rounded-lg ring-1 ${
+              isLive
+                ? "bg-teal-400/10 text-teal-600 ring-teal-400/20 dark:text-teal-300"
+                : "bg-muted/50 text-muted-foreground ring-border/60"
+            }`}
+          >
+            <Icon className="size-5" />
+          </div>
+          <div>
+            <DialogTitle className="text-base">{entry.name}</DialogTitle>
+            <DialogDescription className="text-xs">
+              {entry.category.replace(/_/g, " ")} · {entry.authType === "oauth2" ? "OAuth 2.0" : entry.authType === "api_key" ? "API key" : "Direct"}
+            </DialogDescription>
+          </div>
+        </div>
+      </DialogHeader>
+
+      {/* Status */}
+      <div className="flex items-center gap-2">
+        <CatalogStatusBadge status={entry.displayStatus} />
+        {isDegraded && conn?.lastError && (
+          <span className="text-xs text-amber-600 dark:text-amber-300">{conn.lastError}</span>
+        )}
+        {isError && conn?.lastError && (
+          <span className="text-xs text-rose-600 dark:text-rose-300">{conn.lastError}</span>
+        )}
+      </div>
+
+      {/* What Atlas can see */}
+      {caps.see.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What Atlas can see
+          </h3>
+          <div className="space-y-1.5">
+            {caps.see.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-emerald-600 dark:text-emerald-300">✓</span>
+                <span className="text-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* What Atlas can do */}
+      {caps.do.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What Atlas can do
+          </h3>
+          <div className="space-y-1.5">
+            {caps.do.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-emerald-600 dark:text-emerald-300">✓</span>
+                <span className="text-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* What Atlas cannot do */}
+      {caps.cannot.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What Atlas cannot do
+          </h3>
+          <div className="space-y-1.5">
+            {caps.cannot.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground/50">✗</span>
+                <span className="text-muted-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Connection details */}
+      {isLive && conn && (
+        <div className="rounded-lg border border-border/60 bg-muted/20 p-3 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Connection details
+          </p>
+          {conn.accountEmail && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Account</span>
+              <span className="text-foreground">{conn.accountEmail}</span>
+            </div>
+          )}
+          {conn.accountName && !conn.accountEmail && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Account</span>
+              <span className="text-foreground">{conn.accountName}</span>
+            </div>
+          )}
+          {conn.lastSyncAt && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Last synchronized</span>
+              <span className="text-foreground">{formatDate(conn.lastSyncAt)}</span>
+            </div>
+          )}
+          {conn.lastTestedAt && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Last tested</span>
+              <span className="text-foreground">{formatDate(conn.lastTestedAt)}</span>
+            </div>
+          )}
+          <div className="flex justify-between text-xs">
+            <span className="text-muted-foreground">Capabilities</span>
+            <span className="text-foreground">
+              {entry.capabilities.map((c) => CAPABILITY_LABELS[c] ?? c).join(", ")}
+            </span>
+          </div>
+          {entry.oauthScopes.length > 0 && (
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">OAuth scopes</span>
+              <span className="text-foreground font-mono text-[10px]">
+                {entry.oauthScopes.join(", ")}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Safety note */}
+      <p className="text-[11px] leading-5 text-muted-foreground">
+        A connection only shows as connected when a live link exists and has been verified against the provider's API.
       </p>
     </div>
   );

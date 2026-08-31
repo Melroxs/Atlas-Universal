@@ -24,8 +24,12 @@ import { cn } from "@/lib/utils";
 import { useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Crown,
+  Eye,
+  FileCheck,
   Loader2,
+  Lock,
   Mail,
+  Send,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -42,6 +46,40 @@ const ROLE_DESC: Record<string, string> = {
   manager: "Approves recommendations, invites members, manages connections",
   analyst: "Uploads documents and asks questions",
   viewer: "Read-only access to knowledge and answers",
+};
+
+/** Role-based Atlas access — mirrors the existing PERMISSION_MATRIX in execution.ts */
+const ROLE_ATLAS_ACCESS: Record<string, { see: string[]; prepare: string[]; execute: string[]; manage: string[] }> = {
+  owner: {
+    see: ["Claims", "Documents", "Evidence", "Recommendations"],
+    prepare: ["Supplement drafts", "Email drafts", "Recommendations"],
+    execute: ["Submit supplements", "Send emails", "Approve recommendations"],
+    manage: ["Invite members", "Change roles", "Manage connections"],
+  },
+  admin: {
+    see: ["Claims", "Documents", "Evidence", "Recommendations"],
+    prepare: ["Supplement drafts", "Email drafts", "Recommendations"],
+    execute: ["Submit supplements", "Send emails", "Approve recommendations"],
+    manage: ["Invite members", "Change roles", "Manage connections"],
+  },
+  manager: {
+    see: ["Claims", "Documents", "Evidence", "Recommendations"],
+    prepare: ["Supplement drafts", "Email drafts", "Recommendations"],
+    execute: ["Submit supplements", "Send emails", "Approve recommendations"],
+    manage: ["Invite members", "Manage connections"],
+  },
+  analyst: {
+    see: ["Claims", "Documents", "Evidence", "Recommendations"],
+    prepare: [],
+    execute: [],
+    manage: [],
+  },
+  viewer: {
+    see: ["Claims", "Documents", "Evidence", "Recommendations"],
+    prepare: [],
+    execute: [],
+    manage: [],
+  },
 };
 
 function initials(name?: string | null, email?: string | null): string {
@@ -65,6 +103,7 @@ export default function Team() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteForm, setInviteForm] = useState({ email: "", role: "analyst" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [accessDetail, setAccessDetail] = useState<any | null>(null);
 
   const meId = workspace?.membership?.userId;
   const isManager = ["owner", "admin", "manager"].includes(
@@ -228,6 +267,15 @@ export default function Team() {
                     size="sm"
                     variant="ghost"
                     className="gap-1.5 text-muted-foreground"
+                    onClick={() => setAccessDetail(m)}
+                  >
+                    <Eye className="size-3.5" />
+                    <span className="hidden sm:inline">Access</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1.5 text-muted-foreground"
                     disabled={!isManager || isOwner || busy !== null}
                     onClick={() => void remove(String(m.userId), m.user?.name)}
                   >
@@ -287,6 +335,15 @@ export default function Team() {
         </div>
       )}
 
+      {/* Person access detail dialog */}
+      <Dialog open={accessDetail !== null} onOpenChange={(o) => !o && setAccessDetail(null)}>
+        <DialogContent className="sm:max-w-lg">
+          {accessDetail && (
+            <PersonAccessDetail member={accessDetail} />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
         <DialogContent>
           <DialogHeader>
@@ -339,6 +396,146 @@ export default function Team() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Person access detail panel
+// ---------------------------------------------------------------------------
+
+function PersonAccessDetail({
+  member,
+}: {
+  member: {
+    userId: string | number;
+    role: string;
+    user?: { name?: string | null; email?: string | null; image?: string | null } | null;
+  };
+}) {
+  const role = member.role ?? "viewer";
+  const access = ROLE_ATLAS_ACCESS[role] ?? ROLE_ATLAS_ACCESS.viewer;
+  const canManagePeople = ["owner", "admin", "manager"].includes(role);
+  const canManageConnections = ["owner", "admin", "manager"].includes(role);
+  const firstName = member.user?.name?.split(" ")[0] ?? "this person";
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <DialogHeader>
+        <div className="flex items-center gap-3">
+          <Avatar className="size-10 rounded-lg">
+            {member.user?.image && (
+              <AvatarImage src={member.user.image} alt="" />
+            )}
+            <AvatarFallback className="rounded-lg bg-teal-400/15 text-xs text-teal-600 dark:text-teal-300">
+              {initials(member.user?.name, member.user?.email)}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <DialogTitle className="text-base">
+              {member.user?.name ?? "Invited user"}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              {member.user?.email ?? ""} · {role.replace(/_/g, " ")}
+            </DialogDescription>
+          </div>
+        </div>
+      </DialogHeader>
+
+      {/* Role explanation */}
+      <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Role</p>
+        <p className="mt-1 text-sm font-medium text-foreground">{role.replace(/_/g, " ")}</p>
+        <p className="mt-0.5 text-xs text-muted-foreground">{ROLE_DESC[role]}</p>
+      </div>
+
+      {/* What they can work with */}
+      {access.see.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What {firstName} can work with
+          </h3>
+          <div className="space-y-1.5">
+            {access.see.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-emerald-600 dark:text-emerald-300">✓</span>
+                <span className="text-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* What they can prepare */}
+      {access.prepare.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Can prepare
+          </h3>
+          <div className="space-y-1.5">
+            {access.prepare.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-emerald-600 dark:text-emerald-300">✓</span>
+                <span className="text-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* What requires approval */}
+      {access.execute.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Requires explicit approval
+          </h3>
+          <div className="space-y-1.5">
+            {access.execute.map((item) => (
+              <div key={item} className="flex items-center gap-2 text-sm">
+                <span className="text-amber-600 dark:text-amber-300">⚠</span>
+                <span className="text-foreground">{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {access.prepare.length === 0 && access.execute.length === 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Actions
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            This role is primarily for viewing and analyzing. Preparation and execution require a manager role or above.
+          </p>
+        </div>
+      )}
+
+      {/* Administrative access */}
+      <div>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Administrative access
+        </h3>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-sm">
+            <span className={canManagePeople ? "text-emerald-600 dark:text-emerald-300" : "text-muted-foreground opacity-50"}>
+              {canManagePeople ? "✓" : "○"}
+            </span>
+            <span className={canManagePeople ? "text-foreground" : "text-muted-foreground"}>Manage people</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <span className={canManageConnections ? "text-emerald-600 dark:text-emerald-300" : "text-muted-foreground opacity-50"}>
+              {canManageConnections ? "✓" : "○"}
+            </span>
+            <span className={canManageConnections ? "text-foreground" : "text-muted-foreground"}>Manage connections</span>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-[11px] leading-5 text-muted-foreground">
+        Access is determined by the assigned role. Actual capabilities are enforced server-side.
+      </p>
     </div>
   );
 }

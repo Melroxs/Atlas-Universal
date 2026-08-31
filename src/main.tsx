@@ -15,6 +15,8 @@ const Landing = lazy(() => import("./pages/Landing.tsx"));
 const AuthPage = lazy(() => import("./pages/Auth.tsx"));
 const Setup = lazy(() => import("./pages/Setup.tsx"));
 const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
+const Attention = lazy(() => import("./pages/Attention.tsx"));
+const Talk = lazy(() => import("./pages/Talk.tsx"));
 const Ask = lazy(() => import("./pages/Ask.tsx"));
 const Knowledge = lazy(() => import("./pages/Knowledge.tsx"));
 const KnowledgeDetail = lazy(() => import("./pages/KnowledgeDetail.tsx"));
@@ -37,11 +39,7 @@ const UsersAccess = lazy(() => import("./pages/UsersAccess.tsx"));
 const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 
-/** Protected section: auth gate + workspace shell.
- * VoiceSessionProvider is mounted OUTSIDE the router (see render tree) so the
- * voice session survives route navigation — the entire reason ambient listening
- * previously died after the first wake-word cycle.
- */
+/** Protected section: auth gate + workspace shell. */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
   return (
     <RequireAuth>
@@ -50,17 +48,19 @@ function ProtectedLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Simple loading fallback for route transitions
+// Loading fallback for route transitions
 function RouteLoading() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <div className="animate-pulse text-muted-foreground">Loading...</div>
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background">
+      <div className="flex size-10 items-center justify-center rounded-xl bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
+        <div className="size-5 animate-spin rounded-full border-2 border-teal-400 border-t-transparent" />
+      </div>
+      <p className="text-xs text-muted-foreground">Loading…</p>
     </div>
   );
 }
 
-/** Silent error boundary — if VlyToolbar crashes it renders nothing instead of
- *  crashing the whole app (e.g. hook errors in WebContainer environment). */
+/** Error boundary for VlyToolbar */
 class ToolbarErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean }
@@ -77,7 +77,7 @@ class ToolbarErrorBoundary extends React.Component<
   }
 }
 
-/** Hard guard so runtime errors never leave the preview as a blank page. */
+/** Root error boundary — shows useful diagnostics instead of blank screen */
 class RootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; message: string; stack: string }
@@ -91,19 +91,25 @@ class RootErrorBoundary extends React.Component<
     };
   }
   componentDidCatch(err: Error) {
-    console.error("[WebContainer preview] Root crash:", err);
+    console.error("[Atlas] Root crash:", err);
   }
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex items-center justify-center bg-background text-foreground p-6">
           <div className="max-w-lg text-center">
-            <p className="text-sm font-semibold">Preview runtime error</p>
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-2xl bg-rose-400/15 text-rose-600 ring-1 ring-rose-400/30">
+              <span className="text-lg">!</span>
+            </div>
+            <p className="text-sm font-semibold">Atlas encountered an issue</p>
             <p className="mt-2 text-xs text-muted-foreground break-words">
               {this.state.message}
             </p>
+            <p className="mt-3 text-[11px] text-muted-foreground/70">
+              Nothing was sent or changed. You can try refreshing the page.
+            </p>
             {this.state.stack && (
-              <pre className="mt-3 text-left text-[10px] leading-4 text-muted-foreground/80 max-h-40 overflow-auto rounded border border-border/60 p-2">
+              <pre className="mt-4 text-left text-[10px] leading-4 text-muted-foreground/60 max-h-32 overflow-auto rounded-lg border border-border/60 bg-muted/20 p-3">
                 {this.state.stack}
               </pre>
             )}
@@ -138,7 +144,6 @@ function RouteSyncer() {
   return null;
 }
 
-
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <RootErrorBoundary>
@@ -164,6 +169,8 @@ createRoot(document.getElementById("root")!).render(
                   </RequireAuth>
                 }
               />
+
+              {/* ---- Primary Atlas routes ---- */}
               <Route
                 path="/dashboard"
                 element={
@@ -173,13 +180,33 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
               <Route
-                path="/dashboard/ask"
+                path="/dashboard/attention"
                 element={
                   <ProtectedLayout>
-                    <Ask />
+                    <Attention />
                   </ProtectedLayout>
                 }
               />
+              <Route
+                path="/dashboard/talk"
+                element={
+                  <ProtectedLayout>
+                    <Talk />
+                  </ProtectedLayout>
+                }
+              />
+
+              {/* ---- Legacy Ask Atlas route (redirects to Talk) ---- */}
+              <Route
+                path="/dashboard/ask"
+                element={
+                  <ProtectedLayout>
+                    <Talk />
+                  </ProtectedLayout>
+                }
+              />
+
+              {/* ---- Knowledge & Intelligence ---- */}
               <Route
                 path="/dashboard/knowledge"
                 element={
@@ -220,19 +247,13 @@ createRoot(document.getElementById("root")!).render(
                   </ProtectedLayout>
                 }
               />
+
+              {/* ---- Work ---- */}
               <Route
                 path="/dashboard/recommendations"
                 element={
                   <ProtectedLayout>
                     <Recommendations />
-                  </ProtectedLayout>
-                }
-              />
-              <Route
-                path="/dashboard/connections"
-                element={
-                  <ProtectedLayout>
-                    <Connections />
                   </ProtectedLayout>
                 }
               />
@@ -268,6 +289,8 @@ createRoot(document.getElementById("root")!).render(
                   </ProtectedLayout>
                 }
               />
+
+              {/* ---- Revenue Recovery ---- */}
               <Route
                 path="/dashboard/revenue-recovery"
                 element={
@@ -284,11 +307,29 @@ createRoot(document.getElementById("root")!).render(
                   </ProtectedLayout>
                 }
               />
+
+              {/* ---- Administration ---- */}
+              <Route
+                path="/dashboard/connections"
+                element={
+                  <ProtectedLayout>
+                    <Connections />
+                  </ProtectedLayout>
+                }
+              />
               <Route
                 path="/dashboard/team"
                 element={
                   <ProtectedLayout>
                     <Team />
+                  </ProtectedLayout>
+                }
+              />
+              <Route
+                path="/dashboard/settings"
+                element={
+                  <ProtectedLayout>
+                    <Settings />
                   </ProtectedLayout>
                 }
               />
@@ -301,15 +342,6 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
               <Route
-                path="/dashboard/settings"
-                element={
-                  <ProtectedLayout>
-                    <Settings />
-                  </ProtectedLayout>
-                }
-              />
-
-              <Route
                 path="/dashboard/users"
                 element={
                   <ProtectedLayout>
@@ -318,14 +350,9 @@ createRoot(document.getElementById("root")!).render(
                 }
               />
 
-              <Route
-                path="/access-denied"
-                element={<AccessDenied />}
-              />
-              <Route
-                path="/reset-password"
-                element={<ResetPassword />}
-              />
+              {/* ---- Other ---- */}
+              <Route path="/access-denied" element={<AccessDenied />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               <Route path="*" element={<NotFound />} />
             </Routes>
           </Suspense>

@@ -197,6 +197,9 @@ function PreparationAnimation({ steps }: { steps: PreparationStep[] }) {
           Atlas is preparing this…
         </h3>
       </div>
+      <p className="mb-3 text-[11px] text-muted-foreground/70">
+        Atlas is analyzing claim data, checking evidence, and assembling a proposed submission for your review.
+      </p>
       <div className="mt-4 space-y-3">
         {steps.map((step, i) => (
           <div key={`${step.label}-${i}`} className="flex items-start gap-3">
@@ -275,9 +278,14 @@ function PreparedSummary({ config }: { config: DecisionRoomConfig }) {
           );
         })}
       </div>
-      <p className="mt-3 rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-200">
-        Nothing has been submitted. This is a draft for your review.
-      </p>
+      <div className="mt-3 space-y-2">
+        <p className="rounded-lg border border-amber-400/25 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-200">
+          Nothing has been submitted. Atlas has assembled this proposal from the available claim evidence. Review it before approving.
+        </p>
+        <p className="text-[10px] text-muted-foreground/60">
+          This is an in-session assembly — no supplement record, documents, or submissions exist until you approve and Atlas confirms the server-side execution.
+        </p>
+      </div>
     </Panel>
   );
 }
@@ -321,7 +329,7 @@ function BeforeYouApprove({ config }: { config: DecisionRoomConfig }) {
         </h3>
       </div>
       <p className="mt-2 text-xs text-muted-foreground">
-        Atlas will:
+        If you approve, Atlas will attempt to:
       </p>
       <ul className="mt-2 space-y-1.5">
         {config.executionSummary.map((item, i) => (
@@ -332,7 +340,7 @@ function BeforeYouApprove({ config }: { config: DecisionRoomConfig }) {
         ))}
       </ul>
       <p className="mt-3 text-[11px] text-muted-foreground">
-        This action has not happened yet.
+        Nothing has happened yet. Only your explicit approval will trigger server execution.
       </p>
     </Panel>
   );

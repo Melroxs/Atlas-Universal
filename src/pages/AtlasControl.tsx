@@ -430,7 +430,7 @@ export default function AtlasControl() {
             {(logs ?? []).length}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            recorded actions
+            activity entries
           </p>
         </div>
       </section>

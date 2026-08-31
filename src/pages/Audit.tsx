@@ -66,6 +66,13 @@ export default function Audit() {
         />
       </div>
 
+      {/* Atlas narrative summary — only from real data */}
+      {logs && logs.length > 0 && !q && (
+        <p className="rounded-lg border border-border/50 bg-muted/30 px-4 py-2.5 text-xs text-muted-foreground">
+          Atlas has recorded {logs.length} activit{logs.length === 1 ? "y" : "ies"} in this organization.
+        </p>
+      )}
+
       {logs === undefined ? (
         <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />

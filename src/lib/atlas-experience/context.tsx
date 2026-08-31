@@ -8,7 +8,7 @@
 // This is a lightweight React context — NOT a global state manager.
 // ---------------------------------------------------------------------------
 
-import { createContext, useContext, useMemo, useState, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useParams } from "react-router";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +158,7 @@ const AtlasContext = createContext<AtlasContextValue | null>(null);
 // ---------------------------------------------------------------------------
 
 const ROUTE_ENTITY_MAP: Array<{ pattern: RegExp; type: AtlasEntityType }> = [
+  // Entity routes — actual Atlas entities the user investigates
   { pattern: /^\/dashboard\/revenue-recovery\/.+/, type: "claim" },
   { pattern: /^\/dashboard\/revenue-recovery$/, type: "claim" },
   { pattern: /^\/dashboard\/knowledge\/archives\/.+/, type: "archive" },
@@ -168,16 +169,49 @@ const ROUTE_ENTITY_MAP: Array<{ pattern: RegExp; type: AtlasEntityType }> = [
   { pattern: /^\/dashboard\/workflows$/, type: "workflow" },
   { pattern: /^\/dashboard\/brain$/, type: "knowledge" },
   { pattern: /^\/dashboard\/intelligence$/, type: "knowledge" },
-  { pattern: /^\/dashboard\/ask$/, type: "unknown" },
-  { pattern: /^\/dashboard\/actions$/, type: "unknown" },
-  { pattern: /^\/dashboard\/events$/, type: "unknown" },
-  { pattern: /^\/dashboard\/connections$/, type: "unknown" },
-  { pattern: /^\/dashboard\/team$/, type: "unknown" },
-  { pattern: /^\/dashboard\/settings$/, type: "unknown" },
-  { pattern: /^\/dashboard\/audit$/, type: "unknown" },
-  { pattern: /^\/dashboard\/pilot/, type: "company" },
-  { pattern: /^\/dashboard\/mail/, type: "unknown" },
+  // Note: /dashboard/control, /dashboard/authority, /dashboard/connections,
+  // /dashboard/team, /dashboard/audit, /dashboard/settings, /dashboard/actions,
+  // /dashboard/users are admin/control surfaces, NOT entities.
+  // They map to "unknown" by default and should NOT be added here.
 ];
+
+// ---------------------------------------------------------------------------
+// Investigation persistence (sessionStorage)
+// ---------------------------------------------------------------------------
+
+const INVESTIGATION_KEY = "atlas:investigation";
+
+function loadInvestigation(): AtlasInvestigation | null {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return null;
+    const raw = window.sessionStorage.getItem(INVESTIGATION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && parsed.entity && parsed.entity.id) {
+      return parsed as AtlasInvestigation;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function saveInvestigation(inv: AtlasInvestigation | null): void {
+  try {
+    if (typeof window === "undefined" || !window.sessionStorage) return;
+    if (inv) {
+      window.sessionStorage.setItem(INVESTIGATION_KEY, JSON.stringify(inv));
+    } else {
+      window.sessionStorage.removeItem(INVESTIGATION_KEY);
+    }
+  } catch {
+    // sessionStorage unavailable or full — silently ignore
+  }
+}
+
+function clearInvestigation(): void {
+  saveInvestigation(null);
+}
 
 function inferEntityType(path: string): AtlasEntityType {
   for (const { pattern, type } of ROUTE_ENTITY_MAP) {
@@ -208,8 +242,21 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const params = useParams();
   const [entityOverride, setEntityOverride] = useState<AtlasEntity | null>(null);
-  const [investigation, setInvestigation] = useState<AtlasInvestigation | null>(null);
+  const [investigation, setInvestigation] = useState<AtlasInvestigation | null>(() => loadInvestigation());
+  const investigationRef = useRef(investigation);
   const [parentEntity, setParentEntity] = useState<AtlasEntity | null>(null);
+
+  // Persist investigation to sessionStorage whenever it changes
+  useEffect(() => {
+    investigationRef.current = investigation;
+    saveInvestigation(investigation);
+  }, [investigation]);
+
+  // Wrapped setter that also clears sessionStorage on null
+  const setInvestigationPersisted = useCallback((inv: AtlasInvestigation | null) => {
+    setInvestigation(inv);
+    saveInvestigation(inv);
+  }, []);
   const [relatedEntities, setRelatedEntities] = useState<AtlasEntity[]>([]);
   const [entityRelationships, setEntityRelationships] = useState<EntityRelationship[]>([]);
   const [entityTimeline, setEntityTimeline] = useState<EntityTimelineEntry[]>([]);
@@ -230,7 +277,7 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
         workspace: null,
         entity: entityOverride,
         investigation,
-        setInvestigation,
+        setInvestigation: setInvestigationPersisted,
         parentEntity,
         setParentEntity,
         relatedEntities,
@@ -265,7 +312,7 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
       workspace: null,
       entity: investigation?.entity ?? entity,
       investigation,
-      setInvestigation,
+      setInvestigation: setInvestigationPersisted,
       parentEntity,
       setParentEntity,
       relatedEntities,
@@ -284,7 +331,7 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
       entityAttentionCount,
       setEntityAttentionCount,
     };
-  }, [location.pathname, params.id, entityOverride, investigation, parentEntity, relatedEntities, entityRelationships, entityTimeline, breadcrumbs, health, setHealth, entityAttentionCount, setEntityAttentionCount]);
+  }, [location.pathname, params.id, entityOverride, investigation, setInvestigationPersisted, parentEntity, relatedEntities, entityRelationships, entityTimeline, breadcrumbs, health, setHealth, entityAttentionCount, setEntityAttentionCount]);
 
   return <AtlasContext.Provider value={value}>{children}</AtlasContext.Provider>;
 }
@@ -301,7 +348,7 @@ export function useAtlasContext(): AtlasContextValue {
       workspace: null,
       entity: null,
       investigation: null,
-      setInvestigation: () => {},
+      setInvestigation: () => {}, // noop outside provider
       parentEntity: null,
       setParentEntity: () => {},
       relatedEntities: [],

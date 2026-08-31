@@ -224,16 +224,23 @@ export function bridgeIntentToAction(
       requiresConfirmation: false,
       authorized: auth.allowed,
     };
-  }
+  }  // For informational intents, generate an answer but no action
 
-  // For informational intents, generate an answer but no action
   const answerResult: AtlasAnswer = generateAnswer(message, context.conversationContext, intent);
+
+  // For evidence intent inside a claim, suggest navigating to the evidence section
+  const suggestedFollowUps: string[] = [];
+  if (intent.intent === "evidence" && entity && entity.type === "claim") {
+    suggestedFollowUps.push("Show me the evidence for this claim");
+    suggestedFollowUps.push("What's missing?");
+  }
 
   return {
     hasAction: false,
     answer: answerResult.text,
     requiresConfirmation: false,
     authorized: true,
+    suggestedFollowUps: suggestedFollowUps.length > 0 ? suggestedFollowUps : undefined,
   };
 }
 

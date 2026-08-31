@@ -365,9 +365,9 @@ export default function Actions() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Actions & Tools"
+        eyebrow="Atlas Operating Tools"
         title="What Atlas can do"
-        description="Every executable capability is registered server-side and runs through the same authorized pipeline — schema validation, risk policy, confirmation, real execution, verification and audit. Nothing here is simulated."
+        description="The tools Atlas uses to work with your organization. Every capability is server-registered and runs through authorization, confirmation, and audit."
         actions={
           <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/connections")}>
             <Cable className="size-3.5 text-teal-600 dark:text-teal-300" />

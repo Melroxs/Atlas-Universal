@@ -228,11 +228,11 @@ export default function ClaimDetail() {
   // Decision Room state for supplement workflow
   const [decisionStage, setDecisionStage] = useState<DecisionRoomStage | null>(null);
   const [preparationSteps, setPreparationSteps] = useState<Array<{ label: string; status: "pending" | "running" | "done" | "error" }>>([
-    { label: "Reviewing claim", status: "pending" },
-    { label: "Collecting supporting evidence", status: "pending" },
-    { label: "Identifying scope discrepancy", status: "pending" },
-    { label: "Preparing supplement draft", status: "pending" },
-    { label: "Attaching documentation", status: "pending" },
+    { label: "Reviewing claim evidence", status: "pending" },
+    { label: "Checking supporting documents", status: "pending" },
+    { label: "Identifying discrepancies", status: "pending" },
+    { label: "Drafting the proposed supplement", status: "pending" },
+    { label: "Preparing the review package", status: "pending" },
   ]);
 
   const submitSupplement = async () => {
@@ -510,14 +510,14 @@ export default function ClaimDetail() {
               label: f.title,
               detail: f.description,
               // Source traceability: link findings to the documents that support them
-              sourceLabel: f.documentId ? "Document evidence" : undefined,
-              sourcePath: f.documentId ? `/dashboard/revenue-recovery/${String(claimId)}` : undefined,
+              sourceLabel: f.documentId ? "View source document" : undefined,
+              sourcePath: f.documentId ? `/dashboard/knowledge/${String(f.documentId)}` : undefined,
             })).length > 0
               ? findings.filter((f) => f.status === "open").map((f) => ({
                   label: f.title,
                   detail: f.description,
-                  sourceLabel: f.documentId ? "Document evidence" : undefined,
-                  sourcePath: f.documentId ? `/dashboard/revenue-recovery/${String(claimId)}` : undefined,
+                  sourceLabel: f.documentId ? "View source document" : undefined,
+                  sourcePath: f.documentId ? `/dashboard/knowledge/${String(f.documentId)}` : undefined,
                 }))
               : [{ label: "No open findings to support this assessment" }]
           }

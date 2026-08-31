@@ -502,12 +502,12 @@ export default function Connections() {
                 <p className="text-xs leading-5 text-muted-foreground">{entry.description}</p>
 
                 <div className="flex flex-wrap gap-1.5">
-                  {entry.capabilities.map((c) => (
+                  {atlasCapabilities(entry.capabilities).see.map((c) => (
                     <span
                       key={c}
-                      className="rounded-md border border-border/70 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+                      className="rounded-md border border-border/70 bg-muted/30 px-1.5 py-0.5 text-[10px] text-muted-foreground"
                     >
-                      {CAPABILITY_LABELS[c] ?? c}
+                      Can see: {c}
                     </span>
                   ))}
                 </div>

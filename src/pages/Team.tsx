@@ -160,13 +160,13 @@ export default function Team() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Team"
-        title="Who works in Atlas"
-        description="Roles decide what each member can do — only managers and above can approve recommendations, invite members or manage connections."
+        eyebrow="People"
+        title="Who works with Atlas"
+        description={`${members.length} ${members.length === 1 ? 'person' : 'people'} work with Atlas in this workspace. Roles determine what each person can do — only managers and above can approve recommendations, invite members, or manage connections.`}
         actions={
           <Button onClick={() => setInviteOpen(true)} disabled={!isManager} className="gap-2">
             <UserPlus className="size-4" />
-            Invite member
+            Invite someone
           </Button>
         }
       />
@@ -174,8 +174,8 @@ export default function Team() {
       {members.length === 0 ? (
         <EmptyPanel
           icon={Users}
-          title="No members yet"
-          description="Invite your team to share the workspace. You're the owner, so you have full control."
+          title="No other people yet"
+          description="You're currently the only person working with Atlas. Invite your team to share the workspace."
         />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border/70 bg-card/50">
@@ -292,11 +292,11 @@ export default function Team() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <UserPlus className="size-4 text-teal-600 dark:text-teal-300" />
-              Invite a member
+              Invite someone to work with Atlas
             </DialogTitle>
             <DialogDescription>
-              People with an existing Atlas account join instantly. Others get an invitation to
-              claim on their next sign-in.
+              People with an existing Atlas account join instantly. Others receive an invitation
+              to claim on their next sign-in.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">

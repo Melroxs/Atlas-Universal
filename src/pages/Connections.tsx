@@ -328,44 +328,44 @@ export default function Connections() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        eyebrow="Connect your company"
-        title="Every source, one knowledge layer"
-        description="Atlas connects the systems and files your company already uses — no migration needed. Statuses are real: a connector only shows as connected when a live connection exists and has been verified against the provider's API."
+        eyebrow="Connections"
+        title="Systems Atlas can work with"
+        description="These are the sources Atlas has access to. A connection only shows as connected when a live link exists and has been verified against the provider's API."
       />
 
       {/* Summary strip */}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-border/70 bg-card/60 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Live connections
+            Atlas has access
           </p>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-foreground">
             {connectedCount}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Verified against the provider API · never assumed
+            Connected and verified · never assumed
           </p>
         </div>
         <div className="rounded-xl border border-border/70 bg-card/60 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Ready to authorize
+            Ready to connect
           </p>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-foreground">
             {connectable.filter((e) => e.displayStatus === "authorization_required").length}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Keys configured · awaiting your authorization
+            Keys configured · awaiting authorization
           </p>
         </div>
         <div className="rounded-xl border border-border/70 bg-card/60 p-4">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            On the roadmap
+            Coming soon
           </p>
           <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-foreground">
             {roadmap.length}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            APIs documented · clients not built yet
+            APIs documented · not yet built
           </p>
         </div>
       </div>

@@ -51,6 +51,7 @@ import {
   Radar,
   Send,
   Settings2,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -199,18 +200,12 @@ function AtlasHeader({ role }: { role: string }) {
               <p className="text-xs text-muted-foreground">{user?.email ?? ""}</p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate("/dashboard/team")} className="cursor-pointer gap-2">
-              <Users className="size-3.5" /> Team
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate("/dashboard/settings")} className="cursor-pointer gap-2">
-              <Settings2 className="size-3.5" /> Settings
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => navigate("/dashboard/connections")} className="cursor-pointer gap-2">
-              <Cable className="size-3.5" /> Connections
+            <DropdownMenuItem onClick={() => navigate("/dashboard/control")} className="cursor-pointer gap-2">
+              <Radar className="size-3.5" /> Control
             </DropdownMenuItem>
             {canAccessPlatformAdmin(role as any) && (
               <DropdownMenuItem onClick={() => navigate("/dashboard/users")} className="cursor-pointer gap-2">
-                <Globe className="size-3.5" /> Organizations
+                <Globe className="size-3.5" /> Platform Admin
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />

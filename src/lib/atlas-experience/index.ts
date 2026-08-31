@@ -366,3 +366,15 @@ export {
   deduplicateActionProposals,
   collectAndDeduplicate,
 } from "./action-deduplication";
+
+// Opportunity engine
+export {
+  type ChangeSeverity,
+  type OpportunityType,
+  type DetectedChange,
+  type GeneratedOpportunity,
+  type CausalTraceEntry,
+  classifyChange,
+  generateOpportunity,
+  opportunityToAttentionItem,
+} from "./opportunity-engine";

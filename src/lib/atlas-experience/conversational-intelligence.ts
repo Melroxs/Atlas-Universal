@@ -474,6 +474,13 @@ export function classifyIntent(message: string, context?: AtlasConversationConte
 function extractEntities(text: string, context?: AtlasConversationContext): AtlasEntityReference[] {
   const entities: AtlasEntityReference[] = [];
 
+  // Reference resolution: "this", "that", "the one you mentioned"
+  const referencePatterns = /\b(this|that|the\s+(?:claim|one|supplement|evidence|document)|the\s+one\s+you\s+(?:mentioned|flagged|recommended))\b/i;
+  if (referencePatterns.test(text) && context?.currentEntity) {
+    entities.push(context.currentEntity);
+    return entities;
+  }
+
   // Claim number patterns
   const claimMatch = text.match(/#?\s*(\d{3,6})/);
   if (claimMatch && context?.currentEntity?.type === "claim") {

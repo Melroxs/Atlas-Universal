@@ -398,7 +398,7 @@ function ExecutionStatus({
               </p>
             )}
             <p className="mt-1 text-[11px] text-muted-foreground">
-              Atlas recorded the result.
+              Atlas executed this action and recorded the outcome.
             </p>
           </div>
         </div>

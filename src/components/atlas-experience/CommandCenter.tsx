@@ -295,6 +295,7 @@ export function NextBestActionCard() {
   const { items: attentionItems } = useIntelligence();
   const { activities } = useActivity();
   const { decisions } = useDecisions();
+  const { setInvestigation } = useAtlasContext();
 
   const nextAction = useMemo(() => {
     return selectNextBestAction({ attentionItems, decisions, activities });
@@ -362,7 +363,24 @@ export function NextBestActionCard() {
               size="sm"
               variant="outline"
               className="gap-1.5"
-              onClick={() => nextAction.entity.href && navigate(nextAction.entity.href)}
+              onClick={() => {
+                if (nextAction.entity.href) {
+                  setInvestigation({
+                    entity: {
+                      id: nextAction.entity.id,
+                      type: (nextAction.entity.type as import("@/lib/atlas-experience/context").AtlasEntityType) ?? "claim",
+                      name: nextAction.entity.label,
+                    },
+                    originatingInsight: {
+                      title: nextAction.title,
+                      description: nextAction.reason,
+                    },
+                    confidence: undefined,
+                    returnTo: { label: "Back to Atlas", path: "/dashboard" },
+                  });
+                  navigate(nextAction.entity.href);
+                }
+              }}
             >
               {nextAction.actionType === "approve" ? "Review" : "Investigate"}
               <ArrowRight className="size-3" />
@@ -426,12 +444,11 @@ export function AskAtlasEntry() {
         <MessageSquareText className="size-4 text-teal-600 dark:text-teal-300" />
         <h3 className="text-sm font-semibold text-foreground">Ask Atlas</h3>
       </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {suggestedPrompts.map((prompt) => (
+      <div className="mt-3 flex flex-wrap gap-2">            {suggestedPrompts.map((prompt) => (
           <button
             key={prompt}
             type="button"
-            onClick={() => navigate("/dashboard/ask")}
+            onClick={() => navigate("/dashboard/talk")}
             className="rounded-full border border-border/60 bg-card/40 px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-teal-400/30 hover:text-teal-600 dark:hover:text-teal-300"
           >
             {prompt}

@@ -1,9 +1,11 @@
 // ---------------------------------------------------------------------------
 // Atlas App Shell — Intelligence-driven presentation layer
 //
+// The shell should feel like Atlas IS the interface, not a frame around modules.
+//
 // Layout:
 //   ┌──────────────────────────────────────────────────────────────┐
-//   │ ● Atlas          [Home] [Attention] [Talk] ...   [search] 👤│
+//   │ ● Atlas ─── active ───────────────────────────────  👤     │
 //   ├──────────────────────────────────────────────────────────────┤
 //   │                                                              │
 //   │                    EXPERIENCE AREA                           │
@@ -11,7 +13,11 @@
 //   │                                                              │
 //   │                                                              │
 //   ├──────────────────────────────────────────────────────────────┤
-//   │  ● Listening     │  Ask Atlas about your business...    🎙  │
+//   │                                                              │
+//   │  ┌──────────────────────────────────────────────────┐       │
+//   │  │  Ask Atlas...                                    │       │
+//   │  └──────────────────────────────────────────────────┘       │
+//   │           ◉ Listening...                                    │
 //   └──────────────────────────────────────────────────────────────┘
 // ---------------------------------------------------------------------------
 
@@ -21,11 +27,10 @@ import { CommandPalette } from "@/components/atlas-experience/CommandPalette";
 import { AtlasContextProvider, useAtlasContext } from "@/lib/atlas-experience/context";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
-import { canAccessUserAdmin, canAccessPlatformAdmin } from "@/lib/auth/access-gate";
+import { canAccessPlatformAdmin } from "@/lib/auth/access-gate";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,25 +41,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
-  Activity,
   Cable,
   ChevronRight,
-  Database,
-  Eye,
   Globe,
-  Home,
   Landmark,
   LogOut,
-  MessageSquareText,
   Mic,
   MicOff,
   Radar,
-  Search,
   Send,
   Settings2,
-  Sparkles,
-  Target,
-  TrendingUp,
   Users,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -77,33 +73,10 @@ function initials(name?: string | null, email?: string | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Navigation structure — contextual, not module-based
+// VoiceIndicator — living voice state as a visual pill below the input
 // ---------------------------------------------------------------------------
 
-interface NavItem {
-  to: string;
-  label: string;
-  icon: typeof Radar;
-  badgeCount?: number;
-}
-
-const PRIMARY_NAV: NavItem[] = [
-  { to: "/dashboard", label: "Home", icon: Home },
-  { to: "/dashboard/attention", label: "Attention", icon: Eye },
-  { to: "/dashboard/talk", label: "Talk", icon: MessageSquareText },
-];
-
-const CONTEXTUAL_NAV: NavItem[] = [
-  { to: "/dashboard/revenue-recovery", label: "Claims", icon: TrendingUp },
-  { to: "/dashboard/recommendations", label: "Recommendations", icon: Target },
-  { to: "/dashboard/knowledge", label: "Knowledge", icon: Database },
-];
-
-// ---------------------------------------------------------------------------
-// VoiceStatePill — compact voice status indicator
-// ---------------------------------------------------------------------------
-
-function VoiceStatePill() {
+function VoiceIndicator() {
   const session = useVoiceSession();
   const { status, ambientEnabled } = session;
 
@@ -128,138 +101,83 @@ function VoiceStatePill() {
     switch (status) {
       case "listening_for_wake_word": return "Listening";
       case "wake_detected": return "Yes?";
-      case "listening_for_command": return "Listening…";
-      case "thinking": return "Thinking…";
-      case "speaking": return "Speaking…";
+      case "listening_for_command":
+      case "listening": return "Listening…";
+      case "transcribing": return "Hearing you…";
+      case "thinking": return "Looking into that…";
+      case "speaking": return "Atlas is speaking";
       case "interrupted": return "Stopped";
       case "error": return "Voice error";
-      default: return ambientEnabled ? "Ambient" : "Active";
+      default: return ambientEnabled ? "Ambient mode" : "Active";
     }
   })();
 
   return (
-    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+    <div className="flex items-center justify-center gap-2 py-1.5 text-[11px] text-muted-foreground">
       <span className={`size-1.5 rounded-full ${dotColor}`} />
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Atlas Header
+// Atlas Header — minimal. Atlas identity + status. No module navigation.
 // ---------------------------------------------------------------------------
 
-function AtlasHeader({ openRecs, role }: { openRecs: number; role: string }) {
-  const location = useLocation();
+function AtlasHeader({ role }: { role: string }) {
   const { user, signOut } = useAuth();
-  const { entity, health } = useAtlasContext();
+  const { health, entity } = useAtlasContext();
   const navigate = useNavigate();
 
   const isHealthy = health.documents > 0;
-  const hasIssues = health.pipelineActive || openRecs > 3;
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-border/40 bg-background/80 px-4 backdrop-blur-md">
-      {/* Atlas identity */}
+    <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/30 bg-background/80 px-4 backdrop-blur-md">
+      {/* Atlas identity — the only permanent header element */}
       <NavLink to="/dashboard" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-        <div className="flex size-7 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
-          <Radar className="size-3.5" />
+        <div className="flex size-6 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
+          <Radar className="size-3" />
         </div>
         <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
       </NavLink>
 
-      {/* Health pulse */}
+      {/* Status pulse — communicates Atlas state, not navigation */}
       <div className="flex items-center gap-1.5">
         <span className="relative flex size-1.5">
           <span
             className={cn(
               "absolute inline-flex size-full rounded-full opacity-60",
-              isHealthy ? "animate-ping bg-emerald-400" : hasIssues ? "animate-pulse bg-amber-400" : "bg-muted-foreground/40"
+              isHealthy ? "animate-ping bg-emerald-400" : "bg-muted-foreground/40"
             )}
           />
           <span
             className={cn(
               "relative inline-flex size-1.5 rounded-full",
-              isHealthy ? "bg-emerald-500" : hasIssues ? "bg-amber-500" : "bg-muted-foreground/40"
+              isHealthy ? "bg-emerald-500" : "bg-muted-foreground/40"
             )}
           />
         </span>
+        <span className="hidden text-[10px] text-muted-foreground/70 sm:inline">
+          {isHealthy ? "active" : "initializing"}
+        </span>
       </div>
 
-      {/* Navigation — horizontal, contextual */}
-      <nav className="ml-4 hidden items-center gap-1 md:flex">
-        {PRIMARY_NAV.map((item) => {
-          const Icon = item.icon;
-          const isActive = item.to === "/dashboard"
-            ? location.pathname === "/dashboard"
-            : location.pathname.startsWith(item.to);
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
-                isActive
-                  ? "bg-teal-400/10 text-teal-700 dark:text-teal-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <Icon className="size-3.5" />
-              {item.label}
-            </NavLink>
-          );
-        })}
+      {/* Entity context — shows what Atlas is looking at */}
+      {entity && entity.type !== "workspace" && (
+        <div className="hidden items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/8 px-2 py-0.5 text-[10px] font-medium text-teal-600 dark:text-teal-300 sm:flex">
+          <Radar className="size-2.5" />
+          <span className="capitalize">{entity.type}</span>
+          {entity.name && (
+            <>
+              <ChevronRight className="size-2" />
+              <span className="max-w-[120px] truncate">{entity.name}</span>
+            </>
+          )}
+        </div>
+      )}
 
-        <span className="mx-1 h-4 w-px bg-border/60" />
-
-        {CONTEXTUAL_NAV.map((item) => {
-          const Icon = item.icon;
-          const isActive = location.pathname.startsWith(item.to);
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
-                isActive
-                  ? "bg-teal-400/10 text-teal-700 dark:text-teal-200"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              <Icon className="size-3.5" />
-              {item.label}
-            </NavLink>
-          );
-        })}
-      </nav>
-
-      {/* Right side */}
-      <div className="ml-auto flex items-center gap-2">
-        {/* Entity context */}
-        {entity && entity.type !== "workspace" && (
-          <div className="hidden items-center gap-1.5 rounded-full border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-[10px] font-medium text-teal-600 dark:text-teal-300 sm:flex">
-            <span className="capitalize">{entity.type}</span>
-            {entity.name && (
-              <>
-                <ChevronRight className="size-2.5" />
-                <span className="max-w-[120px] truncate">{entity.name}</span>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Open signals */}
-        {openRecs > 0 && (
-          <Badge
-            variant="outline"
-            className="hidden gap-1 border-amber-400/30 bg-amber-400/10 font-mono text-[10px] text-amber-600 dark:text-amber-300 sm:inline-flex"
-          >
-            <Sparkles className="size-2.5" />
-            {openRecs}
-          </Badge>
-        )}
-
-        <VoiceStatePill />
+      {/* Right side — minimal */}
+      <div className="ml-auto flex items-center gap-1.5">
         <CommandPalette />
         <ThemeToggle />
 
@@ -267,9 +185,9 @@ function AtlasHeader({ openRecs, role }: { openRecs: number; role: string }) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-muted/50">
-              <Avatar className="size-7">
+              <Avatar className="size-6">
                 {user?.image && <AvatarImage src={user.image} alt="" />}
-                <AvatarFallback className="rounded-md bg-teal-400/15 text-[10px] text-teal-600 dark:text-teal-300">
+                <AvatarFallback className="rounded-md bg-teal-400/15 text-[9px] text-teal-600 dark:text-teal-300">
                   {initials(user?.name, user?.email)}
                 </AvatarFallback>
               </Avatar>
@@ -313,7 +231,7 @@ function AtlasHeader({ openRecs, role }: { openRecs: number; role: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Atlas Input Bar — persistent Ask Atlas at the bottom
+// Atlas Input Bar — premium conversational control, not a search field
 // ---------------------------------------------------------------------------
 
 function AtlasInputBar() {
@@ -345,58 +263,64 @@ function AtlasInputBar() {
     }
   };
 
+  // Context-aware placeholder
   const placeholder = (() => {
     if (busy) return "Atlas is thinking…";
-    if (entity?.type === "claim") return `Ask Atlas about this claim…`;
-    if (entity?.type === "knowledge") return `Ask Atlas about this document…`;
-    return `Ask Atlas about your business…`;
+    if (entity?.type === "claim") return `Ask about this claim…`;
+    if (entity?.type === "knowledge") return `Ask about this document…`;
+    return "Ask Atlas…";
   })();
 
   return (
-    <div className="border-t border-border/40 bg-background/80 backdrop-blur-md">
-      <div className="mx-auto flex max-w-3xl items-end gap-2 px-4 py-2.5">
-        {/* Voice toggle */}
+    <div className="border-t border-border/30 bg-background/80 backdrop-blur-md">
+      {/* Voice state indicator — always visible when active */}
+      <VoiceIndicator />
+
+      <div className="mx-auto flex max-w-2xl items-center gap-2.5 px-4 pb-3 pt-1">
+        {/* Voice toggle — circular, premium */}
         <button
           type="button"
           onClick={() => voice.toggle()}
           title={micActive ? "Stop listening" : "Press to talk"}
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-xl border transition-all",
+            "flex size-8 shrink-0 items-center justify-center rounded-full border transition-all duration-300",
             micActive
-              ? "animate-pulse border-rose-400/40 bg-rose-500 text-white shadow-sm shadow-rose-500/20"
-              : "border-border/60 bg-muted/30 text-muted-foreground hover:border-teal-400/40 hover:text-teal-600 dark:hover:text-teal-300"
+              ? "border-rose-400/50 bg-rose-500 text-white shadow-lg shadow-rose-500/25"
+              : "border-border/50 bg-muted/20 text-muted-foreground hover:border-teal-400/40 hover:text-teal-600 dark:hover:text-teal-300"
           )}
         >
-          {micActive ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          {micActive ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
         </button>
 
-        {/* Input */}
+        {/* Input — styled as a conversational control */}
         <div className="relative flex-1">
           {voice.interim && micActive && (
             <p className="mb-1 px-1 text-[11px] italic text-muted-foreground">
               "{voice.interim}"
             </p>
           )}
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            disabled={busy}
-            className="h-10 w-full rounded-xl border border-border/60 bg-card/50 pl-4 pr-12 text-sm text-foreground shadow-sm outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20 disabled:opacity-60"
-          />
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={busy || !input.trim()}
-            className="absolute right-2 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-40"
-          >
-            {busy ? (
-              <div className="size-3.5 animate-spin rounded-full border-2 border-teal-950 border-t-transparent" />
-            ) : (
-              <Send className="size-3.5" />
-            )}
-          </button>
+          <div className="relative">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={placeholder}
+              disabled={busy}
+              className="h-9 w-full rounded-full border border-border/50 bg-card/40 pl-4 pr-10 text-sm text-foreground shadow-sm outline-none transition-all duration-200 placeholder:text-muted-foreground/50 focus:border-teal-400/40 focus:ring-1 focus:ring-teal-400/15 disabled:opacity-50"
+            />
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={busy || !input.trim()}
+              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-30"
+            >
+              {busy ? (
+                <div className="size-3 animate-spin rounded-full border-[1.5px] border-teal-950 border-t-transparent" />
+              ) : (
+                <Send className="size-3" />
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -410,10 +334,6 @@ function AtlasInputBar() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, role } = useAuth();
   const workspace = useQuery(api.tenants.getMyWorkspace);
-  const recCounts = useQuery(
-    api.recommendations.recommendationCounts,
-    workspace ? undefined : "skip",
-  );
   const seedIntelligence = useMutation(api.intelligence.seedIntelligence);
   const claimInvites = useMutation(api.tenants.claimInvites);
   const runDueSyncs = useAction(api.connectionsSync.runDueSyncs);
@@ -458,21 +378,19 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }
 
-  const openRecs = recCounts?.open ?? 0;
-
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      {/* Atlas Header */}
-      <AtlasHeader openRecs={openRecs} role={role} />
+      {/* Minimal Atlas Header */}
+      <AtlasHeader role={role} />
 
-      {/* Experience Area */}
+      {/* Experience Area — full width, no max-width constraint */}
       <main className="atlas-scroll flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
           {children}
         </div>
       </main>
 
-      {/* Persistent Atlas Input Bar */}
+      {/* Persistent Atlas Interaction — the center of the experience */}
       <AtlasInputBar />
     </div>
   );

@@ -1,26 +1,24 @@
 // ---------------------------------------------------------------------------
 // Talk to Atlas — Primary conversational interface
 //
+// This is NOT a chatbot page. This IS Atlas.
+//
 // The user speaks or types. Atlas listens, investigates, explains,
 // recommends, and can execute approved actions.
 //
+// No separate page header. Atlas is the interface.
+//
 // ┌──────────────────────────────────────────────────────────────┐
-// │ TALK TO ATLAS                                                │
 // │                                                              │
-// │ ┌────────────────────────────────────────────────────┐       │
-// │ │                                                    │       │
-// │ │  ATLAS                                             │       │
-// │ │                                                    │       │
-// │ │  Good morning.                                     │       │
-// │ │                                                    │       │
-// │ │  I've reviewed what's changed.                     │       │
-// │ │  There are three things I'd like you to see.       │       │
-// │ │                                                    │       │
-// │ └────────────────────────────────────────────────────┘       │
+// │  ┌────────────────────────────────────────────────────┐     │
+// │  │                                                    │     │
+// │  │  Good morning.                                     │     │
+// │  │                                                    │     │
+// │  │  I've reviewed what's changed.                     │     │
+// │  │  There are three things I'd like you to see.       │     │
+// │  │                                                    │     │
+// │  └────────────────────────────────────────────────────┘     │
 // │                                                              │
-// │  ┌──────────────────────────────────────────────┐            │
-// │ │ Type or speak to Atlas...                  🎙  │            │
-// │ └──────────────────────────────────────────────┘            │
 // └──────────────────────────────────────────────────────────────┘
 
 import { api } from "@/lib/api";
@@ -43,20 +41,15 @@ import {
   Check,
   ChevronRight,
   CircleStop,
-  Eye,
   FileText,
   Landmark,
   Lightbulb,
   Loader2,
-  MessageSquareText,
   Mic,
   MicOff,
-  Plus,
   Radar,
   Send,
   Sparkles,
-  Target,
-  TrendingUp,
   User,
   Zap,
 } from "lucide-react";
@@ -121,13 +114,12 @@ interface Turn {
 }
 
 // ---------------------------------------------------------------------------
-// Suggested prompts — context-aware
+// Suggested prompts — context-aware, Atlas phrasing
 // ---------------------------------------------------------------------------
 
 function useSuggestedPrompts(): string[] {
   const { items: attentionItems } = useIntelligence();
   const { decisions } = useDecisions();
-  const { activities } = useActivity();
 
   return useMemo(() => {
     const prompts: string[] = ["What's happening with our business?"];
@@ -152,14 +144,13 @@ function useSuggestedPrompts(): string[] {
     }
 
     prompts.push("What's the biggest recovery opportunity?");
-    prompts.push("What changed today?");
 
     return prompts.slice(0, 4);
   }, [attentionItems, decisions]);
 }
 
 // ---------------------------------------------------------------------------
-// Talk page
+// Talk page — Atlas IS the conversation
 // ---------------------------------------------------------------------------
 
 export default function Talk() {
@@ -228,7 +219,6 @@ export default function Talk() {
     const q = searchParams.get("q");
     if (q) {
       setInput(q);
-      // Auto-submit the prefill
       setTimeout(() => {
         void submit(q);
       }, 300);
@@ -330,35 +320,22 @@ export default function Talk() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2">
-          <MessageSquareText className="size-5 text-teal-600 dark:text-teal-300" />
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Talk to Atlas</h1>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Ask about claims, evidence, recommendations, or anything Atlas knows.
-          Type or speak — Atlas maintains context across the conversation.
-        </p>
-      </div>
-
-      {/* Conversation area */}
+      {/* Conversation area — immersive, no page header */}
       <div
         ref={scrollRef}
-        className="atlas-scroll flex max-h-[58vh] min-h-[400px] flex-col gap-5 overflow-y-auto rounded-2xl border border-border/60 bg-card/30 p-6"
+        className="atlas-scroll flex max-h-[65vh] min-h-[450px] flex-col gap-5 overflow-y-auto rounded-2xl border border-border/50 bg-card/20 p-6"
       >
-        {/* Empty state — Atlas arrival */}
+        {/* Empty state — Atlas is present */}
         {turns.length === 0 && !busy && (
           <div className="m-auto flex max-w-lg flex-col items-center py-12 text-center">
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/25 dark:text-teal-300">
-              <Radar className="size-7" />
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-teal-400/10 text-teal-600 dark:text-teal-300">
+              <Radar className="size-6" />
             </div>
-            <h2 className="mt-5 text-lg font-semibold text-foreground">What would you like to know?</h2>
-            <p className="mt-2 max-w-sm text-sm leading-6 text-muted-foreground">
-              Atlas understands your business. Ask anything — about claims, evidence, recommendations, or what matters most right now.
+            <p className="mt-5 max-w-sm text-sm leading-6 text-muted-foreground">
+              What would you like to know? Ask about claims, evidence, recommendations, or what matters most right now.
             </p>
 
-            {/* Suggested prompts */}
+            {/* Suggested prompts — Atlas suggests */}
             <div className="mt-6 flex w-full flex-col gap-2">
               {suggestedPrompts.map((prompt) => (
                 <button
@@ -397,7 +374,7 @@ export default function Talk() {
                 <Bot className="size-3.5" />
               </div>
               <div className="min-w-0 max-w-[85%] flex-1">
-                {/* Metadata */}
+                {/* Metadata — subtle, not dominant */}
                 <div className="mb-1.5 flex flex-wrap items-center gap-2">
                   {t.questionType && (
                     <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-700 dark:text-cyan-200">
@@ -552,7 +529,7 @@ export default function Talk() {
           ),
         )}
 
-        {/* Thinking indicator */}
+        {/* Thinking indicator — Atlas is working */}
         {busy && (
           <div className="flex items-center gap-3 text-sm text-muted-foreground">
             <div className="flex size-7 items-center justify-center rounded-full bg-teal-400/15 text-teal-600 dark:text-teal-300 ring-1 ring-teal-400/25">
@@ -572,55 +549,6 @@ export default function Talk() {
             </div>
           </div>
         )}
-      </div>
-
-      {/* Input area */}
-      <div className="relative">
-        {voice.interim && voice.status === "listening" && (
-          <p className="mb-1.5 px-1 text-xs italic text-muted-foreground">"{voice.interim}"</p>
-        )}
-        {voice.error && (
-          <p className="mb-1.5 rounded-lg border border-rose-400/25 bg-rose-400/5 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-200">
-            {voice.error}
-          </p>
-        )}
-        <div className="flex items-end gap-2">
-          <button
-            type="button"
-            onClick={() => voice.toggle()}
-            title={micActive ? "Stop listening" : "Press to talk"}
-            className={`flex size-10 shrink-0 items-center justify-center rounded-xl border transition-all ${
-              micActive
-                ? "animate-pulse border-rose-400/40 bg-rose-500 text-white shadow-sm shadow-rose-500/20"
-                : voice.supported
-                  ? "border-border/70 bg-muted/40 text-muted-foreground hover:border-teal-400/40 hover:text-teal-600 dark:hover:text-teal-300"
-                  : "border-border/50 bg-muted/20 text-muted-foreground/50"
-            }`}
-          >
-            {micActive ? <MicOff className="size-4" /> : <Mic className="size-4" />}
-          </button>
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void submit();
-              }
-            }}
-            rows={2}
-            placeholder="Ask about claims, evidence, recommendations…"
-            className="flex-1 resize-none rounded-xl border border-border/70 bg-card/70 p-3.5 pr-24 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground/60 focus:border-teal-400/50 focus:ring-2 focus:ring-teal-400/20"
-          />
-          <button
-            type="button"
-            onClick={() => void submit()}
-            disabled={busy || !input.trim()}
-            className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-40"
-          >
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-          </button>
-        </div>
       </div>
     </div>
   );

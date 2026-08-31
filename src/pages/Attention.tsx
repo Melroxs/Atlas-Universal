@@ -1,24 +1,30 @@
 // ---------------------------------------------------------------------------
-// Attention — Atlas's prioritized intelligence view
+// Attention — Atlas's intelligence briefing
 //
 // Not a notification center. This is Atlas saying:
 // "I've reviewed what's happening. Here's what matters, in order."
 //
+// Each item answers:
+//   1. What happened?
+//   2. Why does it matter?
+//   3. What does Atlas recommend?
+//
 // ┌──────────────────────────────────────────────────────────────┐
-// │ ATTENTION                                                    │
 // │                                                              │
-// │ Atlas has prioritized 12 things.                             │
+// │  I've prioritized 12 things that need your attention.       │
 // │                                                              │
-// │ ── URGENT ──────────────────────────────────────────────────│
+// │  ── URGENT ──────────────────────────────────────────────   │
 // │                                                              │
-// │ Claim #1842    Potential recovery: $18,420                   │
-// │ Carrier scope discrepancy identified.                        │
-// │ Confidence: HIGH          [Investigate]  [Ask Atlas]        │
+// │  Claim #1842              $18,420 potential recovery        │
 // │                                                              │
-// │ ── OPPORTUNITIES ──────────────────────────────────────────│
+// │  Carrier scope discrepancy identified. The estimate         │
+// │  excludes documented scope that should be covered.          │
 // │                                                              │
-// │ Claim #1773    Potential recovery: $11,600                   │
-// │ Supplement opportunity detected.                             │
+// │  Atlas recommends: Investigate supplement.                  │
+// │  Evidence confidence: High                                  │
+// │                                                              │
+// │  [ Investigate ]  [ Ask Atlas ]                             │
+// │                                                              │
 // └──────────────────────────────────────────────────────────────┘
 
 import { useMemo, useState } from "react";
@@ -39,17 +45,11 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  ChevronRight,
-  Clock,
   Eye,
-  FileText,
   Info,
-  MessageSquareText,
   Radar,
   Sparkles,
   Target,
-  TrendingUp,
-  Zap,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -95,7 +95,39 @@ const SEVERITY_CONFIG: Record<string, { icon: typeof AlertTriangle; color: strin
 };
 
 // ---------------------------------------------------------------------------
-// AttentionItemCard — single attention item
+// Confidence bar — small inline confidence indicator
+// ---------------------------------------------------------------------------
+
+function ConfidenceIndicator({ severity }: { severity: string }) {
+  const level = severity === "critical" || severity === "high" ? "high" : severity === "medium" ? "medium" : "low";
+  const colors = {
+    high: "bg-emerald-400",
+    medium: "bg-amber-400",
+    low: "bg-muted-foreground/40",
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex gap-0.5">
+        {[0, 1, 2].map((i) => (
+          <div
+            key={i}
+            className={cn(
+              "size-1 rounded-full",
+              i <= (level === "high" ? 2 : level === "medium" ? 1 : 0)
+                ? colors[level]
+                : "bg-muted-foreground/20"
+            )}
+          />
+        ))}
+      </div>
+      <span className="text-[10px] text-muted-foreground/60 capitalize">{level}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AttentionItemCard — single intelligence item with Atlas narration
 // ---------------------------------------------------------------------------
 
 function AttentionItemCard({ item }: { item: import("@/lib/atlas-experience/attention").AttentionItem }) {
@@ -123,55 +155,48 @@ function AttentionItemCard({ item }: { item: import("@/lib/atlas-experience/atte
   const financialImpact = (item.meta?.financialImpact as number) ?? 0;
 
   return (
-    <div className="flex w-full items-start gap-3 rounded-xl border border-border/60 bg-card/50 p-4 text-left transition-colors hover:bg-card/80">
-      <div
-        className={cn(
-          "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg ring-1",
-          config.bg,
-          config.ring,
-          config.color,
-        )}
-      >
-        <Icon className="size-4" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground">{item.title}</p>
-            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-              {item.explanation}
-            </p>
+    <div className="rounded-xl border border-border/60 bg-card/50 p-5 transition-colors hover:bg-card/80">
+      {/* Entity + financial impact */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1",
+              config.bg,
+              config.ring,
+              config.color,
+            )}
+          >
+            <Icon className="size-3.5" />
           </div>
-          {financialImpact > 0 && (
-            <Badge
-              variant="outline"
-              className="shrink-0 border-emerald-400/30 bg-emerald-400/10 font-mono text-[10px] text-emerald-600 dark:text-emerald-300"
-            >
-              ${financialImpact.toLocaleString()}
-            </Badge>
-          )}
+          <div>
+            <p className="text-sm font-medium text-foreground">{item.title}</p>
+            {item.sourceEntityType && (
+              <p className="text-[10px] capitalize text-muted-foreground/60">{item.sourceEntityType}</p>
+            )}
+          </div>
         </div>
+        {financialImpact > 0 && (
+          <span className="shrink-0 font-mono text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+            ${financialImpact.toLocaleString()}
+          </span>
+        )}
+      </div>
 
-        {/* Entity and time context */}
-        <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground/60">
-          {item.sourceEntityType && (
-            <span className="capitalize">{item.sourceEntityType}</span>
-          )}
-          {item.category && (
-            <>
-              <span>·</span>
-              <span className="capitalize">{item.category}</span>
-            </>
-          )}
-        </div>
+      {/* Atlas narration — what happened and why it matters */}
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+        {item.explanation}
+      </p>
 
-        {/* Actions */}
-        <div className="mt-3 flex items-center gap-2">
+      {/* Atlas recommendation + confidence */}
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <ConfidenceIndicator severity={severity} />
           {item.navigationTarget && (
             <Button
               size="sm"
               variant="outline"
-              className="gap-1.5"
+              className="gap-1.5 h-7 text-[11px]"
               onClick={() => navigate(item.navigationTarget!)}
             >
               Investigate
@@ -191,13 +216,13 @@ function AttentionItemCard({ item }: { item: import("@/lib/atlas-experience/atte
 }
 
 // ---------------------------------------------------------------------------
-// Attention Page
+// Attention Page — Atlas intelligence briefing
 // ---------------------------------------------------------------------------
 
 export default function Attention() {
-  const { items: attentionItems, counts, totalFinancialImpact, actionRequiredCount } = useIntelligence();
+  const { items: attentionItems, counts, totalFinancialImpact } = useIntelligence();
   const { activities, isLoading: activitiesLoading } = useActivity();
-  const { sortedDecisions, pendingApprovals, totalPotentialImpact } = useDecisions();
+  const { sortedDecisions, pendingApprovals } = useDecisions();
 
   const [filter, setFilter] = useState<string | null>(null);
 
@@ -229,19 +254,21 @@ export default function Attention() {
 
   return (
     <div className="flex flex-col gap-8">
-      {/* Header */}
+      {/* Atlas narrates the briefing */}
       <div>
-        <div className="flex items-center gap-2">
-          <Eye className="size-5 text-teal-600 dark:text-teal-300" />
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Attention</h1>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {totalOpen > 0
-            ? `Atlas has prioritized ${totalOpen} thing${totalOpen === 1 ? "" : "s"} that need your attention.`
-            : "Atlas is monitoring your business. Nothing urgent right now."}
+        <p className="text-sm leading-6 text-muted-foreground">
+          {totalOpen > 0 ? (
+            <>
+              I've prioritized{" "}
+              <span className="font-medium text-foreground">{totalOpen}</span>{" "}
+              thing{totalOpen === 1 ? "" : "s"} that need your attention.
+            </>
+          ) : (
+            "I'm monitoring your business. Nothing urgent right now."
+          )}
         </p>
 
-        {/* Summary badges */}
+        {/* Summary */}
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {counts.critical > 0 && (
             <Badge variant="outline" className="border-rose-400/30 bg-rose-400/10 font-mono text-[10px] text-rose-600 dark:text-rose-300">
@@ -302,7 +329,7 @@ export default function Attention() {
         )}
       </div>
 
-      {/* Attention items grouped by severity */}
+      {/* Intelligence items grouped by severity */}
       {filteredGrouped.map((group) => (
         <div key={group.severity}>
           <div className="mb-3 flex items-center gap-2">
@@ -324,7 +351,7 @@ export default function Attention() {
               {group.items.length}
             </span>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-3">
             {group.items.map((item) => (
               <AttentionItemCard key={item.id} item={item} />
             ))}
@@ -339,7 +366,7 @@ export default function Attention() {
           <div>
             <p className="text-sm font-semibold text-foreground">You're clear.</p>
             <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-              Atlas is monitoring your business continuously. When something needs your attention, it will appear here.
+              I'm monitoring your business continuously. When something needs your attention, it will appear here.
             </p>
           </div>
         </div>
@@ -362,9 +389,7 @@ export default function Attention() {
 
       {/* Recent activity */}
       <Panel className="p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
-        </div>
+        <h2 className="text-sm font-semibold text-foreground">Recent activity</h2>
         <div className="mt-3">
           {activitiesLoading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">

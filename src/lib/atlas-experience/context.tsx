@@ -36,6 +36,31 @@ export interface AtlasEntity {
   meta?: Record<string, unknown>;
 }
 
+/** Atlas Investigation Context — carries the full investigation state across routes */
+export interface AtlasInvestigation {
+  /** The entity being investigated */
+  entity: AtlasEntity;
+  /** The originating insight or signal that led to this investigation */
+  originatingInsight?: {
+    title: string;
+    description?: string;
+    financialImpact?: number;
+    severity?: string;
+  };
+  /** Atlas's assessment of the entity */
+  assessment?: string;
+  /** Confidence level */
+  confidence?: "high" | "medium" | "low";
+  /** Key evidence items supporting the assessment */
+  evidenceSummary?: Array<{ title: string; classification?: string; relevance?: string }>;
+  /** Evidence gaps identified */
+  gaps?: Array<{ label: string; severity: "critical" | "warning" | "info"; description?: string }>;
+  /** Atlas recommendation */
+  recommendation?: string;
+  /** Where to return — the originating route/context */
+  returnTo?: { label: string; path: string };
+}
+
 /** A lightweight breadcrumb step for context-aware navigation. */
 export interface AtlasBreadcrumb {
   label: string;
@@ -86,6 +111,10 @@ export interface AtlasContextValue {
   workspace: { id: string; name: string } | null;
   /** The entity currently being viewed (if any) */
   entity: AtlasEntity | null;
+  /** The current Atlas investigation context */
+  investigation: AtlasInvestigation | null;
+  /** Set investigation context */
+  setInvestigation: (investigation: AtlasInvestigation | null) => void;
   /** The parent entity (if navigating a hierarchy) */
   parentEntity: AtlasEntity | null;
   /** Set parent entity context */
@@ -179,6 +208,7 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const params = useParams();
   const [entityOverride, setEntityOverride] = useState<AtlasEntity | null>(null);
+  const [investigation, setInvestigation] = useState<AtlasInvestigation | null>(null);
   const [parentEntity, setParentEntity] = useState<AtlasEntity | null>(null);
   const [relatedEntities, setRelatedEntities] = useState<AtlasEntity[]>([]);
   const [entityRelationships, setEntityRelationships] = useState<EntityRelationship[]>([]);
@@ -199,6 +229,8 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
       return {
         workspace: null,
         entity: entityOverride,
+        investigation,
+        setInvestigation,
         parentEntity,
         setParentEntity,
         relatedEntities,
@@ -231,7 +263,9 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
 
     return {
       workspace: null,
-      entity,
+      entity: investigation?.entity ?? entity,
+      investigation,
+      setInvestigation,
       parentEntity,
       setParentEntity,
       relatedEntities,
@@ -250,7 +284,7 @@ export function AtlasContextProvider({ children }: { children: ReactNode }) {
       entityAttentionCount,
       setEntityAttentionCount,
     };
-  }, [location.pathname, params.id, entityOverride, parentEntity, relatedEntities, entityRelationships, entityTimeline, breadcrumbs, health, setHealth, entityAttentionCount, setEntityAttentionCount]);
+  }, [location.pathname, params.id, entityOverride, investigation, parentEntity, relatedEntities, entityRelationships, entityTimeline, breadcrumbs, health, setHealth, entityAttentionCount, setEntityAttentionCount]);
 
   return <AtlasContext.Provider value={value}>{children}</AtlasContext.Provider>;
 }
@@ -266,6 +300,8 @@ export function useAtlasContext(): AtlasContextValue {
     return {
       workspace: null,
       entity: null,
+      investigation: null,
+      setInvestigation: () => {},
       parentEntity: null,
       setParentEntity: () => {},
       relatedEntities: [],

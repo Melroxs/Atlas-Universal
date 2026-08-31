@@ -71,7 +71,7 @@ export interface AtlasInvestigationContext {
   assessment?: string;
   confidence?: "high" | "medium" | "low";
   recommendation?: string;
-  preparedAction?: { status: string; type?: string; reason?: string; amount?: number };
+  preparedAction?: { status: string; type?: string; reason?: string; amount?: number; isStale?: boolean; staleChanges?: Array<{ label: string; description?: string }> };
   evidenceSummary?: Array<{ title: string; classification?: string }>;
   gaps?: Array<{ label: string; severity: string }>;
 }

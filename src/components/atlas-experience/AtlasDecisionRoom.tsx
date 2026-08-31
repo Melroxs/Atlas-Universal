@@ -59,6 +59,7 @@ export type DecisionRoomStage =
   | "completed"      // Execution confirmed successful
   | "failed"         // Execution failed
   | "stale"          // Source data changed since preparation
+  | "reanalyzing"    // Atlas is rechecking after source data changed
   | "cancelled"      // User cancelled
   | "already_done";  // This action was already completed
 
@@ -142,13 +143,15 @@ const STAGE_LABELS: Record<string, string> = {
   completed: "Completed",
   failed: "Action failed",
   stale: "Needs review",
+  reanalyzing: "Re-analyzing",
   cancelled: "Cancelled",
   already_done: "Already completed",
 };
 
 function StageIndicator({ stage }: { stage: DecisionRoomStage }) {
   const stages: DecisionRoomStage[] = ["recommend", "prepared", "confirming", "executing", "completed"];
-  const currentIndex = stages.indexOf(stage);
+  const effectiveStage: DecisionRoomStage = stage === "reanalyzing" ? "prepared" : stage;
+  const currentIndex = stages.indexOf(effectiveStage);
   const isActive = !["failed", "cancelled", "stale", "already_done"].includes(stage);
 
   return (
@@ -440,6 +443,22 @@ function ExecutionStatus({
     );
   }
 
+  if (stage === "reanalyzing") {
+    return (
+      <Panel className="p-5">
+        <div className="flex items-center gap-3">
+          <Loader2 className="size-5 animate-spin text-teal-600 dark:text-teal-300" />
+          <div>
+            <p className="text-sm font-medium text-foreground">Atlas is rechecking the recommendation…</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              The source information changed. Atlas is verifying this action against the latest data.
+            </p>
+          </div>
+        </div>
+      </Panel>
+    );
+  }
+
   if (stage === "already_done") {
     return (
       <Panel className="p-5">
@@ -570,12 +589,34 @@ export function AtlasDecisionRoom({
       )}
 
       {/* STAGE: Execution status */}
-      {(stage === "executing" || stage === "completed" || stage === "failed" || stage === "stale" || stage === "already_done") && (
+      {(stage === "executing" || stage === "completed" || stage === "failed" || stage === "stale" || stage === "reanalyzing" || stage === "already_done") && (
         <ExecutionStatus
           stage={stage}
           resultMessage={config.recommendationLabel}
           completedAt={config.completedAt}
         />
+      )}
+
+      {/* WHAT CHANGED — only when stale and changes are available */}
+      {stage === "stale" && config.staleChanges && config.staleChanges.length > 0 && (
+        <Panel className="border-amber-400/15 bg-amber-400/5 p-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-200">
+            What changed
+          </p>
+          <div className="mt-2 space-y-1.5">
+            {config.staleChanges.map((change, i) => (
+              <div key={`${change.label}-${i}`} className="flex items-start gap-2">
+                <span className="mt-1 size-1 shrink-0 rounded-full bg-amber-400" />
+                <div>
+                  <p className="text-xs font-medium text-foreground">{change.label}</p>
+                  {change.description && (
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{change.description}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
       )}
 
       {/* Content slot */}

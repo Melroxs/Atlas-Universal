@@ -82,6 +82,7 @@ import {
 import { PackageBuilder } from "@/components/package-builder";
 import { AtlasActionPanel } from "@/components/atlas-experience/AtlasActionPanel";
 import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
+import { useLiveClaimMonitor } from "@/hooks/use-live-claim-monitor";
 import { createActionProposals } from "@/lib/atlas-experience/action-availability";
 import {
   AtlasEntityShell,
@@ -235,6 +236,19 @@ export default function ClaimDetail() {
     { label: "Preparing the review package", status: "pending" },
   ]);
 
+  // Live claim monitoring — detect changes while DecisionRoom is open
+  const claimMonitor = useLiveClaimMonitor(
+    String(claimId),
+    decisionStage === "prepared" || decisionStage === "reviewing" || decisionStage === "confirming",
+  );
+
+  // When live monitor detects changes while prepared, transition to stale
+  useEffect(() => {
+    if (claimMonitor.hasChanged && decisionStage === "prepared") {
+      setDecisionStage("stale");
+    }
+  }, [claimMonitor.hasChanged, decisionStage]);
+
   const submitSupplement = async () => {
     if (!supForm.reason.trim()) {
       toast.error("A supplement needs a reason.");
@@ -262,6 +276,14 @@ export default function ClaimDetail() {
 
   // Decision Room: Prepare supplement
   const handleDecisionPrepare = async () => {
+    // If coming from stale state, go through reanalyzing first
+    const isReanalysis = decisionStage === "stale";
+    if (isReanalysis) {
+      setDecisionStage("reanalyzing");
+      await new Promise((r) => setTimeout(r, 1500));
+      claimMonitor.acknowledge();
+    }
+
     setDecisionStage("preparing");
     setPreparationSteps((s) => s.map((step, i) => (i === 0 ? { ...step, status: "running" } : step)));
 
@@ -341,7 +363,15 @@ export default function ClaimDetail() {
   };
 
   // Set entity context when claim loads
-  const { investigation } = useAtlasContext();
+  const { investigation, setInvestigation } = useAtlasContext();
+
+  // Invalidate investigation context if it belongs to a different entity (7L/7M)
+  useEffect(() => {
+    if (investigation && investigation.entity.id !== String(claimId)) {
+      setInvestigation(null);
+    }
+  }, [investigation, claimId, setInvestigation]);
+
   useEffect(() => {
     if (pkg && pkg.claim) {
       const claim = pkg.claim;
@@ -460,7 +490,11 @@ export default function ClaimDetail() {
     ],
     missingInformation: gaps.map((g) => g.label),
     risk: "medium",
-    isStale: false,
+    isStale: decisionStage === "stale",
+    staleChanges: claimMonitor.hasChanged ? claimMonitor.changes.map((c) => ({
+      label: c.label,
+      description: `${c.eventType === "INSERT" ? "New" : c.eventType === "UPDATE" ? "Updated" : "Removed"} — ${c.table}`,
+    })) : undefined,
   } : null;
 
   return (
@@ -533,6 +567,7 @@ export default function ClaimDetail() {
         {gaps.length > 0 && <AtlasGaps gaps={gaps} />}
 
         {/* Evidence Summary with relevance context */}
+        <div id="claim-evidence">
         <AtlasEvidenceSummary
           documents={evidenceDocs.filter(Boolean).map((d) => ({
             title: d.title ?? "Untitled",
@@ -541,6 +576,7 @@ export default function ClaimDetail() {
           }))}
           emptyMessage="Atlas hasn't found supporting evidence yet. Upload documents or ask Atlas what information is needed to strengthen this claim."
         />
+        </div>
 
         {/* Confidence Explanation */}
         <AtlasConfidenceExplanation

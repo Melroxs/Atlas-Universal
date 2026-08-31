@@ -8,7 +8,7 @@
 // the React component tree.
 // ---------------------------------------------------------------------------
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState, useCallback } from "react";
 import { useQuery } from "@/hooks/use-supabase";
 import { api, type Obj } from "@/lib/api";
 
@@ -42,6 +42,12 @@ export interface UseIntelligenceResult {
   isLoading: boolean;
   /** Any error from underlying queries */
   error: string | null;
+  /** Items that changed since the last snapshot */
+  changedItems: AttentionItem[];
+  /** Whether there are meaningful changes since last visit */
+  hasNewChanges: boolean;
+  /** Clear the change notification */
+  acknowledgeChanges: () => void;
 }
 
 /**
@@ -85,6 +91,29 @@ export function useIntelligence(): UseIntelligenceResult {
     return buildIntelligenceSnapshot(active);
   }, [claims, recs, docStats, entityStats, workflows]);
 
+  // Track changes between snapshots
+  const prevItemIdsRef = useRef<Set<string>>(new Set());
+  const [changedItems, setChangedItems] = useState<AttentionItem[]>([]);
+
+  // Detect meaningful changes when snapshot updates
+  useMemo(() => {
+    const currentIds = new Set(snapshot.items.map((i) => i.id));
+    const prevIds = prevItemIdsRef.current;
+
+    if (prevIds.size > 0) {
+      const newItems = snapshot.items.filter((i) => !prevIds.has(i.id));
+      if (newItems.length > 0) {
+        setChangedItems(newItems);
+      }
+    }
+
+    prevItemIdsRef.current = currentIds;
+  }, [snapshot.items]);
+
+  const acknowledgeChanges = useCallback(() => {
+    setChangedItems([]);
+  }, []);
+
   return {
     snapshot,
     items: snapshot.items,
@@ -93,6 +122,9 @@ export function useIntelligence(): UseIntelligenceResult {
     actionRequiredCount: snapshot.actionRequiredCount,
     isLoading,
     error: null,
+    changedItems,
+    hasNewChanges: changedItems.length > 0,
+    acknowledgeChanges,
   };
 }
 

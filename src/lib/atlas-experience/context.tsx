@@ -10,6 +10,7 @@
 
 import { createContext, useContext, useMemo, useState, useCallback, useEffect, useRef, type ReactNode } from "react";
 import { useLocation, useParams } from "react-router";
+import { useAuth } from "@/hooks/use-auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,12 +180,18 @@ const ROUTE_ENTITY_MAP: Array<{ pattern: RegExp; type: AtlasEntityType }> = [
 // Investigation persistence (sessionStorage)
 // ---------------------------------------------------------------------------
 
-const INVESTIGATION_KEY = "atlas:investigation";
+const INVESTIGATION_KEY_PREFIX = "atlas:investigation";
 
-function loadInvestigation(): AtlasInvestigation | null {
+function getStorageKey(tenantId?: string | null): string {
+  // Scope investigation persistence to tenant to prevent cross-organization leaks
+  return tenantId ? `${INVESTIGATION_KEY_PREFIX}:${tenantId}` : INVESTIGATION_KEY_PREFIX;
+}
+
+function loadInvestigation(tenantId?: string | null): AtlasInvestigation | null {
   try {
     if (typeof window === "undefined" || !window.sessionStorage) return null;
-    const raw = window.sessionStorage.getItem(INVESTIGATION_KEY);
+    const key = getStorageKey(tenantId);
+    const raw = window.sessionStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === "object" && parsed.entity && parsed.entity.id) {
@@ -196,21 +203,22 @@ function loadInvestigation(): AtlasInvestigation | null {
   }
 }
 
-function saveInvestigation(inv: AtlasInvestigation | null): void {
+function saveInvestigation(inv: AtlasInvestigation | null, tenantId?: string | null): void {
   try {
     if (typeof window === "undefined" || !window.sessionStorage) return;
+    const key = getStorageKey(tenantId);
     if (inv) {
-      window.sessionStorage.setItem(INVESTIGATION_KEY, JSON.stringify(inv));
+      window.sessionStorage.setItem(key, JSON.stringify(inv));
     } else {
-      window.sessionStorage.removeItem(INVESTIGATION_KEY);
+      window.sessionStorage.removeItem(key);
     }
   } catch {
     // sessionStorage unavailable or full — silently ignore
   }
 }
 
-function clearInvestigation(): void {
-  saveInvestigation(null);
+function clearInvestigation(tenantId?: string | null): void {
+  saveInvestigation(null, tenantId);
 }
 
 function inferEntityType(path: string): AtlasEntityType {
@@ -241,22 +249,34 @@ const DEFAULT_HEALTH: WorkspaceHealth = {
 export function AtlasContextProvider({ children }: { children: ReactNode }) {
   const location = useLocation();
   const params = useParams();
+  const { user } = useAuth();
+  // Scope investigation persistence to tenant to prevent cross-org leaks
+  const tenantId = user?.tenant_id ?? user?.id ?? null;
   const [entityOverride, setEntityOverride] = useState<AtlasEntity | null>(null);
-  const [investigation, setInvestigation] = useState<AtlasInvestigation | null>(() => loadInvestigation());
+  const [investigation, setInvestigation] = useState<AtlasInvestigation | null>(() => loadInvestigation(tenantId));
   const investigationRef = useRef(investigation);
   const [parentEntity, setParentEntity] = useState<AtlasEntity | null>(null);
 
   // Persist investigation to sessionStorage whenever it changes
   useEffect(() => {
     investigationRef.current = investigation;
-    saveInvestigation(investigation);
-  }, [investigation]);
+    saveInvestigation(investigation, tenantId);
+  }, [investigation, tenantId]);
+
+  // When tenant changes (sign out, switch org), clear stale investigation
+  useEffect(() => {
+    setInvestigation((prev) => {
+      const hydrated = loadInvestigation(tenantId);
+      // If hydrated is null and we had something, it's a new tenant — start fresh
+      return hydrated ?? null;
+    });
+  }, [tenantId]);
 
   // Wrapped setter that also clears sessionStorage on null
   const setInvestigationPersisted = useCallback((inv: AtlasInvestigation | null) => {
     setInvestigation(inv);
-    saveInvestigation(inv);
-  }, []);
+    saveInvestigation(inv, tenantId);
+  }, [tenantId]);
   const [relatedEntities, setRelatedEntities] = useState<AtlasEntity[]>([]);
   const [entityRelationships, setEntityRelationships] = useState<EntityRelationship[]>([]);
   const [entityTimeline, setEntityTimeline] = useState<EntityTimelineEntry[]>([]);

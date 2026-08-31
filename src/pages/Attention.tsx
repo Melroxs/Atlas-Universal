@@ -188,6 +188,20 @@ function AttentionItemCard({ item }: { item: import("@/lib/atlas-experience/atte
         {item.explanation}
       </p>
 
+      {/* What changed — when real data supports it */}
+      {typeof item.meta?.whatChanged === "string" && item.meta.whatChanged.length > 0 && (
+        <p className="mt-2 text-[11px] text-muted-foreground/70">
+          <span className="font-medium text-muted-foreground">What changed:</span> {item.meta.whatChanged}
+        </p>
+      )}
+
+      {/* Atlas recommendation */}
+      {item.nextAction && (
+        <p className="mt-1.5 text-[11px] text-teal-700 dark:text-teal-200">
+          <span className="font-medium">Atlas recommends:</span> {item.nextAction}
+        </p>
+      )}
+
       {/* Atlas recommendation + confidence */}
       <div className="mt-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

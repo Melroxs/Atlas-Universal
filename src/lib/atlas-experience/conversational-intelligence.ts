@@ -71,7 +71,7 @@ export interface AtlasInvestigationContext {
   assessment?: string;
   confidence?: "high" | "medium" | "low";
   recommendation?: string;
-  preparedAction?: { status: string; type?: string; reason?: string; amount?: number; isStale?: boolean; staleChanges?: Array<{ label: string; description?: string }> };
+  preparedAction?: { status: string; type?: string; reason?: string; amount?: number; isStale?: boolean; staleChanges?: Array<{ label: string; description?: string }>; actionId?: string; preparedAt?: string };
   evidenceSummary?: Array<{ title: string; classification?: string }>;
   gaps?: Array<{ label: string; severity: string }>;
 }
@@ -1061,6 +1061,26 @@ function generateEntityAnswer(
     parts.push(`\n**${entityDecisions.length} recommendation${entityDecisions.length === 1 ? "" : "s"}:**`);
     for (const d of entityDecisions.slice(0, 3)) {
       parts.push(`• ${d.recommendation.title}`);
+    }
+  }
+
+  // Add current action status if a preparation is active
+  if (context.investigation?.preparedAction) {
+    const pa = context.investigation.preparedAction;
+    const statusLabel =
+      pa.status === "preparing" ? "Atlas is assembling the proposal"
+      : pa.status === "prepared" ? "A supplement proposal is ready for your review"
+      : pa.status === "awaiting_confirmation" ? "Awaiting your approval to submit"
+      : pa.status === "executing" ? "Atlas is executing the approved action"
+      : pa.status === "executed" ? "The action completed successfully"
+      : pa.status === "failed" ? "The last action failed — nothing was submitted"
+      : pa.status === "stale" ? "The proposal needs to be re-checked — source data changed"
+      : null;
+    if (statusLabel) {
+      parts.push(`\n**Action status:** ${statusLabel}.`);
+      if (pa.isStale) {
+        parts.push(`\n⚠️ The information changed after preparation. Re-prepare before approving.`);
+      }
     }
   }
 

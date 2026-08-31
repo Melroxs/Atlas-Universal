@@ -85,6 +85,12 @@ export interface ConversationResolutionContext {
 
   /** What changed since preparation, if known */
   staleChanges?: Array<{ label: string; description?: string }>;
+
+  /** Current persisted action status, if available */
+  actionStatus?: string;
+
+  /** When the preparation was created */
+  preparedAt?: string;
 }
 
 /** A conversation turn with execution context */

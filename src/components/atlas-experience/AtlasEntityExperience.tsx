@@ -436,6 +436,10 @@ interface EvidenceDoc {
   classification?: string;
   /** Why this document matters to the current entity */
   relevance?: string;
+  /** Evidence state — how this evidence supports the assessment */
+  evidenceState?: "supported" | "inferred" | "missing" | "unavailable" | "contradicted";
+  /** Source location if known */
+  sourceLocation?: string;
 }
 
 interface AtlasEvidenceSummaryProps {
@@ -473,8 +477,23 @@ export function AtlasEvidenceSummary({ documents, emptyMessage }: AtlasEvidenceS
             className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2"
           >
             <div className="flex items-center gap-2">
-              <Check className="size-3.5 shrink-0 text-teal-500" />
+              {doc.evidenceState === "missing" ? (
+                <span className="size-3.5 shrink-0 rounded-full border border-amber-400/50 bg-amber-400/10" />
+              ) : doc.evidenceState === "contradicted" ? (
+                <span className="size-3.5 shrink-0 rounded-full border border-rose-400/50 bg-rose-400/10" />
+              ) : doc.evidenceState === "inferred" ? (
+                <span className="size-3.5 shrink-0 rounded-full border border-sky-400/50 bg-sky-400/10" />
+              ) : doc.evidenceState === "unavailable" ? (
+                <span className="size-3.5 shrink-0 rounded-full border border-muted-foreground/30 bg-muted/30" />
+              ) : (
+                <Check className="size-3.5 shrink-0 text-teal-500" />
+              )}
               <span className="truncate text-xs font-medium text-foreground">{doc.title}</span>
+              {doc.evidenceState && doc.evidenceState !== "supported" && (
+                <Badge variant="outline" className="font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
+                  {doc.evidenceState}
+                </Badge>
+              )}
               {doc.classification && (
                 <Badge variant="outline" className="ml-auto font-mono text-[9px] uppercase tracking-wide text-muted-foreground">
                   {doc.classification}

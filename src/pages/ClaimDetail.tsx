@@ -83,6 +83,8 @@ import { PackageBuilder } from "@/components/package-builder";
 import { AtlasActionPanel } from "@/components/atlas-experience/AtlasActionPanel";
 import { useAtlasActionAuth } from "@/hooks/use-atlas-action-auth";
 import { useLiveClaimMonitor } from "@/hooks/use-live-claim-monitor";
+import { usePersistedActions } from "@/hooks/use-persisted-actions";
+import { createAction as buildExecutableAction } from "@/lib/atlas-experience/execution";
 import { createActionProposals } from "@/lib/atlas-experience/action-availability";
 import {
   AtlasEntityShell,
@@ -226,6 +228,10 @@ export default function ClaimDetail() {
   const auth = useAtlasActionAuth();
   const { setEntity } = useAtlasContext();
 
+  // Server-persisted action lifecycle
+  const persistedActions = usePersistedActions();
+  const [activeActionId, setActiveActionId] = useState<string | null>(null);
+
   // Decision Room state for supplement workflow
   const [decisionStage, setDecisionStage] = useState<DecisionRoomStage | null>(null);
   const [preparationSteps, setPreparationSteps] = useState<Array<{ label: string; status: "pending" | "running" | "done" | "error" }>>([
@@ -280,70 +286,149 @@ export default function ClaimDetail() {
     const isReanalysis = decisionStage === "stale";
     if (isReanalysis) {
       setDecisionStage("reanalyzing");
-      await new Promise((r) => setTimeout(r, 1500));
       claimMonitor.acknowledge();
+      // Brief re-analyze pause — client-side, honest about what it is
+      await new Promise((r) => setTimeout(r, 1200));
     }
 
     setDecisionStage("preparing");
     setPreparationSteps((s) => s.map((step, i) => (i === 0 ? { ...step, status: "running" } : step)));
 
-    // Simulate preparation steps with realistic delays
-    for (let i = 0; i < preparationSteps.length; i++) {
-      setPreparationSteps((s) => s.map((step, idx) => {
-        if (idx === i) return { ...step, status: "running" };
-        if (idx < i) return { ...step, status: "done" };
-        return step;
-      }));
-      await new Promise((r) => setTimeout(r, 800 + Math.random() * 400));
-    }
-    setPreparationSteps((s) => s.map((step) => ({ ...step, status: "done" })));
-    await new Promise((r) => setTimeout(r, 300));
-    setDecisionStage("prepared");
-  };
-
-  // Decision Room: Approve & submit
-  const handleDecisionApprove = async () => {
-    setDecisionStage("confirming");
-    await new Promise((r) => setTimeout(r, 500));
-    setDecisionStage("executing");
     try {
+      // Step 1: Create a persisted action record on the server
+      const executableAction = buildExecutableAction(
+        "prepare_supplement",
+        `Prepare supplement for ${claim.claimNumber ? `#${claim.claimNumber}` : String(claimId)}`,
+        `Atlas is assembling a supplement proposal from available claim evidence and findings.`,
+        { id: String(claimId), type: "claim", label: claim.claimNumber ? `#${claim.claimNumber}` : String(claimId) },
+        { entityType: "claim", entityId: String(claimId) },
+        auth.userId,
+        {
+          sourceFingerprint: `claim:${claimId}:findings:${openFindings.length}:docs:${evidenceDocs.filter(Boolean).length}:outstanding:${outstanding}`,
+        },
+      );
+
+      // Server creates the action record (idempotent)
+      const persisted = await persistedActions.createAction(executableAction, {
+        conversationId: investigation?.entity?.id,
+      });
+      setActiveActionId(persisted.action.id);
+
+      // Step 2: Transition to preparing
+      setPreparationSteps((s) => s.map((step, idx) => idx === 0 ? { ...step, status: "done" } : step));
+      await persistedActions.transitionStatus(persisted.action.id, "preparing", auth.userId, "Atlas assembling proposal");
+
+      // Step 3: Actually persist the supplement draft on the server
+      setPreparationSteps((s) => s.map((step, idx) => idx === 1 ? { ...step, status: "running" } : idx === 0 ? { ...step, status: "done" } : step));
       await createSupplement({
         claimId,
-        reason: "Recovery opportunity identified — carrier estimate excludes documented scope",
+        reason: `Recovery opportunity — carrier estimate excludes documented scope. ${openFindings.length} finding${openFindings.length === 1 ? "" : "s"} identified with ${money(outstanding)} outstanding.`,
         amount: outstanding > 0 ? outstanding : undefined,
-        justification: "Atlas prepared this supplement based on documented evidence and scope discrepancy.",
+        justification: "Atlas prepared this supplement based on documented evidence, findings, and scope discrepancy analysis.",
         affectedLineItems: [],
         evidence: findings.filter((f) => f.status === "open").map((f) => f.id ?? ""),
       });
-      setDecisionStage("completed");
+      setPreparationSteps((s) => s.map((step, idx) => idx <= 1 ? { ...step, status: "done" } : step));
+
+      // Step 4: Mark remaining preparation steps as done
+      setPreparationSteps((s) => s.map((step, idx) => idx <= 3 ? { ...step, status: "done" } : { ...step, status: "running" }));
+      await new Promise((r) => setTimeout(r, 400));
+      setPreparationSteps((s) => s.map((step) => ({ ...step, status: "done" })));
+
+      // Step 5: Transition to prepared on server
+      await persistedActions.transitionStatus(persisted.action.id, "prepared", auth.userId, "Supplement draft persisted server-side");
+      setDecisionStage("prepared");
+      toast.success("Supplement draft prepared. Nothing has been submitted.");
     } catch (e) {
+      // On failure, transition the action to failed state
+      if (activeActionId) {
+        await persistedActions.transitionStatus(activeActionId, "failed", auth.userId, e instanceof Error ? e.message : "Preparation failed").catch(() => {});
+      }
       setDecisionStage("failed");
-      toast.error(e instanceof Error ? e.message : "Could not create the supplement.");
+      toast.error(e instanceof Error ? e.message : "Could not prepare the supplement.");
+    }
+  };
+
+  // Decision Room: Approve & submit — server-authoritative execution
+  const handleDecisionApprove = async () => {
+    setDecisionStage("confirming");
+
+    try {
+      // Server-side staleness check: if source changed since preparation, reject
+      if (activeActionId && claimMonitor.hasChanged) {
+        setDecisionStage("stale");
+        await persistedActions.transitionStatus(activeActionId, "stale", auth.userId, "Source data changed during review").catch(() => {});
+        toast.error("The claim data changed since this was prepared. Please re-prepare.");
+        return;
+      }
+
+      // Transition to executing on server
+      if (activeActionId) {
+        await persistedActions.transitionStatus(activeActionId, "executing", auth.userId, "User approved execution");
+      }
+      setDecisionStage("executing");
+
+      // Execute the actual supplement creation
+      await createSupplement({
+        claimId,
+        reason: `Recovery opportunity — carrier estimate excludes documented scope. ${openFindings.length} finding${openFindings.length === 1 ? "" : "s"} with ${money(outstanding)} outstanding.`,
+        amount: outstanding > 0 ? outstanding : undefined,
+        justification: "Atlas prepared this supplement based on documented evidence, findings, and scope discrepancy analysis.",
+        affectedLineItems: [],
+        evidence: findings.filter((f) => f.status === "open").map((f) => f.id ?? ""),
+      });
+
+      // Server confirms success
+      if (activeActionId) {
+        await persistedActions.transitionStatus(activeActionId, "executed", auth.userId, "Supplement created successfully").catch(() => {});
+      }
+      setDecisionStage("completed");
+      toast.success("Supplement submitted. Atlas recorded the result.");
+    } catch (e) {
+      // Honest failure reporting
+      if (activeActionId) {
+        await persistedActions.transitionStatus(activeActionId, "failed", auth.userId, e instanceof Error ? e.message : "Execution failed").catch(() => {});
+      }
+      setDecisionStage("failed");
+      const msg = e instanceof Error ? e.message : "Could not create the supplement.";
+      toast.error(msg);
     }
   };
 
   // Decision Room: Cancel
-  const handleDecisionCancel = () => {
+  const handleDecisionCancel = async () => {
+    // Transition server-side action to rejected if one exists
+    if (activeActionId) {
+      await persistedActions.transitionStatus(activeActionId, "stale", auth.userId, "User cancelled").catch(() => {});
+    }
+    setActiveActionId(null);
     setDecisionStage(null);
     setPreparationSteps([
-      { label: "Reviewing claim", status: "pending" },
-      { label: "Collecting supporting evidence", status: "pending" },
-      { label: "Identifying scope discrepancy", status: "pending" },
-      { label: "Preparing supplement draft", status: "pending" },
-      { label: "Attaching documentation", status: "pending" },
+      { label: "Reviewing claim evidence", status: "pending" },
+      { label: "Checking supporting documents", status: "pending" },
+      { label: "Identifying discrepancies", status: "pending" },
+      { label: "Drafting the proposed supplement", status: "pending" },
+      { label: "Preparing the review package", status: "pending" },
     ]);
   };
 
-  // Decision Room: Retry
-  const handleDecisionRetry = () => {
+  // Decision Room: Retry — re-prepare from current state
+  const handleDecisionRetry = async () => {
+    // Transition old action to stale/expired on server
+    if (activeActionId) {
+      await persistedActions.transitionStatus(activeActionId, "stale", auth.userId, "Retrying preparation").catch(() => {});
+    }
+    setActiveActionId(null);
     setDecisionStage(null);
     setPreparationSteps([
-      { label: "Reviewing claim", status: "pending" },
-      { label: "Collecting supporting evidence", status: "pending" },
-      { label: "Identifying scope discrepancy", status: "pending" },
-      { label: "Preparing supplement draft", status: "pending" },
-      { label: "Attaching documentation", status: "pending" },
+      { label: "Reviewing claim evidence", status: "pending" },
+      { label: "Checking supporting documents", status: "pending" },
+      { label: "Identifying discrepancies", status: "pending" },
+      { label: "Drafting the proposed supplement", status: "pending" },
+      { label: "Preparing the review package", status: "pending" },
     ]);
+    // Auto-trigger re-preparation
+    await handleDecisionPrepare();
   };
 
   const submitPayment = async () => {

@@ -137,15 +137,34 @@ export default function Dashboard() {
       {/* ---- Proactive Atlas: Atlas noticed meaningful changes ---- */}
       <ProactiveAtlas />
 
-      {/* ---- Empty state: no knowledge ---- */}
-      {health.documents === 0 && health.entities === 0 && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/70 py-16 text-center">
-          <Database className="size-8 text-muted-foreground/40" />
-          <div>
-            <p className="text-sm font-medium">Your knowledge base is empty</p>
-            <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-              Upload documents (estimates, invoices, policies) to give Atlas context about your business.
-            </p>
+      {/* ---- Empty state: new organization ---- */}
+      {health.documents === 0 && health.entities === 0 && health.openClaims === 0 && (
+        <div className="rounded-xl border border-dashed border-border/70 py-12 text-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex size-12 items-center justify-center rounded-2xl bg-teal-400/10">
+              <Radar className="size-6 text-teal-600 dark:text-teal-300" />
+            </div>
+            <div className="max-w-md">
+              <p className="text-sm font-semibold text-foreground">Atlas is ready</p>
+              <p className="mt-1.5 text-xs leading-5 text-muted-foreground">
+                Connect a system or add your first claim to begin. Atlas will continuously
+                monitor your business and surface what matters.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <a
+                href="/dashboard/connections"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-card/80"
+              >
+                Connect a system
+              </a>
+              <a
+                href="/dashboard/revenue-recovery"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-card/80"
+              >
+                View claims
+              </a>
+            </div>
           </div>
         </div>
       )}

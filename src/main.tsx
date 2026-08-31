@@ -108,8 +108,15 @@ class RootErrorBoundary extends React.Component<
               {this.state.message}
             </p>
             <p className="mt-3 text-[11px] text-muted-foreground/70">
-              Nothing was sent or changed. You can try refreshing the page.
+              Nothing was sent or changed.
             </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-card/80"
+            >
+              Refresh page
+            </button>
             {this.state.stack && (
               <pre className="mt-4 text-left text-[10px] leading-4 text-muted-foreground/60 max-h-32 overflow-auto rounded-lg border border-border/60 bg-muted/20 p-3">
                 {this.state.stack}

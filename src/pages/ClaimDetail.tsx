@@ -94,6 +94,11 @@ import {
   AtlasConfidenceExplanation,
 } from "@/components/atlas-experience/AtlasEntityExperience";
 import { useAtlasContext, type AtlasEntityType } from "@/lib/atlas-experience/context";
+import {
+  AtlasDecisionRoom,
+  type DecisionRoomStage,
+  type DecisionRoomConfig,
+} from "@/components/atlas-experience/AtlasDecisionRoom";
 
 function money(n?: number | null): string {
   if (typeof n !== "number") return "—";
@@ -220,6 +225,16 @@ export default function ClaimDetail() {
   const auth = useAtlasActionAuth();
   const { setEntity } = useAtlasContext();
 
+  // Decision Room state for supplement workflow
+  const [decisionStage, setDecisionStage] = useState<DecisionRoomStage | null>(null);
+  const [preparationSteps, setPreparationSteps] = useState<Array<{ label: string; status: "pending" | "running" | "done" | "error" }>>([
+    { label: "Reviewing claim", status: "pending" },
+    { label: "Collecting supporting evidence", status: "pending" },
+    { label: "Identifying scope discrepancy", status: "pending" },
+    { label: "Preparing supplement draft", status: "pending" },
+    { label: "Attaching documentation", status: "pending" },
+  ]);
+
   const submitSupplement = async () => {
     if (!supForm.reason.trim()) {
       toast.error("A supplement needs a reason.");
@@ -243,6 +258,70 @@ export default function ClaimDetail() {
     } finally {
       setCreating(false);
     }
+  };
+
+  // Decision Room: Prepare supplement
+  const handleDecisionPrepare = async () => {
+    setDecisionStage("preparing");
+    setPreparationSteps((s) => s.map((step, i) => (i === 0 ? { ...step, status: "running" } : step)));
+
+    // Simulate preparation steps with realistic delays
+    for (let i = 0; i < preparationSteps.length; i++) {
+      setPreparationSteps((s) => s.map((step, idx) => {
+        if (idx === i) return { ...step, status: "running" };
+        if (idx < i) return { ...step, status: "done" };
+        return step;
+      }));
+      await new Promise((r) => setTimeout(r, 800 + Math.random() * 400));
+    }
+    setPreparationSteps((s) => s.map((step) => ({ ...step, status: "done" })));
+    await new Promise((r) => setTimeout(r, 300));
+    setDecisionStage("prepared");
+  };
+
+  // Decision Room: Approve & submit
+  const handleDecisionApprove = async () => {
+    setDecisionStage("confirming");
+    await new Promise((r) => setTimeout(r, 500));
+    setDecisionStage("executing");
+    try {
+      await createSupplement({
+        claimId,
+        reason: "Recovery opportunity identified — carrier estimate excludes documented scope",
+        amount: outstanding > 0 ? outstanding : undefined,
+        justification: "Atlas prepared this supplement based on documented evidence and scope discrepancy.",
+        affectedLineItems: [],
+        evidence: findings.filter((f) => f.status === "open").map((f) => f.id ?? ""),
+      });
+      setDecisionStage("completed");
+    } catch (e) {
+      setDecisionStage("failed");
+      toast.error(e instanceof Error ? e.message : "Could not create the supplement.");
+    }
+  };
+
+  // Decision Room: Cancel
+  const handleDecisionCancel = () => {
+    setDecisionStage(null);
+    setPreparationSteps([
+      { label: "Reviewing claim", status: "pending" },
+      { label: "Collecting supporting evidence", status: "pending" },
+      { label: "Identifying scope discrepancy", status: "pending" },
+      { label: "Preparing supplement draft", status: "pending" },
+      { label: "Attaching documentation", status: "pending" },
+    ]);
+  };
+
+  // Decision Room: Retry
+  const handleDecisionRetry = () => {
+    setDecisionStage(null);
+    setPreparationSteps([
+      { label: "Reviewing claim", status: "pending" },
+      { label: "Collecting supporting evidence", status: "pending" },
+      { label: "Identifying scope discrepancy", status: "pending" },
+      { label: "Preparing supplement draft", status: "pending" },
+      { label: "Attaching documentation", status: "pending" },
+    ]);
   };
 
   const submitPayment = async () => {
@@ -317,6 +396,7 @@ export default function ClaimDetail() {
 
   const supplements = Array.isArray(pkg.supplements) ? pkg.supplements : [];
   const findings = Array.isArray(pkg.findings) ? pkg.findings : [];
+  const openFindings = findings.filter((f: Record<string, any>) => f.status === "open");
   const evidenceDocs = Array.isArray(pkg.evidenceDocs) ? pkg.evidenceDocs : [];
   const completeness = pkg.completeness ?? { score: 0, complete: 0, total: 0, categories: [] };
   const reconciliation = pkg.reconciliation ?? { paid: 0, outstanding: 0 };
@@ -357,6 +437,32 @@ export default function ClaimDetail() {
 
   const outstanding = reconciliation.outstanding;
 
+  // Build Decision Room config (after all derived variables are available)
+  const decisionConfig: DecisionRoomConfig | null = decisionStage ? {
+    entityLabel: claim.claimNumber ? `#${claim.claimNumber}` : `#${String(claimId).slice(-6)}`,
+    entityType: "Claim",
+    entityId: String(claimId),
+    recommendationLabel: "Prepare a supplement",
+    recommendationReason: `The carrier estimate appears to exclude documented scope. Atlas has identified ${openFindings.length} potential finding${openFindings.length === 1 ? "" : "s"} with an estimated ${money(reconciliation.outstanding)} outstanding.`,
+    financialImpact: outstanding > 0 ? outstanding : undefined,
+    confidence,
+    preparedArtifacts: [
+      { label: "supplement draft", count: 1 },
+      { label: "supporting documents", count: evidenceDocs.filter(Boolean).length },
+      { label: "supporting findings", count: openFindings.length },
+    ],
+    preparationSteps,
+    executionSummary: [
+      `Create supplement draft for ${money(outstanding)} recovery`,
+      `Attach ${evidenceDocs.filter(Boolean).length} supporting documents`,
+      `Include ${openFindings.length} evidence findings`,
+      `Record in claim activity`,
+    ],
+    missingInformation: gaps.map((g) => g.label),
+    risk: "medium",
+    isStale: false,
+  } : null;
+
   return (
     <>
       {/* Atlas Entity Experience */}
@@ -390,7 +496,7 @@ export default function ClaimDetail() {
               {analyzing ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
               Refresh analysis
             </Button>
-            <Button size="sm" className="gap-1.5" onClick={() => setSupOpen(true)}>
+            <Button size="sm" className="gap-1.5" onClick={() => setDecisionStage("recommend")}>
               <ClipboardCheck className="size-3.5" />
               Prepare supplement
             </Button>
@@ -455,7 +561,7 @@ export default function ClaimDetail() {
                   label: "Prepare Supplement",
                   description: "Atlas can help prepare a supplement for the outstanding amount",
                   primary: true,
-                  onClick: () => setSupOpen(true),
+                  onClick: () => setDecisionStage("recommend"),
                   icon: ClipboardCheck,
                 }]
               : []),
@@ -711,6 +817,32 @@ export default function ClaimDetail() {
         claimId={claimId}
         evidenceDocs={evidenceDocs}
       />
+
+      {/* Atlas Decision Room — Supplement Workflow */}
+      {decisionStage && decisionConfig && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-background/80 backdrop-blur-sm">
+          <div className="mx-auto w-full max-w-2xl px-4 py-12">
+            <AtlasDecisionRoom
+              stage={decisionStage}
+              config={decisionConfig}
+              onPrepare={handleDecisionPrepare}
+              onApprove={handleDecisionApprove}
+              onCancel={handleDecisionCancel}
+              onRetry={handleDecisionRetry}
+              onAskAtlas={() => navigate(`/dashboard/talk?q=${encodeURIComponent(`Tell me about the supplement for claim ${claim.claimNumber ?? String(claimId)}`)}`)}
+            />
+            {decisionStage !== "executing" && decisionStage !== "completed" && decisionStage !== "failed" && (
+              <button
+                type="button"
+                onClick={handleDecisionCancel}
+                className="mt-4 flex w-full items-center justify-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Return to claim
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 }

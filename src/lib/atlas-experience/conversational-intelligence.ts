@@ -60,6 +60,20 @@ export interface AtlasConversationContext {
     contradictions: number;
   };
   askAtlasContext?: AskAtlasContext;
+  /** Current Atlas investigation context — entity, insight, assessment, action */
+  investigation?: AtlasInvestigationContext;
+}
+
+/** Investigation context carried through conversation — entity, insight, assessment, prepared action */
+export interface AtlasInvestigationContext {
+  entity?: { id: string; type: string; name?: string };
+  originatingInsight?: { title: string; description?: string; financialImpact?: number };
+  assessment?: string;
+  confidence?: "high" | "medium" | "low";
+  recommendation?: string;
+  preparedAction?: { status: string; type?: string; reason?: string; amount?: number };
+  evidenceSummary?: Array<{ title: string; classification?: string }>;
+  gaps?: Array<{ label: string; severity: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +96,8 @@ export interface ContextBuilderInput {
     gaps: number;
     contradictions: number;
   };
+  /** Current Atlas investigation context — passed from useAtlasContext */
+  investigation?: AtlasInvestigationContext;
 }
 
 /**
@@ -147,6 +163,7 @@ export function buildConversationContext(input: ContextBuilderInput): AtlasConve
     },
     nextBestAction: input.nextBestAction ?? undefined,
     evidence: input.entityEvidence,
+    investigation: input.investigation,
   };
 }
 

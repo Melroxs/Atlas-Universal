@@ -104,10 +104,15 @@ export interface DecisionRoomConfig {
   /** Staleness info */
   isStale?: boolean;
   staleReason?: string;
+  /** What changed — only real changes, never fabricated */
+  staleChanges?: Array<{ label: string; description?: string }>;
 
   /** Already completed info */
   alreadyCompleted?: boolean;
   completedAt?: string;
+
+  /** Source fingerprint for freshness check */
+  sourceFingerprint?: string;
 
   /** Current action status from server */
   serverStatus?: string;
@@ -523,7 +528,7 @@ export function AtlasDecisionRoom({
       </Panel>
 
       {/* STAGE: Recommend */}
-      {(stage === "recommend" || stage === "preparing" || stage === "prepared" || stage === "reviewing" || stage === "confirming" || stage === "executing" || stage === "completed" || stage === "failed" || stage === "stale" || stage === "cancelled") && stage !== "already_done" && (
+      {(stage === "recommend" || stage === "preparing" || stage === "prepared" || stage === "reviewing" || stage === "confirming" || stage === "executing" || stage === "completed" || stage === "failed" || stage === "stale" || stage === "cancelled") && (
         <Panel className="border-teal-400/25 bg-teal-400/5 p-5">
           <div className="flex items-center gap-2">
             <Radar className="size-4 text-teal-600 dark:text-teal-300" />

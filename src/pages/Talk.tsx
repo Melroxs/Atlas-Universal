@@ -170,7 +170,7 @@ export default function Talk() {
   });
 
   const auth = useAtlasActionAuth();
-  const { health, entity } = useAtlasContext();
+  const { health, entity, investigation } = useAtlasContext();
   const { items: attentionItems } = useIntelligence();
   const { activities } = useActivity();
   const { decisions } = useDecisions();
@@ -190,9 +190,18 @@ export default function Talk() {
         activities,
         decisions,
         signals: [],
-        currentEntity: conversationEntity,
+        currentEntity: conversationEntity ?? (entity ? { type: entity.type, id: entity.id, label: entity.name ?? entity.id } : undefined),
+        investigation: investigation ? {
+          entity: investigation.entity,
+          originatingInsight: investigation.originatingInsight,
+          assessment: investigation.assessment,
+          confidence: investigation.confidence,
+          recommendation: investigation.recommendation,
+          evidenceSummary: investigation.evidenceSummary,
+          gaps: investigation.gaps,
+        } : undefined,
       }),
-    [health, attentionItems, activities, decisions, auth.userId, auth.userRole, conversationEntity],
+    [health, attentionItems, activities, decisions, auth.userId, auth.userRole, conversationEntity, entity, investigation],
   );
 
   // Sync voice session turns

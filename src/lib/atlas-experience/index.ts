@@ -215,6 +215,7 @@ export {
 // Conversational Intelligence Layer
 export {
   type AtlasConversationContext,
+  type AtlasInvestigationContext,
   type ContextBuilderInput,
   type ConversationalIntent,
   type IntentClassification,

@@ -365,3 +365,14 @@ export {
   deduplicateActionProposals,
   collectAndDeduplicate,
 } from "./action-deduplication";
+
+// Onboarding & activation state
+export {
+  type AtlasReadinessState,
+  type OnboardingSnapshot,
+  type OnboardingCta,
+  deriveOnboardingState,
+  getOnboardingVoiceGuidance,
+  ATLAS_EMPTY_STATES,
+} from "./onboarding";
+export { useOnboarding } from "./useOnboarding";

@@ -2,6 +2,7 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { useAtlasContext } from "@/lib/atlas-experience/context";
 import { useIntelligence } from "@/lib/atlas-experience/useIntelligence";
+import { useOnboarding } from "@/lib/atlas-experience/useOnboarding";
 import { CommandCenter } from "@/components/atlas-experience/CommandCenter";
 import { ProactiveAtlas } from "@/components/atlas-experience/ProactiveAtlas";
 import {
@@ -15,12 +16,14 @@ import {
   formatDate,
   titleCase,
 } from "@/components/atlas-ui";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
   Activity,
   ArrowRight,
   BadgeDollarSign,
+  Cable,
   ClipboardList,
   Compass,
   Database,
@@ -34,6 +37,7 @@ import {
   Sparkles,
   Target,
   TrendingUp,
+  Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
@@ -145,6 +149,9 @@ export default function Dashboard() {
 
   const companyName = workspace?.profile?.companyName ?? "your workspace";
 
+  // ---- Atlas Onboarding State ----
+  const onboarding = useOnboarding();
+
   // ---- Atlas Intelligence Layer ----
   const { items: attentionItems, counts, totalFinancialImpact, actionRequiredCount } = useIntelligence();
 
@@ -196,7 +203,11 @@ export default function Dashboard() {
       <PageHeader
         eyebrow="Atlas Home"
         title={`${getGreeting()}, ${user?.name?.split(" ")[0] ?? "there"}`}
-        description={`This is the live state of ${companyName} as Atlas understands it — knowledge, signals and activity.`}
+        description={
+          onboarding.state === "empty"
+            ? onboarding.assessment
+            : `This is the live state of ${companyName} as Atlas understands it — knowledge, signals and activity.`
+        }
         actions={
           <Button
             variant="outline"
@@ -521,24 +532,97 @@ export default function Dashboard() {
         </div>
       )}
 
-      {empty && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/70 py-16 text-center">
-          <Database className="size-8 text-muted-foreground/40" />
-          <div>
-            <p className="text-sm font-medium">Your knowledge base is empty</p>
-            <p className="mt-1 max-w-sm text-xs leading-5 text-muted-foreground">
-              Upload your first documents (SOPs, invoices, spreadsheets) or load the demo workspace to see Atlas in action.
+      {/* ---- Atlas Onboarding: Intelligent empty/activation state ---- */}
+      {onboarding.state === "empty" && (
+        <div className="rounded-2xl border border-teal-400/20 bg-teal-400/[0.03] p-8">
+          <div className="mx-auto max-w-lg text-center">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-teal-400/30 bg-teal-400/10">
+              <Radar className="size-7 text-teal-600 dark:text-teal-300" />
+            </div>
+            <h2 className="text-lg font-semibold text-foreground">{onboarding.assessment}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {onboarding.nextStep}
             </p>
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <Button
+                onClick={() => navigate(onboarding.ctaTarget)}
+                className="gap-2"
+              >
+                <Zap className="size-4" />
+                {onboarding.primaryCta.label}
+              </Button>
+              {onboarding.secondaryActions.map((action) => (
+                <Button
+                  key={action.label}
+                  variant="outline"
+                  onClick={() => navigate(action.target)}
+                  className="gap-2"
+                >
+                  {action.label}
+                </Button>
+              ))}
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button onClick={() => navigate("/dashboard/knowledge")}>
-              <FileUp className="mr-2 size-4" />
-              Upload documents
-            </Button>
-            <Button variant="outline" onClick={handleSeed} disabled={seeding}>
-              <FlaskConical className="mr-2 size-4" />
-              {seeding ? "Loading demo…" : "Load demo knowledge"}
-            </Button>
+        </div>
+      )}
+
+      {/* ---- Atlas Processing: Active but not done ---- */}
+      {onboarding.state === "processing" && (
+        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.03] p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/30 bg-amber-400/10">
+              <Radar className="size-5 animate-pulse text-amber-600 dark:text-amber-300" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">{onboarding.assessment}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{onboarding.nextStep}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-3 gap-2"
+                onClick={() => navigate(onboarding.ctaTarget)}
+              >
+                {onboarding.primaryCta.label}
+                <ArrowRight className="size-3" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Atlas Found Something ---- */}
+      {onboarding.state === "opportunity_detected" && (
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.03] p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10">
+              <Sparkles className="size-5 text-emerald-600 dark:text-emerald-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">{onboarding.assessment}</p>
+                <Badge variant="outline" className="border-emerald-400/30 bg-emerald-400/10 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+                  {onboarding.findingCount} {onboarding.findingCount === 1 ? "opportunity" : "opportunities"}
+                </Badge>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{onboarding.nextStep}</p>
+              <div className="mt-3 flex items-center gap-2">
+                <Button size="sm" onClick={() => navigate(onboarding.ctaTarget)} className="gap-2">
+                  {onboarding.primaryCta.label}
+                  <ArrowRight className="size-3" />
+                </Button>
+                {onboarding.secondaryActions.map((action) => (
+                  <Button
+                    key={action.label}
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => navigate(action.target)}
+                    className="gap-2 text-muted-foreground"
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}

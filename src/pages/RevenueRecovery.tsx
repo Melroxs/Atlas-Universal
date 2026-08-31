@@ -36,6 +36,7 @@ import {
   Flame,
   Hourglass,
   Loader2,
+  MessageSquareText,
   Plus,
   Radar,
   ScanSearch,
@@ -714,13 +715,23 @@ export default function RevenueRecovery() {
       ) : (claims ?? []).length === 0 ? (
         <EmptyPanel
           icon={Flame}
-          title="No claims yet"
-          description="Create your first claim (or ask Atlas to build one from an uploaded estimate, invoice or scope). Atlas already understands the full claim lifecycle — it just needs your company's records."
+          title="I don't have any claims to review yet"
+          description="Create your first claim (or ask Atlas to build one from an uploaded estimate, invoice or scope). I already understand the full claim lifecycle — I just need your company's records."
           action={
-            <Button className="gap-2" onClick={() => setOpen(true)}>
-              <Plus className="size-4" />
-              New claim
-            </Button>
+            <div className="flex gap-2">
+              <Button className="gap-2" onClick={() => setOpen(true)}>
+                <Plus className="size-4" />
+                New claim
+              </Button>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={() => navigate("/dashboard/ask")}
+              >
+                <MessageSquareText className="size-4" />
+                Ask Atlas to help
+              </Button>
+            </div>
           }
         />
       ) : (

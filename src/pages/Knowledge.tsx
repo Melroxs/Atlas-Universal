@@ -400,8 +400,8 @@ export default function Knowledge() {
       {(docs ?? []).length === 0 ? (
         <EmptyPanel
           icon={Database}
-          title="No documents yet"
-          description="Atlas can parse PDFs, Word docs, plain text, CSV and spreadsheet files. Documents become the evidence behind every answer and recommendation."
+          title="I don't have anything to read yet"
+          description="Upload your first documents — SOPs, estimates, invoices, photos — and I'll extract the knowledge. Every file becomes searchable intelligence behind every answer and recommendation."
           action={
             !isViewer ? (
               <div className="flex gap-2">

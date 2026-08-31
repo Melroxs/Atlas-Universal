@@ -2,6 +2,8 @@ import { AtlasAssistant } from "@/components/atlas-assistant";
 import { useVoiceSession } from "@/components/voice-session";
 import { CommandPalette } from "@/components/atlas-experience/CommandPalette";
 import { AtlasContextProvider, useAtlasContext, type AtlasBreadcrumb } from "@/lib/atlas-experience/context";
+import { useOnboarding } from "@/lib/atlas-experience/useOnboarding";
+import type { AtlasReadinessState } from "@/lib/atlas-experience/onboarding";
 import { api } from "@/lib/api";
 import { useAuth } from "@/hooks/use-auth";
 import { canAccessMail, canAccessUserAdmin, isInternalRole } from "@/lib/auth/access-gate";
@@ -284,6 +286,18 @@ function AtlasHeader({
   const hasIssues = (health.pipelineActive) || openRecs > 3;
   const isHealthy = health.documents > 0 && !hasIssues;
 
+  // Onboarding-aware system health label
+  const readinessState = useOnboarding();
+  const readinessLabel: Record<AtlasReadinessState, string> = {
+    empty: "Needs data",
+    processing: "Learning",
+    ready_no_opportunities: "Online",
+    opportunity_detected: "Opportunity found",
+    investigating: "Monitoring",
+    activated: "Online",
+  };
+  const systemLabel = readinessLabel[readinessState.state] ?? (isHealthy ? "Online" : hasIssues ? "Attention" : "Starting");
+
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border/60 px-4">
       <SidebarTrigger className="-ml-1" />
@@ -292,34 +306,52 @@ function AtlasHeader({
       <div className="flex items-center gap-2">
         <div
           className={`relative flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors ${
-            isHealthy
-              ? "text-emerald-600 dark:text-emerald-400"
-              : hasIssues
+            readinessState.state === "empty"
+              ? "text-muted-foreground"
+              : readinessState.state === "processing"
                 ? "text-amber-600 dark:text-amber-400"
-                : "text-muted-foreground"
+                : readinessState.state === "opportunity_detected"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : isHealthy
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : hasIssues
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
           }`}
         >
           <span className="relative flex size-1.5">
             <span
               className={`absolute inline-flex size-full rounded-full opacity-60 ${
-                isHealthy
-                  ? "animate-ping bg-emerald-400"
-                  : hasIssues
+                readinessState.state === "empty"
+                  ? "bg-muted-foreground/40"
+                  : readinessState.state === "processing"
                     ? "animate-pulse bg-amber-400"
-                    : "bg-muted-foreground/40"
+                    : readinessState.state === "opportunity_detected"
+                      ? "animate-ping bg-emerald-400"
+                      : isHealthy
+                        ? "animate-ping bg-emerald-400"
+                        : hasIssues
+                          ? "animate-pulse bg-amber-400"
+                          : "bg-muted-foreground/40"
               }`}
             />
             <span
               className={`relative inline-flex size-1.5 rounded-full ${
-                isHealthy
-                  ? "bg-emerald-500"
-                  : hasIssues
+                readinessState.state === "empty"
+                  ? "bg-muted-foreground/40"
+                  : readinessState.state === "processing"
                     ? "bg-amber-500"
-                    : "bg-muted-foreground/40"
+                    : readinessState.state === "opportunity_detected"
+                      ? "bg-emerald-500"
+                      : isHealthy
+                        ? "bg-emerald-500"
+                        : hasIssues
+                          ? "bg-amber-500"
+                          : "bg-muted-foreground/40"
               }`}
             />
           </span>
-          {isHealthy ? "Online" : hasIssues ? "Attention" : "Starting"}
+          {systemLabel}
         </div>
       </div>
 

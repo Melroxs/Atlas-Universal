@@ -22,6 +22,8 @@ import {
 } from "./jobs/scale-config";
 import { AIConcurrencyLimiter, DEFAULT_AI_CONFIG } from "./jobs/ai-concurrency";
 import { MetricsCollector } from "./jobs/metrics";
+import { DEFAULT_WORKER_CONFIG } from "./jobs/types";
+import { getPipelineConfig } from "./jobs/pipeline-config";
 import {
   runLoadTest,
   createSimJob,
@@ -695,7 +697,6 @@ describe("Milestone 9: Capacity Model", () => {
 
   it("atlas_worker_config defaults are documented", () => {
     // Verify the defaults we audited
-    const { DEFAULT_WORKER_CONFIG } = require("./jobs/types");
     expect(DEFAULT_WORKER_CONFIG.poll_interval_ms).toBe(2000);
     expect(DEFAULT_WORKER_CONFIG.max_concurrent_jobs).toBe(5);
     expect(DEFAULT_WORKER_CONFIG.lock_timeout_ms).toBe(300_000);
@@ -705,7 +706,6 @@ describe("Milestone 9: Capacity Model", () => {
   });
 
   it("pipeline config defaults are documented", () => {
-    const { getPipelineConfig } = require("./jobs/pipeline-config");
     const config = getPipelineConfig();
     expect(config.enabled).toBe(false);
     expect(typeof config.maxConcurrent).toBe("number");

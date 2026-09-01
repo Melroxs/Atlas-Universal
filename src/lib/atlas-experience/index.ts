@@ -407,3 +407,23 @@ export {
   type EnvironmentValidation,
 } from "./environment";
 
+// Server-native execution
+export {
+  serverNativeExecute,
+  serverCompleteExecution,
+  serverReconcileActions,
+  executeWithServerAuthority,
+  type ServerExecutionReceipt,
+  type ReconciledAction,
+} from "./server-execution";
+
+// Backend drift detection
+export {
+  detectBackendDrift,
+  isBackendReady,
+  formatDriftReport,
+  type DriftStatus,
+  type DriftProbe,
+  type DriftReport,
+} from "./backend-drift";
+

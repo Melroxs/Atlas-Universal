@@ -185,6 +185,23 @@ export async function createAction(
 /**
  * Transition an action's status on the server.
  */
+/**
+ * Consequential statuses that MUST be server-confirmed before returning success.
+ * These are never allowed to fall back to local-only state.
+ */
+const CONSEQUENTIAL_STATUSES: Set<string> = new Set([
+  "executing",
+  "executed",
+  "verified",
+  "confirmed",
+  "stale",
+  "failed",
+  "blocked",
+  "rejected",
+  "expired",
+  "cancelled",
+]);
+
 export async function transitionActionStatus(
   supabase: SupabaseClient | null,
   actionId: string,
@@ -193,6 +210,8 @@ export async function transitionActionStatus(
   reason?: string,
   tenantId?: string,
 ): Promise<PersistedAction | null> {
+  const isConsequential = CONSEQUENTIAL_STATUSES.has(newStatus);
+
   if (supabase) {
     try {
       const result = await serverTransitionAction(supabase, actionId, newStatus, actorId, reason);
@@ -207,12 +226,21 @@ export async function transitionActionStatus(
       };
       cacheAction(record, tenantId);
       return record;
-    } catch {
-      // Fall through to local update
+    } catch (err) {
+      // For consequential statuses, server failure MUST NOT fall back to local.
+      // The server is the source of truth.
+      if (isConsequential) {
+        return null;
+      }
+      // For non-consequential statuses (preparing, prepared), local fallback is acceptable
+      // because these are draft states that will be overwritten by server state later.
     }
+  } else if (isConsequential) {
+    // No supabase client AND the transition is consequential: cannot proceed
+    return null;
   }
 
-  // Local fallback
+  // Local fallback — only for non-consequential statuses when supabase is null or failed
   const cached = loadCachedActions(tenantId);
   const record = cached.find((a) => a.action.id === actionId);
   if (!record) return null;

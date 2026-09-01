@@ -398,3 +398,12 @@ export {
   getEntityActionStatus,
 } from "./server-authority";
 
+// Environment validation
+export {
+  validateEnvironment,
+  getEnvironmentSummary,
+  type EnvVarStatus,
+  type EnvVarInfo,
+  type EnvironmentValidation,
+} from "./environment";
+

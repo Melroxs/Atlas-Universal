@@ -74,12 +74,15 @@ export async function enforceStalenessBeforeExecution(
     currentAction = (await rpcCall(supabase, "atlas_action_get", {
       actionId: action.id,
     })) as Record<string, unknown> | null;
-  } catch {
-    // RPC may not exist yet — allow execution to proceed
-    // (the action was already validated client-side)
+  } catch (err) {
+    // Server authority is UNAVAILABLE — fail closed.
+    // Server check failure must NOT equal permission to continue.
     return {
-      allowed: true,
+      allowed: false,
       currentStatus: action.status,
+      reason:
+        "Atlas could not verify the latest action state with the server. " +
+        "Nothing was submitted. Please try again when the server is reachable.",
       markedStale: false,
     };
   }
@@ -142,7 +145,7 @@ export async function enforceStalenessBeforeExecution(
     );
 
     if (currentEntityState !== null && currentEntityState !== sourceFingerprint) {
-      // Mark the action as stale on the server
+      // Mark the action as stale on the server (best-effort)
       try {
         await rpcCall(supabase, "atlas_action_transition", {
           actionId: action.id,
@@ -151,7 +154,9 @@ export async function enforceStalenessBeforeExecution(
           reason: "Source entity changed since action was prepared",
         });
       } catch {
-        // Best effort — if we can't mark stale, still block execution
+        // If we cannot mark stale on server, we still block execution locally.
+        // The action may remain in confirmed state on the server, but we will
+        // not execute without fresh authority.
       }
 
       return {
@@ -167,7 +172,17 @@ export async function enforceStalenessBeforeExecution(
     }
   }
 
-  // 4. All checks passed
+  // 4. Verify the action is in a state that permits execution
+  if (serverStatus !== "confirmed" && serverStatus !== "executing") {
+    return {
+      allowed: false,
+      currentStatus: serverStatus,
+      reason: `Action is in state '${serverStatus}' on the server and cannot be executed.`,
+      markedStale: false,
+    };
+  }
+
+  // 5. All checks passed
   return {
     allowed: true,
     currentStatus: serverStatus,

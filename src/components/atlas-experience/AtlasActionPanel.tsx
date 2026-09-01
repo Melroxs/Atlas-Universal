@@ -23,6 +23,7 @@ import {
   type AtlasActionResult,
   type AtlasUserRole,
   type AtlasActionType,
+  type AtlasActionStatus,
   type ActionRisk,
   createAction,
   checkAuthorization,
@@ -216,37 +217,30 @@ export function AtlasActionPanel({
       setFlowState({ phase: "executing", action, proposal });
 
       try {
-        // Staleness check before execution (skip for navigate/ask actions)
-        if (action.type !== "navigate" && action.type !== "ask_followup" && action.type !== "show_evidence" && action.type !== "show_decision") {
-          const supabase = getSupabaseClient();
-          if (supabase) {
-            const staleness = await checkStaleness(supabase, action);
-            if (staleness.stale) {
-              persistTransitionStatus(action.id, "stale", userId, staleness.explanation ?? "Source data changed");
-              setFlowState({
-                phase: "failed",
-                error: `This action is stale: ${staleness.explanation ?? "The source data changed since this action was prepared."}`,
-                proposal,
-              });
-              return;
-            }
-          }
-        }
+        const supabase = getSupabaseClient();
+        const isConsequentialAction = !['navigate', 'ask_followup', 'show_evidence', 'show_decision'].includes(action.type);
 
-        // Server-side staleness enforcement (defense-in-depth)
-        if (action.type !== "navigate" && action.type !== "ask_followup" && action.type !== "show_evidence" && action.type !== "show_decision") {
-          const supabase = getSupabaseClient();
-          if (supabase) {
-            const serverCheck = await enforceStalenessBeforeExecution(supabase, action);
-            if (!serverCheck.allowed) {
-              persistTransitionStatus(action.id, "stale", userId, serverCheck.reason ?? "Server rejected: stale");
-              setFlowState({
-                phase: "failed",
-                error: `Server rejected this action: ${serverCheck.reason ?? "The source data changed."}`,
-                proposal,
-              });
-              return;
-            }
+        if (isConsequentialAction) {
+          if (!supabase) {
+            // Cannot establish server authority — fail closed
+            setFlowState({
+              phase: "failed",
+              error: "Atlas cannot reach the server to verify this action. Nothing was submitted. Please try again when the connection is available.",
+              proposal,
+            });
+            return;
+          }
+
+          // Server-side staleness enforcement (primary authority check)
+          const serverCheck = await enforceStalenessBeforeExecution(supabase, action);
+          if (!serverCheck.allowed) {
+            persistTransitionStatus(action.id, serverCheck.currentStatus as AtlasActionStatus, userId, serverCheck.reason ?? "Server rejected: stale");
+            setFlowState({
+              phase: "failed",
+              error: serverCheck.reason ?? "Atlas could not verify this action. Nothing was submitted.",
+              proposal,
+            });
+            return;
           }
         }
 

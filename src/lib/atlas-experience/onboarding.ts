@@ -65,6 +65,12 @@ export interface OnboardingSnapshot {
   ctaTarget: string;
   /** Secondary actions */
   secondaryActions: OnboardingCta[];
+  /** The single best claim to investigate first (if any) */
+  recommendedClaim?: {
+    id: string;
+    name: string;
+    reason: string;
+  };
 }
 
 export interface OnboardingCta {
@@ -89,6 +95,8 @@ export function deriveOnboardingState(params: {
   hasConnections: boolean;
   isProcessing: boolean;
   profileComplete: boolean;
+  /** Top claim by findings/outstanding — the one Atlas recommends investigating first */
+  bestClaim?: { id: string; name: string; reason: string };
 }): OnboardingSnapshot {
   const {
     health,
@@ -284,6 +292,7 @@ export function deriveOnboardingState(params: {
     nextStep,
     ctaTarget,
     secondaryActions,
+    recommendedClaim: params.bestClaim,
   };
 }
 

@@ -22,6 +22,7 @@ export function useOnboarding(): OnboardingSnapshot {
   const docStats = useQuery(api.documents.documentStats);
   const entityStats = useQuery(api.knowledge.entityStats);
   const claimCounts = useQuery(api.insurance.claims.claimCounts);
+  const claims = useQuery(api.insurance.claims.listClaims, {});
   const recCounts = useQuery(api.recommendations.recommendationCounts);
   const workspace = useQuery(api.tenants.getMyWorkspace);
   const audit = useQuery(api.audit.listAuditLogs, { limit: 20 });
@@ -47,6 +48,30 @@ export function useOnboarding(): OnboardingSnapshot {
     const profileComplete =
       workspace?.profile?.onboardingComplete ?? false;
 
+    // Find the single best claim to investigate first
+    const bestClaim = (() => {
+      const list = (claims ?? []) as Array<Record<string, unknown>>;
+      if (list.length === 0) return undefined;
+      const scored = list.map((c) => {
+        const score =
+          (c.needsAttention ? 10000 : 0) +
+          ((c.openFindings as number) ?? 0) * 100 +
+          ((c.outstanding as number) ?? 0);
+        return { c, score };
+      }).sort((a, b) => b.score - a.score);
+      const top = scored[0]?.c;
+      if (!top) return undefined;
+      const name = (top.customer as string) ?? (top.property as string) ?? (top.claimNumber as string) ?? `Claim ${String(top._id).slice(0, 6)}`;
+      const reasons: string[] = [];
+      if (top.needsAttention) reasons.push("needs attention");
+      const openFindings = (top.openFindings as number) ?? 0;
+      if (openFindings > 0) reasons.push(`${openFindings} open finding${openFindings === 1 ? "" : "s"}`);
+      const outstanding = (top.outstanding as number) ?? 0;
+      if (outstanding > 0) reasons.push(`$${outstanding.toLocaleString()} outstanding`);
+      const reason = reasons.length > 0 ? reasons.join(" · ") : "most active claim";
+      return { id: String(top._id), name, reason };
+    })();
+
     return deriveOnboardingState({
       health,
       documentCount,
@@ -58,12 +83,14 @@ export function useOnboarding(): OnboardingSnapshot {
       hasConnections,
       isProcessing,
       profileComplete,
+      bestClaim,
     });
   }, [
     health,
     docStats,
     entityStats,
     claimCounts,
+    claims,
     recCounts,
     workspace,
     audit,

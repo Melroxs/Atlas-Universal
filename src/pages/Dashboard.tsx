@@ -43,7 +43,7 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 // ---------------------------------------------------------------------------
 // Time-aware greeting
@@ -216,6 +216,28 @@ export default function Dashboard() {
                 </span>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">{onboarding.nextStep}</p>
+
+              {/* Best claim to investigate — the single most valuable next step */}
+              {onboarding.recommendedClaim && (
+                <Link
+                  to={`/dashboard/revenue-recovery/${onboarding.recommendedClaim.id}`}
+                  className="mt-3 flex items-center gap-3 rounded-xl border border-teal-400/20 bg-teal-400/[0.04] p-3 transition-colors hover:border-teal-400/40 hover:bg-teal-400/[0.06]"
+                >
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-teal-400/10">
+                    <Radar className="size-4 text-teal-600 dark:text-teal-300" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-teal-700 dark:text-teal-200">
+                      I'd start here: {onboarding.recommendedClaim.name}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-teal-600/70 dark:text-teal-300/60">
+                      {onboarding.recommendedClaim.reason}
+                    </p>
+                  </div>
+                  <ArrowRight className="size-3.5 shrink-0 text-teal-500/60" />
+                </Link>
+              )}
+
               <div className="mt-3 flex items-center gap-2">
                 <button
                   type="button"

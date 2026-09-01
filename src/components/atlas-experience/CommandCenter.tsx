@@ -140,7 +140,7 @@ export function WhatMatters() {
           )}
           {totalImpact > 0 && (
             <Badge variant="outline" className="border-emerald-400/30 bg-emerald-400/10 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
-              ${totalImpact.toLocaleString()} impact
+              ~${totalImpact.toLocaleString()} potential impact
             </Badge>
           )}
         </div>

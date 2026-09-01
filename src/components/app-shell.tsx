@@ -1,24 +1,21 @@
 // ---------------------------------------------------------------------------
-// Atlas App Shell — Intelligence-driven presentation layer
-//
-// The shell should feel like Atlas IS the interface, not a frame around modules.
+// Atlas App Shell — Left sidebar navigation + experience area
 //
 // Layout:
-//   ┌──────────────────────────────────────────────────────────────┐
-//   │ ● Atlas ─── active ───────────────────────────────  👤     │
-//   ├──────────────────────────────────────────────────────────────┤
-//   │                                                              │
-//   │                    EXPERIENCE AREA                           │
-//   │                                                              │
-//   │                                                              │
-//   │                                                              │
-//   ├──────────────────────────────────────────────────────────────┤
-//   │                                                              │
-//   │  ┌──────────────────────────────────────────────────┐       │
-//   │  │  Ask Atlas...                                    │       │
-//   │  └──────────────────────────────────────────────────┘       │
-//   │           ◉ Listening...                                    │
-//   └──────────────────────────────────────────────────────────────┘
+//   ┌──────────┬────────────────────────────────────────────────────┐
+//   │ ● Atlas  │                                                    │
+//   │          │                  EXPERIENCE AREA                    │
+//   │ Nav      │                                                    │
+//   │ Items    │                                                    │
+//   │          │                                                    │
+//   │ ──────── │                                                    │
+//   │ Quick    │                                                    │
+//   │ Actions  │                                                    │
+//   │ ──────── │                                                    │
+//   │ Ask      │                                                    │
+//   │ Atlas    ├────────────────────────────────────────────────────┤
+//   │ ⌘/      │  Ask Atlas...                              🎤  ➤  │
+//   └──────────┴────────────────────────────────────────────────────┘
 // ---------------------------------------------------------------------------
 
 import { useVoiceSession } from "@/components/voice-session";
@@ -32,6 +29,22 @@ import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/atlas-ui";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarSeparator,
+  useSidebar,
+} from "@/components/ui/sidebar";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -41,18 +54,36 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAction, useMutation, useQuery } from "@/hooks/use-supabase";
 import {
+  Activity,
+  AlertTriangle,
+  BookOpen,
   Cable,
+  CheckSquare,
   ChevronRight,
+  FileText,
+  GitBranch,
   Globe,
+  Home,
   Landmark,
+  Lightbulb,
   LogOut,
+  Mail,
+  MessageSquare,
   Mic,
   MicOff,
+  Network,
+  Package,
+  PieChart,
+  Plus,
   Radar,
   Send,
+  Search,
+  SendHorizonal,
   Settings2,
   ShieldCheck,
+  Sparkles,
   Users,
+  Workflow,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { NavLink, Navigate, useLocation, useNavigate } from "react-router";
@@ -70,6 +101,138 @@ function initials(name?: string | null, email?: string | null): string {
       .slice(0, 2)
       .map((p) => p[0]?.toUpperCase())
       .join("") || "?"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Navigation data
+// ---------------------------------------------------------------------------
+
+interface NavItem {
+  title: string;
+  subtitle: string;
+  url: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+const MAIN_NAV: NavItem[] = [
+  {
+    title: "Atlas Home",
+    subtitle: "What matters right now",
+    url: "/dashboard",
+    icon: Home,
+  },
+  {
+    title: "Revenue Recovery",
+    subtitle: "Claims, packages & supplements",
+    url: "/dashboard/revenue-recovery",
+    icon: DollarIcon,
+  },
+  {
+    title: "Workflows",
+    subtitle: "Active workflows and tasks",
+    url: "/dashboard/workflows",
+    icon: Workflow,
+  },
+  {
+    title: "Recommendations",
+    subtitle: "Signals ranked by Atlas",
+    url: "/dashboard/recommendations",
+    icon: Lightbulb,
+  },
+  {
+    title: "Intelligence Packs",
+    subtitle: "Industry & regulatory knowledge",
+    url: "/dashboard/intelligence",
+    icon: Sparkles,
+  },
+  {
+    title: "Knowledge Base",
+    subtitle: "Documents, entities & graph",
+    url: "/dashboard/knowledge",
+    icon: BookOpen,
+  },
+  {
+    title: "Events",
+    subtitle: "System events and triggers",
+    url: "/dashboard/events",
+    icon: Activity,
+  },
+  {
+    title: "Atlas Mail",
+    subtitle: "Outreach and communication",
+    url: "/dashboard/talk",
+    icon: Mail,
+  },
+  {
+    title: "Connections",
+    subtitle: "External integrations",
+    url: "/dashboard/connections",
+    icon: Cable,
+  },
+  {
+    title: "Team",
+    subtitle: "Team members and roles",
+    url: "/dashboard/team",
+    icon: Users,
+  },
+  {
+    title: "Settings",
+    subtitle: "Workspace configuration",
+    url: "/dashboard/settings",
+    icon: Settings2,
+  },
+  {
+    title: "Activity Log",
+    subtitle: "System activity history",
+    url: "/dashboard/audit",
+    icon: Globe,
+  },
+];
+
+const QUICK_ACTIONS: NavItem[] = [
+  {
+    title: "Upload Documents",
+    subtitle: "Add documents to the knowledge base",
+    url: "/dashboard/knowledge",
+    icon: Plus,
+  },
+  {
+    title: "Find Supplement Opportunities",
+    subtitle: "Scan claims for potential revenue",
+    url: "/dashboard/revenue-recovery",
+    icon: Search,
+  },
+  {
+    title: "Find Missing Revenue",
+    subtitle: "What are we leaving on the table?",
+    url: "/dashboard/recommendations",
+    icon: AlertTriangle,
+  },
+  {
+    title: "Build Claim Package",
+    subtitle: "Assemble a professional claim package",
+    url: "/dashboard/revenue-recovery",
+    icon: Package,
+  },
+  {
+    title: "Run Comparison Engine",
+    subtitle: "Scan workspace for gaps and risks",
+    url: "/dashboard/intelligence",
+    icon: GitBranch,
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Dollar icon component (for Revenue Recovery)
+// ---------------------------------------------------------------------------
+
+function DollarIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="1" x2="12" y2="23" />
+      <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+    </svg>
   );
 }
 
@@ -122,27 +285,151 @@ function VoiceIndicator() {
 }
 
 // ---------------------------------------------------------------------------
-// Atlas Header — minimal. Atlas identity + status. No module navigation.
+// SidebarHeader — Atlas branding
+// ---------------------------------------------------------------------------
+
+function AtlasSidebarHeader() {
+  return (
+    <SidebarHeader className="p-3">
+      <NavLink to="/dashboard" className="flex items-center gap-2.5 transition-opacity hover:opacity-80">
+        <div className="flex size-8 items-center justify-center rounded-xl bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
+          <Radar className="size-4" />
+        </div>
+        <div className="flex flex-col">
+          <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
+          <span className="text-[10px] text-muted-foreground/60">Intelligence Platform</span>
+        </div>
+      </NavLink>
+    </SidebarHeader>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Navigation group — renders a list of NavItem with active state
+// ---------------------------------------------------------------------------
+
+function NavigationGroup({ items, label }: { items: NavItem[]; label?: string }) {
+  const location = useLocation();
+
+  return (
+    <SidebarGroup>
+      {label && <SidebarGroupLabel>{label}</SidebarGroupLabel>}
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {items.map((item) => {
+            const isActive = item.url === "/dashboard"
+              ? location.pathname === "/dashboard" || location.pathname === "/dashboard/attention"
+              : location.pathname.startsWith(item.url);
+
+            return (
+              <SidebarMenuItem key={item.url + item.title}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={isActive}
+                  tooltip={item.title}
+                  className="group"
+                >
+                  <NavLink to={item.url} className="flex items-center gap-2.5">
+                    <item.icon className="size-4 shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-medium leading-tight truncate">{item.title}</span>
+                      <span className="text-[10px] text-muted-foreground/60 leading-tight truncate">{item.subtitle}</span>
+                    </div>
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            );
+          })}
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Ask Atlas link in sidebar
+// ---------------------------------------------------------------------------
+
+function AskAtlasLink() {
+  const location = useLocation();
+  const isActive = location.pathname === "/dashboard/talk";
+
+  return (
+    <SidebarGroup>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              asChild
+              isActive={isActive}
+              tooltip="Ask Atlas anything"
+              className="bg-teal-400/8 text-teal-700 hover:bg-teal-400/15 dark:text-teal-300 dark:hover:bg-teal-400/10 border border-teal-400/20"
+            >
+              <NavLink to="/dashboard/talk" className="flex items-center gap-2.5">
+                <MessageSquare className="size-4 shrink-0" />
+                <div className="flex flex-col min-w-0">
+                  <span className="text-sm font-medium leading-tight">Ask Atlas</span>
+                  <span className="text-[10px] text-teal-600/60 dark:text-teal-300/60 leading-tight">Talk or type anything</span>
+                </div>
+                <kbd className="ml-auto hidden rounded-md border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 text-[9px] font-mono text-teal-600/70 dark:text-teal-300/70 group-hover:inline-flex">
+                  ⌘/
+                </kbd>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Atlas Sidebar — the complete left navigation
+// ---------------------------------------------------------------------------
+
+function AtlasSidebar() {
+  return (
+    <>
+      <AtlasSidebarHeader />
+      <SidebarContent className="scrollbar-thin">
+        <NavigationGroup items={MAIN_NAV} />
+        <SidebarSeparator />
+        <NavigationGroup items={QUICK_ACTIONS} label="Quick Actions" />
+        <SidebarSeparator />
+        <AskAtlasLink />
+      </SidebarContent>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Atlas Header — minimal top bar
 // ---------------------------------------------------------------------------
 
 function AtlasHeader({ role }: { role: string }) {
   const { user, signOut } = useAuth();
   const { health, entity } = useAtlasContext();
   const navigate = useNavigate();
+  const { toggleSidebar } = useSidebar();
 
   const isHealthy = health.documents > 0;
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border/30 bg-background/80 px-4 backdrop-blur-md">
-      {/* Atlas identity — the only permanent header element */}
-      <NavLink to="/dashboard" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-        <div className="flex size-6 items-center justify-center rounded-lg bg-teal-400/15 text-teal-600 ring-1 ring-teal-400/30 dark:text-teal-300">
-          <Radar className="size-3" />
-        </div>
-        <span className="text-sm font-semibold tracking-tight text-foreground">Atlas</span>
-      </NavLink>
+      {/* Sidebar toggle */}
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        className="flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+        title="Toggle sidebar"
+      >
+        <svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          <line x1="9" x2="9" y1="3" y2="21" />
+        </svg>
+      </button>
 
-      {/* Status pulse — communicates Atlas state, not navigation */}
+      {/* Status pulse */}
       <div className="flex items-center gap-1.5">
         <span className="relative flex size-1.5">
           <span
@@ -163,7 +450,7 @@ function AtlasHeader({ role }: { role: string }) {
         </span>
       </div>
 
-      {/* Entity context — shows what Atlas is looking at */}
+      {/* Entity context */}
       {entity && entity.type !== "workspace" && (
         <div className="hidden items-center gap-1.5 rounded-full border border-teal-400/25 bg-teal-400/8 px-2 py-0.5 text-[10px] font-medium text-teal-600 dark:text-teal-300 sm:flex">
           <Radar className="size-2.5" />
@@ -177,7 +464,7 @@ function AtlasHeader({ role }: { role: string }) {
         </div>
       )}
 
-      {/* Right side — minimal */}
+      {/* Right side */}
       <div className="ml-auto flex items-center gap-1.5">
         <CommandPalette />
         <ThemeToggle />
@@ -226,7 +513,7 @@ function AtlasHeader({ role }: { role: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Atlas Input Bar — premium conversational control, not a search field
+// Atlas Input Bar — conversational control at the bottom
 // ---------------------------------------------------------------------------
 
 function AtlasInputBar() {
@@ -263,16 +550,16 @@ function AtlasInputBar() {
     if (busy) return "Atlas is thinking…";
     if (entity?.type === "claim") return `Ask about this claim…`;
     if (entity?.type === "knowledge") return `Ask about this document…`;
-    return "Ask Atlas…";
+    return "Ask Atlas anything…";
   })();
 
   return (
     <div className="border-t border-border/30 bg-background/80 backdrop-blur-md">
-      {/* Voice state indicator — always visible when active */}
+      {/* Voice state indicator */}
       <VoiceIndicator />
 
       <div className="mx-auto flex max-w-2xl items-center gap-2.5 px-4 pb-3 pt-1">
-        {/* Voice toggle — circular, premium */}
+        {/* Voice toggle */}
         <button
           type="button"
           onClick={() => voice.toggle()}
@@ -287,7 +574,7 @@ function AtlasInputBar() {
           {micActive ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
         </button>
 
-        {/* Input — styled as a conversational control */}
+        {/* Input */}
         <div className="relative flex-1">
           {voice.interim && micActive && (
             <p className="mb-1 px-1 text-[11px] italic text-muted-foreground">
@@ -323,7 +610,7 @@ function AtlasInputBar() {
 }
 
 // ---------------------------------------------------------------------------
-// AppShell — the authenticated Atlas layout
+// AppShell — the authenticated Atlas layout with sidebar
 // ---------------------------------------------------------------------------
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -374,20 +661,25 @@ export function AppShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
-      {/* Minimal Atlas Header */}
-      <AtlasHeader role={role} />
+    <SidebarProvider defaultOpen={true}>
+      <Sidebar side="left" variant="sidebar" collapsible="offcanvas" className="border-r border-border/30">
+        <AtlasSidebar />
+      </Sidebar>
 
-      {/* Experience Area — full width, no max-width constraint */}
-      <main className="atlas-scroll flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
-          {children}
-        </div>
-      </main>
+      <SidebarInset>
+        <AtlasHeader role={role} />
 
-      {/* Persistent Atlas Interaction — the center of the experience */}
-      <AtlasInputBar />
-    </div>
+        {/* Experience Area */}
+        <main className="atlas-scroll flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+            {children}
+          </div>
+        </main>
+
+        {/* Persistent Atlas Input */}
+        <AtlasInputBar />
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
 

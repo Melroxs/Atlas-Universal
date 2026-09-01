@@ -2,7 +2,7 @@
 // Atlas App Shell — Left sidebar navigation + experience area
 //
 // Layout:
-//   ┌──────────┬────────────────────────────────────────────────────┐
+//   ┌──────────┬────────────────────────────────────────────────────[...]
 //   │ ● Atlas  │                                                    │
 //   │          │                  EXPERIENCE AREA                    │
 //   │ Nav      │                                                    │
@@ -15,11 +15,12 @@
 //   │ Ask      │                                                    │
 //   │ Atlas    ├────────────────────────────────────────────────────┤
 //   │ ⌘/      │  Ask Atlas...                              🎤  ➤  │
-//   └──────────┴────────────────────────────────────────────────────┘
+//   └──────────┴─────────────────────────────────────────────────────[...]
 // ---------------------------------------------------------------------------
 
 import { useVoiceSession } from "@/components/voice-session";
 import { useVoice } from "@/hooks/use-voice";
+import { useVoicePageContext, serializeVoicePageContext } from "@/components/voice-context-provider";
 import { CommandPalette } from "@/components/atlas-experience/CommandPalette";
 import { AtlasContextProvider, useAtlasContext } from "@/lib/atlas-experience/context";
 import { api } from "@/lib/api";
@@ -371,7 +372,7 @@ function AskAtlasLink() {
                   <span className="text-sm font-medium leading-tight">Ask Atlas</span>
                   <span className="text-[10px] text-teal-600/60 dark:text-teal-300/60 leading-tight">Talk or type anything</span>
                 </div>
-                <kbd className="ml-auto hidden rounded-md border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 text-[9px] font-mono text-teal-600/70 dark:text-teal-300/70 group-hover:inline-flex">
+                <kbd className="ml-auto hidden rounded-md border border-teal-400/20 bg-teal-400/10 px-1.5 py-0.5 text-[9px] font-mono text-teal-600/70 dark:text-teal-300/70 group-hover:inline-fle[...]
                   ⌘/
                 </kbd>
               </NavLink>
@@ -521,12 +522,15 @@ function AtlasInputBar() {
   const [input, setInput] = useState("");
   const session = useVoiceSession();
   const { entity } = useAtlasContext();
+  const pageContext = useVoicePageContext();
 
   const busy = session.busy;
   const status = session.status;
 
   const voice = useVoice({
     onTranscript: (text) => setInput((prev) => (prev ? `${prev} ${text}` : text)),
+    entityContext: entity?.id,
+    pageContext: serializeVoicePageContext(pageContext),
   });
 
   const micActive = status === "listening" || status === "transcribing" || status === "listening_for_command";
@@ -588,13 +592,13 @@ function AtlasInputBar() {
               onKeyDown={handleKeyDown}
               placeholder={placeholder}
               disabled={busy}
-              className="h-9 w-full rounded-full border border-border/50 bg-card/40 pl-4 pr-10 text-sm text-foreground shadow-sm outline-none transition-all duration-200 placeholder:text-muted-foreground/50 focus:border-teal-400/40 focus:ring-1 focus:ring-teal-400/15 disabled:opacity-50"
+              className="h-9 w-full rounded-full border border-border/50 bg-card/40 pl-4 pr-10 text-sm text-foreground shadow-sm outline-none transition-all duration-200 placeholder:text-muted-fo[...]
             />
             <button
               type="button"
               onClick={handleSubmit}
               disabled={busy || !input.trim()}
-              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:opacity-30"
+              className="absolute right-1.5 top-1/2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full bg-teal-400 text-teal-950 transition-colors hover:bg-teal-300 disabled:op[...]
             >
               {busy ? (
                 <div className="size-3 animate-spin rounded-full border-[1.5px] border-teal-950 border-t-transparent" />

@@ -11,13 +11,12 @@ import {
 } from "@/lib/voice";
 import {
   initVoiceRuntime,
-  isVoiceRuntimeInitialized,
   getVoiceRuntimeStatus,
   processVoiceTranscript,
   initVoiceBridge,
   initSafetyGate,
 } from "@/lib/voice-runtime";
-import { useVoiceSession, type VoiceStatus as SessionVoiceStatus } from "@/components/voice-session";
+import { useVoiceSession } from "@/components/voice-session";
 import { useAction, useQuery } from "@/hooks/use-supabase";
 import { api } from "@/lib/api";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -59,13 +58,9 @@ export interface VoiceLogEntry {
 }
 
 export interface UseVoiceOptions {
-  /** Called with the final transcript once the user finishes speaking (push-to-talk). */
   onTranscript: (text: string) => void;
-  /** Called with an ambient wake-word command (auto-sent, no button). */
   onAmbientCommand?: (text: string) => void;
-  /** Entity context for voice sessions (e.g., current claim ID). */
   entityContext?: string;
-  /** Page context for voice sessions (e.g., "Revenue Recovery"). */
   pageContext?: string;
 }
 
@@ -78,55 +73,317 @@ function storedAmbient(): boolean {
 }
 
 /**
- * One voice state machine used by both the Ask page and the global Atlas
- * assistant. Microphone → speech recognition → transcript → caller handles
- * orchestration → caller calls speak() to hear the response.
+ * Voice state machine for the Ask page and global Atlas assistant.
  *
- * Phase 12 runtime fixes:
- * - The ambient engine uses ONE recognizer for wake + command (two concurrent
- *   recognizers were rejected by Chrome, so commands were never captured).
- * - Push-to-talk accumulates final segments and delivers ONCE when the
- *   utterance ends (the old recognizer re-delivered the accumulated text on
- *   every result event, duplicating transcripts).
- * - While Atlas is speaking the engine stays in interrupt-only mode so
- *   "Atlas stop" interrupts speech but ordinary speech (including Atlas's own
- *   TTS) can never wake it.
- * - A diagnostics event log is kept for the developer-visible Voice panel.
+ * IMPORTANT: All hooks are declared unconditionally before any conditional
+ * early return to satisfy React's Rules of Hooks (fixes React error #310).
+ * The `isShared` flag determines the return value, not which hooks are called.
  */
 export function useVoice({ onTranscript, onAmbientCommand, entityContext, pageContext }: UseVoiceOptions) {
-  // Try to use the shared voice session. Falls back to local implementation
-  // when the provider is not mounted (landing page, tests).
   const session = useVoiceSession();
   const isShared = session.ambientSupported || session.status !== "idle" || session.ambientEnabled;
 
-  // Always register the ambient command handler so it's available when needed
+  // Refs for callbacks (used by both shared and local paths)
   const onAmbientCommandRef = useRef(onAmbientCommand);
   onAmbientCommandRef.current = onAmbientCommand;
   const onTranscriptRef = useRef(onTranscript);
   onTranscriptRef.current = onTranscript;
 
-  // Initialize Voice Runtime on mount
+  // Voice Runtime initialization
   const voiceRuntimeReadyRef = useRef(false);
   useEffect(() => {
     if (!voiceRuntimeReadyRef.current) {
       void initVoiceRuntime().then(() => {
         voiceRuntimeReadyRef.current = true;
-      }).catch(() => {
-        // Voice runtime init is best-effort; browser fallback always works
-      });
+      }).catch(() => {});
       initSafetyGate();
-      initVoiceBridge({
-        defaultEntityContext: entityContext,
-        defaultPageContext: pageContext,
-      });
+      initVoiceBridge({ defaultEntityContext: entityContext, defaultPageContext: pageContext });
     }
   }, [entityContext, pageContext]);
 
-  const voiceRuntimeStatus = voiceRuntimeReadyRef.current
-    ? getVoiceRuntimeStatus()
-    : null;
+  const voiceRuntimeStatus = voiceRuntimeReadyRef.current ? getVoiceRuntimeStatus() : null;
 
-  // -- Shared session mode --
+  // =========================================================================
+  // LOCAL FALLBACK STATE — all hooks declared unconditionally (Rules of Hooks)
+  // In shared mode these still run but the conditional return below picks
+  // session values instead.
+  // =========================================================================
+
+  const [localStatus, setLocalStatus] = useState<VoiceStatus>("idle");
+  const [localWakeState, setLocalWakeState] = useState<WakeState>("off");
+  const [localAmbientEnabled, setLocalAmbientEnabled] = useState<boolean>(storedAmbient);
+  const [localInterim, setLocalInterim] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [voiceEvents, setVoiceEvents] = useState<VoiceLogEntry[]>([]);
+  const providerStatus = useQuery(api.voice.voiceProviderStatus);
+  const synthesize = useAction(api.voice.synthesizeSpeech);
+
+  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
+  const wakeEngineRef = useRef<WakeWordEngine | null>(null);
+  const ambientRoundTripRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captureBusyRef = useRef(false);
+  const statusRef = useRef<VoiceStatus>(localStatus);
+  statusRef.current = localStatus;
+
+  const supported = browserSpeechRecognitionSupported();
+  const ttsSupported = browserSpeechSynthesisSupported();
+
+  const logEvent = useCallback((event: string, detail?: string) => {
+    setVoiceEvents((prev) => {
+      const next = [...prev, { ts: Date.now(), event, detail }];
+      return next.length > LOG_LIMIT ? next.slice(next.length - LOG_LIMIT) : next;
+    });
+  }, []);
+
+  const pushDiagnostic = useCallback(
+    (event: string, detail?: string) => logEvent(event, detail),
+    [logEvent],
+  );
+
+  const localFinishSpeaking = useCallback(() => {
+    setLocalStatus((s) => (s === "speaking" ? "idle" : s));
+    logEvent("tts-end");
+  }, [logEvent]);
+
+  const speakBrowser = useCallback(
+    (text: string) => {
+      setLocalStatus("speaking");
+      logEvent("tts-start", "browser");
+      speakText(text, { onEnd: localFinishSpeaking });
+    },
+    [localFinishSpeaking, logEvent],
+  );
+
+  const localSpeak = useCallback(
+    async (text: string) => {
+      if (!text) return;
+      stopBrowserSpeaking();
+      captureBusyRef.current = false;
+      wakeEngineRef.current?.resume();
+      const useServer = providerStatus?.tts === "server";
+      if (useServer) {
+        setLocalStatus("speaking");
+        logEvent("tts-start", `server:${providerStatus?.ttsProvider ?? "unknown"}`);
+        try {
+          const res = await synthesize({ text });
+          const audio = new Audio(`data:${res.mimeType};base64,${res.audioB64}`);
+          audio.onended = localFinishSpeaking;
+          audio.onerror = () => { localFinishSpeaking(); speakBrowser(text); };
+          await audio.play();
+        } catch {
+          localFinishSpeaking();
+          speakBrowser(text);
+        }
+      } else {
+        speakBrowser(text);
+      }
+    },
+    [providerStatus, synthesize, speakBrowser, localFinishSpeaking, logEvent],
+  );
+
+  const localStopSpeaking = useCallback(() => {
+    stopBrowserSpeaking();
+    localFinishSpeaking();
+  }, [localFinishSpeaking]);
+
+  const handleAmbientCommand = useCallback(
+    (text: string) => {
+      const low = text.toLowerCase();
+      const interrupted =
+        /^\s*(stop|wait|never mind|nevermind|quiet|cancel that|pause|hold on|be quiet)\b/.test(low) ||
+        /\batlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|cancel that|pause|hold on)\b/.test(low);
+      if (interrupted) {
+        localStopSpeaking();
+        setLocalStatus("interrupted");
+        setLocalWakeState("interrupted");
+        logEvent("voice-interrupt", text);
+        setTimeout(() => {
+          setLocalStatus((s) => (s === "interrupted" ? "idle" : s));
+          setLocalWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s));
+        }, 1100);
+        return;
+      }
+      setLocalWakeState("transcribing");
+      setLocalStatus("transcribing");
+      logEvent("command-captured", text);
+      captureBusyRef.current = true;
+      onAmbientCommandRef.current?.(text);
+      if (ambientRoundTripRef.current !== null) clearTimeout(ambientRoundTripRef.current);
+      ambientRoundTripRef.current = setTimeout(() => {
+        ambientRoundTripRef.current = null;
+        captureBusyRef.current = false;
+        wakeEngineRef.current?.resume();
+        setLocalStatus((s) => (s === "transcribing" ? "idle" : s));
+        setLocalWakeState((s) => (s === "transcribing" ? "listening_for_wake_word" : s));
+      }, 15_000);
+    },
+    [localStopSpeaking, logEvent],
+  );
+
+  const enableAmbient = useCallback(async () => {
+    if (!supported) {
+      setLocalWakeState("unavailable");
+      setLocalError("Ambient voice needs a browser with speech recognition (Chrome, Edge, Safari).");
+      logEvent("ambient-unavailable");
+      return;
+    }
+    setLocalWakeState("initializing");
+    logEvent("mic-permission-request");
+    const ok = await requestMicrophonePermission();
+    if (!ok) {
+      setLocalWakeState("permission_required");
+      setLocalStatus("permission_required");
+      setLocalError("Atlas voice requires microphone access. Allow the microphone in your browser and try again.");
+      logEvent("mic-permission-denied");
+      return;
+    }
+    logEvent("mic-permission-granted");
+    setLocalError(null);
+    setLocalAmbientEnabled(true);
+    try { localStorage.setItem(AMBIENT_KEY, "on"); } catch {}
+    const engine = createWakeWordEngine({
+      onState: (state) => {
+        setLocalWakeState(state as WakeState);
+        logEvent("engine-state", state);
+        if (state === "listening_for_wake_word") { setLocalStatus("listening_for_wake_word"); setLocalError(null); }
+        else if (state === "wake_detected") { setLocalStatus("wake_detected"); playWakeChime(); }
+        else if (state === "listening_for_command") { setLocalStatus("listening_for_command"); }
+        else if (state === "paused") { setLocalStatus("paused"); }
+        else if (state === "permission_required") { setLocalStatus("permission_required"); setLocalWakeState("permission_required"); setLocalError("Microphone access was denied. Allow the microphone in your browser."); }
+        else if (state === "error" || state === "unavailable") { setLocalStatus(state === "unavailable" ? "unavailable" : "error"); setLocalWakeState(state); }
+      },
+      onWake: (transcript) => { logEvent("wake-word-detected", transcript); },
+      onCommand: (text) => { handleAmbientCommand(text.trim()); },
+      onInterrupt: () => {
+        logEvent("voice-interrupt", "engine");
+        localStopSpeaking();
+        setLocalStatus("interrupted");
+        setLocalWakeState("interrupted");
+        setTimeout(() => { setLocalStatus((s) => (s === "interrupted" ? "idle" : s)); setLocalWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s)); }, 1100);
+      },
+      onError: (code) => {
+        logEvent("engine-error", code);
+        if (code === "unsupported") { setLocalWakeState("unavailable"); setLocalStatus("unavailable"); }
+        else if (code === "not-allowed" || code === "service-not-allowed") { setLocalWakeState("permission_required"); setLocalStatus("permission_required"); setLocalError("Microphone access was denied. Allow the microphone in your browser and try again."); }
+      },
+    });
+    wakeEngineRef.current = engine;
+    engine.start();
+  }, [supported, handleAmbientCommand, localStopSpeaking, logEvent]);
+
+  const disableAmbient = useCallback(() => {
+    if (ambientRoundTripRef.current !== null) { clearTimeout(ambientRoundTripRef.current); ambientRoundTripRef.current = null; }
+    captureBusyRef.current = false;
+    wakeEngineRef.current?.stop();
+    wakeEngineRef.current = null;
+    setLocalAmbientEnabled(false);
+    setLocalWakeState("off");
+    logEvent("ambient-disabled");
+    try { localStorage.setItem(AMBIENT_KEY, "off"); } catch {}
+    if (statusRef.current !== "speaking") setLocalStatus("idle");
+  }, [logEvent]);
+
+  const localToggleAmbient = useCallback(() => {
+    if (localAmbientEnabled) disableAmbient();
+    else void enableAmbient();
+  }, [localAmbientEnabled, disableAmbient, enableAmbient]);
+
+  // Ambient state machine (guarded: only runs in local mode)
+  useEffect(() => {
+    if (isShared) return;
+    const engine = wakeEngineRef.current;
+    if (!engine || !localAmbientEnabled) return;
+    if (localStatus === "speaking") { engine.setInterruptOnly(true); return; }
+    engine.setInterruptOnly(false);
+    const busy = localStatus === "thinking" || localStatus === "transcribing";
+    if (busy) {
+      engine.pause();
+    } else if (localWakeState === "paused" || localWakeState === "interrupted") {
+      if (captureBusyRef.current) return;
+      const t = setTimeout(() => wakeEngineRef.current?.resume(), 400);
+      return () => clearTimeout(t);
+    }
+  }, [isShared, localStatus, localAmbientEnabled, localWakeState]);
+
+  // Sync persisted ambient preference on mount (guarded: only in local mode)
+  useEffect(() => {
+    if (isShared) return;
+    if (localAmbientEnabled && !wakeEngineRef.current && supported) {
+      void enableAmbient();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      if (ambientRoundTripRef.current !== null) { clearTimeout(ambientRoundTripRef.current); ambientRoundTripRef.current = null; }
+      captureBusyRef.current = false;
+      recognizerRef.current?.abort();
+      wakeEngineRef.current?.stop();
+      stopBrowserSpeaking();
+    };
+  }, []);
+
+  // Push-to-talk
+  const localStop = useCallback(() => {
+    const rec = recognizerRef.current;
+    if (rec) rec.stop();
+    else setLocalStatus("idle");
+  }, []);
+
+  const localStart = useCallback(() => {
+    if (!supported) { setLocalStatus("unavailable"); setLocalError("Voice input isn't supported in this browser. You can still type to Atlas."); return; }
+    stopBrowserSpeaking();
+    captureBusyRef.current = true;
+    wakeEngineRef.current?.pause();
+    setLocalError(null);
+    setLocalInterim("");
+    setLocalStatus("listening");
+    logEvent("ptt-start");
+    let segments: string[] = [];
+    let delivered = false;
+    const endCapture = () => { captureBusyRef.current = false; wakeEngineRef.current?.resume(); };
+    const commit = (via: string) => {
+      if (delivered) return;
+      delivered = true;
+      recognizerRef.current = null;
+      endCapture();
+      const text = segments.join(" ").trim();
+      setLocalInterim("");
+      if (text) { setLocalStatus("transcribing"); logEvent("transcript-received", via); onTranscriptRef.current(text); }
+      else { setLocalStatus((s) => (s === "listening" ? "idle" : s)); }
+    };
+    const rec = createSpeechRecognizer({
+      onInterim: (t) => setLocalInterim(t),
+      onFinal: (segment) => { segments.push(segment); },
+      onEnd: () => commit("end"),
+      onError: (code) => {
+        if (code === "not-allowed" || code === "service-not-allowed") { recognizerRef.current = null; endCapture(); setLocalStatus("permission_required"); setLocalError("Microphone access was denied. Allow the microphone in your browser and try again."); logEvent("ptt-error", code); }
+        else if (code === "no-speech" || code === "aborted") { recognizerRef.current = null; endCapture(); setLocalStatus((s) => (s === "listening" ? "idle" : s)); setLocalError(null); logEvent("ptt-error", code); }
+        else if (code === "start-failed") { recognizerRef.current = null; endCapture(); setLocalStatus("unavailable"); setLocalError("The microphone couldn't be started. Check your browser's microphone permission."); logEvent("ptt-error", code); }
+        else {
+          const t = segments.join(" ").trim();
+          recognizerRef.current = null; endCapture();
+          if (t) { setLocalStatus("transcribing"); logEvent("transcript-received", `error:${code}`); onTranscriptRef.current(t); }
+          else { setLocalStatus("error"); setLocalError("Speech recognition failed. Please try again."); logEvent("ptt-error", code); }
+        }
+      },
+    }, undefined, { continuous: false });
+    if (rec) { recognizerRef.current = rec; rec.start(); }
+    else { endCapture(); setLocalStatus("unavailable"); }
+  }, [supported, logEvent]);
+
+  const localToggle = useCallback(() => {
+    if (localStatus === "listening" || localStatus === "transcribing") localStop();
+    else void localStart();
+  }, [localStatus, localStart, localStop]);
+
+  // =========================================================================
+  // RETURN — shared mode delegates to session, local mode uses local state
+  // All hooks above are called unconditionally on every render.
+  // =========================================================================
+
   if (isShared) {
     return {
       status: session.status as VoiceStatus,
@@ -152,438 +409,27 @@ export function useVoice({ onTranscript, onAmbientCommand, entityContext, pageCo
     };
   }
 
-  // -- Fallback local implementation (no provider mounted) --
-  const [status, setStatus] = useState<VoiceStatus>("idle");
-  const [wakeState, setWakeState] = useState<WakeState>("off");
-  const [ambientEnabled, setAmbientEnabled] = useState<boolean>(storedAmbient);
-  const [interim, setInterim] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [voiceEvents, setVoiceEvents] = useState<VoiceLogEntry[]>([]);
-  const providerStatus = useQuery(api.voice.voiceProviderStatus);
-  const synthesize = useAction(api.voice.synthesizeSpeech);
-
-  const recognizerRef = useRef<ReturnType<typeof createSpeechRecognizer> | null>(null);
-  const wakeEngineRef = useRef<WakeWordEngine | null>(null);
-  const ambientRoundTripRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const captureBusyRef = useRef(false);
-  const statusRef = useRef<VoiceStatus>(status);
-  statusRef.current = status;
-
-  const supported = browserSpeechRecognitionSupported();
-  const ttsSupported = browserSpeechSynthesisSupported();
-
-  const logEvent = useCallback((event: string, detail?: string) => {
-    setVoiceEvents((prev) => {
-      const next = [...prev, { ts: Date.now(), event, detail }];
-      return next.length > LOG_LIMIT ? next.slice(next.length - LOG_LIMIT) : next;
-    });
-  }, []);
-
-  /**
-   * Push a structured diagnostic into the same Voice panel event log (used
-   * by the assistant for the converse round-trip: wake → transcript →
-   * converse started/completed/failed → TTS). Never pass secrets here.
-   */
-  const pushDiagnostic = useCallback(
-    (event: string, detail?: string) => logEvent(event, detail),
-    [logEvent],
-  );
-
-  const finishSpeaking = useCallback(() => {
-    setStatus((s) => (s === "speaking" ? "idle" : s));
-    logEvent("tts-end");
-  }, [logEvent]);
-
-  const speakBrowser = useCallback(
-    (text: string) => {
-      setStatus("speaking");
-      logEvent("tts-start", "browser");
-      speakText(text, { onEnd: finishSpeaking });
-    },
-    [finishSpeaking, logEvent],
-  );
-
-  /** Speak a response — server TTS when configured, browser otherwise. */
-  const speak = useCallback(
-    async (text: string) => {
-      if (!text) return;
-      stopBrowserSpeaking();
-      // The round-trip is done: release the capture hold and bring the engine
-      // back so "Atlas stop" can interrupt while Atlas speaks. The state
-      // effect switches it to interrupt-only once status becomes "speaking".
-      captureBusyRef.current = false;
-      wakeEngineRef.current?.resume();
-      const useServer = providerStatus?.tts === "server";
-      if (useServer) {
-        setStatus("speaking");
-        logEvent("tts-start", `server:${providerStatus?.ttsProvider ?? "unknown"}`);
-        try {
-          const res = await synthesize({ text });
-          const audio = new Audio(`data:${res.mimeType};base64,${res.audioB64}`);
-          audio.onended = finishSpeaking;
-          audio.onerror = () => {
-            finishSpeaking();
-            speakBrowser(text);
-          };
-          await audio.play();
-        } catch {
-          finishSpeaking();
-          speakBrowser(text);
-        }
-      } else {
-        speakBrowser(text);
-      }
-    },
-    [providerStatus, synthesize, speakBrowser, finishSpeaking, logEvent],
-  );
-
-  const stopSpeaking = useCallback(() => {
-    stopBrowserSpeaking();
-    finishSpeaking();
-  }, [finishSpeaking]);
-
-  // ---------------------------------------------------------------------
-  // Ambient wake-word mode
-  // ---------------------------------------------------------------------
-
-  /**
-   * State machine: pause the engine while the brain is working (no point
-   * listening during thinking/transcribing), switch to interrupt-only while
-   * speaking (so "Atlas stop" works), and resume listening otherwise. Atlas
-   * never listens while it is processing, and never wakes itself.
-   */
-  useEffect(() => {
-    const engine = wakeEngineRef.current;
-    if (!engine || !ambientEnabled) return;
-    if (status === "speaking") {
-      engine.setInterruptOnly(true);
-      return;
-    }
-    engine.setInterruptOnly(false);
-    const busy = status === "thinking" || status === "transcribing";
-    if (busy) {
-      engine.pause();
-    } else if (wakeState === "paused" || wakeState === "interrupted") {
-      // Stay paused while a capture/round-trip is in flight; otherwise resume
-      // a beat after the busy window so a trailing word never wakes us.
-      if (captureBusyRef.current) return;
-      const t = setTimeout(() => wakeEngineRef.current?.resume(), 400);
-      return () => clearTimeout(t);
-    }
-  }, [status, ambientEnabled, wakeState]);
-
-  const handleAmbientCommand = useCallback(
-    (text: string) => {
-      const low = text.toLowerCase();
-      const interrupted =
-        /^\s*(stop|wait|never mind|nevermind|quiet|cancel that|pause|hold on|be quiet)\b/.test(low) ||
-        /\batlas[,.]?\s+(stop|wait|never mind|nevermind|quiet|cancel that|pause|hold on)\b/.test(low);
-      if (interrupted) {
-        stopSpeaking();
-        setStatus("interrupted");
-        setWakeState("interrupted");
-        logEvent("voice-interrupt", text);
-        setTimeout(() => {
-          setStatus((s) => (s === "interrupted" ? "idle" : s));
-          setWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s));
-        }, 1100);
-        return;
-      }
-      setWakeState("transcribing");
-      setStatus("transcribing");
-      logEvent("command-captured", text);
-      captureBusyRef.current = true;
-      onAmbientCommandRef.current?.(text);
-      // Guard: if Atlas doesn't speak (auto-speak off, error, or a very long
-      // think), don't leave the engine paused forever — resume listening.
-      if (ambientRoundTripRef.current !== null) {
-        clearTimeout(ambientRoundTripRef.current);
-      }
-      ambientRoundTripRef.current = setTimeout(() => {
-        ambientRoundTripRef.current = null;
-        captureBusyRef.current = false;
-        wakeEngineRef.current?.resume();
-        setStatus((s) => (s === "transcribing" ? "idle" : s));
-        setWakeState((s) => (s === "transcribing" ? "listening_for_wake_word" : s));
-      }, 15_000);
-    },
-    [stopSpeaking, logEvent],
-  );
-
-  const enableAmbient = useCallback(async () => {
-    if (!supported) {
-      setWakeState("unavailable");
-      setError("Ambient voice needs a browser with speech recognition (Chrome, Edge, Safari).");
-      logEvent("ambient-unavailable");
-      return;
-    }
-    setWakeState("initializing");
-    logEvent("mic-permission-request");
-    const ok = await requestMicrophonePermission();
-    if (!ok) {
-      setWakeState("permission_required");
-      setStatus("permission_required");
-      setError("Atlas voice requires microphone access. Allow the microphone in your browser and try again.");
-      logEvent("mic-permission-denied");
-      return;
-    }
-    logEvent("mic-permission-granted");
-    setError(null);
-    setAmbientEnabled(true);
-    try {
-      localStorage.setItem(AMBIENT_KEY, "on");
-    } catch {
-      // persistence is best-effort
-    }
-    const engine = createWakeWordEngine({
-      onState: (state) => {
-        setWakeState(state as WakeState);
-        logEvent("engine-state", state);
-        if (state === "listening_for_wake_word") {
-          setStatus("listening_for_wake_word");
-          setError(null);
-        } else if (state === "wake_detected") {
-          setStatus("wake_detected");
-          playWakeChime();
-        } else if (state === "listening_for_command") {
-          setStatus("listening_for_command");
-        } else if (state === "paused") {
-          setStatus("paused");
-        } else if (state === "permission_required") {
-          setStatus("permission_required");
-          setWakeState("permission_required");
-          setError("Microphone access was denied. Allow the microphone in your browser.");
-        } else if (state === "error" || state === "unavailable") {
-          setStatus(state === "unavailable" ? "unavailable" : "error");
-          setWakeState(state);
-        }
-      },
-      onWake: (transcript) => {
-        logEvent("wake-word-detected", transcript);
-      },
-      onCommand: (text) => {
-        handleAmbientCommand(text.trim());
-      },
-      onInterrupt: () => {
-        logEvent("voice-interrupt", "engine");
-        stopSpeaking();
-        setStatus("interrupted");
-        setWakeState("interrupted");
-        setTimeout(() => {
-          setStatus((s) => (s === "interrupted" ? "idle" : s));
-          setWakeState((s) => (s === "interrupted" ? "listening_for_wake_word" : s));
-        }, 1100);
-      },
-      onError: (code) => {
-        logEvent("engine-error", code);
-        if (code === "unsupported") {
-          setWakeState("unavailable");
-          setStatus("unavailable");
-        } else if (code === "not-allowed" || code === "service-not-allowed") {
-          setWakeState("permission_required");
-          setStatus("permission_required");
-          setError("Microphone access was denied. Allow the microphone in your browser and try again.");
-        }
-      },
-    });
-    wakeEngineRef.current = engine;
-    engine.start();
-  }, [supported, handleAmbientCommand, stopSpeaking, logEvent]);
-
-  const disableAmbient = useCallback(() => {
-    if (ambientRoundTripRef.current !== null) {
-      clearTimeout(ambientRoundTripRef.current);
-      ambientRoundTripRef.current = null;
-    }
-    captureBusyRef.current = false;
-    wakeEngineRef.current?.stop();
-    wakeEngineRef.current = null;
-    setAmbientEnabled(false);
-    setWakeState("off");
-    logEvent("ambient-disabled");
-    try {
-      localStorage.setItem(AMBIENT_KEY, "off");
-    } catch {
-      // best-effort
-    }
-    if (statusRef.current !== "speaking") setStatus("idle");
-  }, [logEvent]);
-
-  const toggleAmbient = useCallback(() => {
-    if (ambientEnabled) {
-      disableAmbient();
-    } else {
-      void enableAmbient();
-    }
-  }, [ambientEnabled, disableAmbient, enableAmbient]);
-
-  // Sync the persisted preference on mount (ambient only starts on explicit
-  // enable to honor the “no surprise mic access” rule).
-  useEffect(() => {
-    if (ambientEnabled && !wakeEngineRef.current && supported) {
-      void enableAmbient();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Clean up on unmount — never leave the mic or audio running.
-  useEffect(() => {
-    return () => {
-      if (ambientRoundTripRef.current !== null) {
-        clearTimeout(ambientRoundTripRef.current);
-        ambientRoundTripRef.current = null;
-      }
-      captureBusyRef.current = false;
-      recognizerRef.current?.abort();
-      wakeEngineRef.current?.stop();
-      stopBrowserSpeaking();
-    };
-  }, []);
-
-  // ---------------------------------------------------------------------
-  // Push-to-talk
-  // ---------------------------------------------------------------------
-
-  const stop = useCallback(() => {
-    const rec = recognizerRef.current;
-    if (rec) {
-      rec.stop();
-    } else {
-      setStatus("idle");
-    }
-  }, []);
-
-  const start = useCallback(() => {
-    if (!supported) {
-      setStatus("unavailable");
-      setError("Voice input isn't supported in this browser. You can still type to Atlas.");
-      return;
-    }
-    // Interrupt any in-flight playback before capturing (no overlapping audio).
-    stopBrowserSpeaking();
-    // Pause ambient listening while capturing PTT — the browser allows only
-    // one active SpeechRecognition, so a running ambient engine would make
-    // this recognizer throw InvalidStateError and the capture would fail.
-    captureBusyRef.current = true;
-    wakeEngineRef.current?.pause();
-    setError(null);
-    setInterim("");
-    setStatus("listening");
-    logEvent("ptt-start");
-
-    // Accumulate final segments; deliver the joined transcript exactly once
-    // when the utterance ends (stop() or the browser ending the session).
-    let segments: string[] = [];
-    let delivered = false;
-    /** PTT capture ended — release the capture hold so ambient can resume. */
-    const endCapture = () => {
-      captureBusyRef.current = false;
-      wakeEngineRef.current?.resume();
-    };
-    const commit = (via: string) => {
-      if (delivered) return;
-      delivered = true;
-      recognizerRef.current = null;
-      endCapture();
-      const text = segments.join(" ").trim();
-      setInterim("");
-      if (text) {
-        setStatus("transcribing");
-        logEvent("transcript-received", via);
-        onTranscriptRef.current(text);
-      } else {
-        setStatus((s) => (s === "listening" ? "idle" : s));
-      }
-    };
-
-    const rec = createSpeechRecognizer(
-      {
-        onInterim: (t) => setInterim(t),
-        onFinal: (segment) => {
-          segments.push(segment);
-        },
-        onEnd: () => commit("end"),
-        onError: (code) => {
-          if (code === "not-allowed" || code === "service-not-allowed") {
-            recognizerRef.current = null;
-            endCapture();
-            setStatus("permission_required");
-            setError("Microphone access was denied. Allow the microphone in your browser and try again.");
-            logEvent("ptt-error", code);
-          } else if (code === "no-speech" || code === "aborted") {
-            recognizerRef.current = null;
-            endCapture();
-            setStatus((s) => (s === "listening" ? "idle" : s));
-            setError(null);
-            logEvent("ptt-error", code);
-          } else if (code === "start-failed") {
-            recognizerRef.current = null;
-            endCapture();
-            setStatus("unavailable");
-            setError("The microphone couldn't be started. Check your browser's microphone permission.");
-            logEvent("ptt-error", code);
-          } else {
-            // Unknown error: deliver what was captured, then surface honestly.
-            const t = segments.join(" ").trim();
-            recognizerRef.current = null;
-            endCapture();
-            if (t) {
-              setStatus("transcribing");
-              logEvent("transcript-received", `error:${code}`);
-              onTranscriptRef.current(t);
-            } else {
-              setStatus("error");
-              setError("Speech recognition failed. Please try again.");
-              logEvent("ptt-error", code);
-            }
-          }
-        },
-      },
-      undefined,
-      { continuous: false },
-    );
-    if (rec) {
-      recognizerRef.current = rec;
-      rec.start();
-    } else {
-      // No recognizer was created — release the capture hold so any paused
-      // ambient engine returns to wake listening instead of silently dying.
-      endCapture();
-      setStatus("unavailable");
-    }
-  }, [supported, logEvent]);
-
-  const toggle = useCallback(() => {
-    if (status === "listening" || status === "transcribing") {
-      stop();
-    } else {
-      void start();
-    }
-  }, [status, start, stop]);
-
   return {
-    status,
-    wakeState,
-    ambientEnabled,
+    status: localStatus,
+    wakeState: localWakeState,
+    ambientEnabled: localAmbientEnabled,
     ambientSupported: supported,
-    interim,
-    error,
+    interim: localInterim,
+    error: localError,
     supported,
     ttsSupported,
     providerStatus,
     voiceEvents,
     pushDiagnostic,
-    start,
-    stop,
-    toggle,
-    speak,
-    stopSpeaking,
+    start: localStart,
+    stop: localStop,
+    toggle: localToggle,
+    speak: localSpeak,
+    stopSpeaking: localStopSpeaking,
     enableAmbient,
     disableAmbient,
-    toggleAmbient,
-    /** Voice Runtime status (provider info, sessions, telemetry). */
+    toggleAmbient: localToggleAmbient,
     voiceRuntimeStatus,
-    /** Process a transcript through the Voice Bridge (intent classification). */
     processVoiceTranscript,
   };
 }

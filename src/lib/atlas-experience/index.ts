@@ -389,3 +389,12 @@ export {
   ATLAS_EMPTY_STATES,
 } from "./onboarding";
 export { useOnboarding } from "./useOnboarding";
+
+// Server-side authority
+export {
+  type ServerStalenessCheckResult,
+  enforceStalenessBeforeExecution,
+  recordActionActivity,
+  getEntityActionStatus,
+} from "./server-authority";
+

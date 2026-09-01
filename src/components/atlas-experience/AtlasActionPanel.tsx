@@ -33,6 +33,7 @@ import {
 } from "@/lib/atlas-experience/execution";
 import { executeAction, type ActionHandlerContext } from "@/lib/atlas-experience/action-handlers";
 import { checkStaleness } from "@/lib/atlas-experience/staleness";
+import { enforceStalenessBeforeExecution } from "@/lib/atlas-experience/server-authority";
 import { getSupabaseClient } from "@/lib/supabase";
 import type { AtlasEntityReference } from "@/lib/atlas-experience/entity-reference";
 import {
@@ -225,6 +226,23 @@ export function AtlasActionPanel({
               setFlowState({
                 phase: "failed",
                 error: `This action is stale: ${staleness.explanation ?? "The source data changed since this action was prepared."}`,
+                proposal,
+              });
+              return;
+            }
+          }
+        }
+
+        // Server-side staleness enforcement (defense-in-depth)
+        if (action.type !== "navigate" && action.type !== "ask_followup" && action.type !== "show_evidence" && action.type !== "show_decision") {
+          const supabase = getSupabaseClient();
+          if (supabase) {
+            const serverCheck = await enforceStalenessBeforeExecution(supabase, action);
+            if (!serverCheck.allowed) {
+              persistTransitionStatus(action.id, "stale", userId, serverCheck.reason ?? "Server rejected: stale");
+              setFlowState({
+                phase: "failed",
+                error: `Server rejected this action: ${serverCheck.reason ?? "The source data changed."}`,
                 proposal,
               });
               return;

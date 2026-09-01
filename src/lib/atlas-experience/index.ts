@@ -378,3 +378,14 @@ export {
   generateOpportunity,
   opportunityToAttentionItem,
 } from "./opportunity-engine";
+
+// Onboarding & activation state
+export {
+  type AtlasReadinessState,
+  type OnboardingSnapshot,
+  type OnboardingCta,
+  deriveOnboardingState,
+  getOnboardingVoiceGuidance,
+  ATLAS_EMPTY_STATES,
+} from "./onboarding";
+export { useOnboarding } from "./useOnboarding";

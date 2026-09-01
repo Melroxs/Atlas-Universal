@@ -29,17 +29,21 @@
 import { useAuth } from "@/hooks/use-auth";
 import { useAtlasContext } from "@/lib/atlas-experience/context";
 import { useIntelligence } from "@/lib/atlas-experience/useIntelligence";
+import { useOnboarding } from "@/lib/atlas-experience/useOnboarding";
 import { CommandCenter } from "@/components/atlas-experience/CommandCenter";
 import { ProactiveAtlas } from "@/components/atlas-experience/ProactiveAtlas";
 import { useQuery } from "@/hooks/use-supabase";
 import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import {
+  ArrowRight,
   Database,
   Radar,
   Sparkles,
   TrendingUp,
+  Zap,
 } from "lucide-react";
+import { useNavigate } from "react-router";
 
 // ---------------------------------------------------------------------------
 // Time-aware greeting
@@ -61,11 +65,13 @@ function getGreeting(): string {
 export default function Dashboard() {
   const { user } = useAuth();
   const { health } = useAtlasContext();
+  const navigate = useNavigate();
   const workspace = useQuery(api.tenants.getMyWorkspace);
 
   const companyName = workspace?.profile?.companyName ?? workspace?.tenant?.name ?? "your business";
   const userName = user?.name?.split(" ")[0] ?? "there";
 
+  const onboarding = useOnboarding();
   const { items: attentionItems, totalFinancialImpact } = useIntelligence();
   const openAttention = attentionItems.filter((a) => a.status === "open").length;
   const criticalCount = attentionItems.filter(
@@ -137,8 +143,106 @@ export default function Dashboard() {
       {/* ---- Proactive Atlas: Atlas noticed meaningful changes ---- */}
       <ProactiveAtlas />
 
-      {/* ---- Empty state: new organization ---- */}
-      {health.documents === 0 && health.entities === 0 && health.openClaims === 0 && (
+      {/* ---- Atlas Onboarding: Intelligent empty/activation state ---- */}
+      {onboarding.state === "empty" && (
+        <div className="rounded-2xl border border-teal-400/20 bg-teal-400/[0.03] p-8">
+          <div className="mx-auto max-w-lg text-center">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl border border-teal-400/30 bg-teal-400/10">
+              <Radar className="size-7 text-teal-600 dark:text-teal-300" />
+            </div>
+            <h2 className="text-lg font-semibold text-foreground">{onboarding.assessment}</h2>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              {onboarding.nextStep}
+            </p>
+            <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={() => navigate(onboarding.ctaTarget)}
+                className="inline-flex items-center gap-2 rounded-lg bg-teal-400 px-4 py-2 text-sm font-semibold text-teal-950 transition-colors hover:bg-teal-300"
+              >
+                <Zap className="size-4" />
+                {onboarding.primaryCta.label}
+              </button>
+              {onboarding.secondaryActions.map((action) => (
+                <button
+                  key={action.label}
+                  type="button"
+                  onClick={() => navigate(action.target)}
+                  className="inline-flex items-center gap-2 rounded-lg border border-border/70 bg-card/60 px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-card/80"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Atlas Processing: Active but not done ---- */}
+      {onboarding.state === "processing" && (
+        <div className="rounded-2xl border border-amber-400/20 bg-amber-400/[0.03] p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-amber-400/30 bg-amber-400/10">
+              <Radar className="size-5 animate-pulse text-amber-600 dark:text-amber-300" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-foreground">{onboarding.assessment}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{onboarding.nextStep}</p>
+              <button
+                type="button"
+                onClick={() => navigate(onboarding.ctaTarget)}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-card/80"
+              >
+                {onboarding.primaryCta.label}
+                <ArrowRight className="size-3" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Atlas Found Something ---- */}
+      {onboarding.state === "opportunity_detected" && (
+        <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.03] p-6">
+          <div className="flex items-start gap-4">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-emerald-400/30 bg-emerald-400/10">
+              <Sparkles className="size-5 text-emerald-600 dark:text-emerald-300" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-foreground">{onboarding.assessment}</p>
+                <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-0.5 font-mono text-[10px] text-emerald-600 dark:text-emerald-300">
+                  {onboarding.findingCount} {onboarding.findingCount === 1 ? "opportunity" : "opportunities"}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{onboarding.nextStep}</p>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate(onboarding.ctaTarget)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border/70 bg-card/60 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-card/80"
+                >
+                  {onboarding.primaryCta.label}
+                  <ArrowRight className="size-3" />
+                </button>
+                {onboarding.secondaryActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => navigate(action.target)}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Empty state: new organization (fallback) ---- */}
+      {onboarding.state !== "empty" && onboarding.state !== "processing" && onboarding.state !== "opportunity_detected" && health.documents === 0 && health.entities === 0 && health.openClaims === 0 && (
         <div className="rounded-xl border border-dashed border-border/70 py-12 text-center">
           <div className="flex flex-col items-center gap-4">
             <div className="flex size-12 items-center justify-center rounded-2xl bg-teal-400/10">

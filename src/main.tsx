@@ -40,6 +40,8 @@ const AccessDenied = lazy(() => import("./pages/AccessDenied.tsx"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
 const AtlasControl = lazy(() => import("./pages/AtlasControl.tsx"));
 const AtlasAuthority = lazy(() => import("./pages/AtlasAuthority.tsx"));
+const Pricing = lazy(() => import("./pages/Pricing.tsx"));
+const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess.tsx"));
 
 /** Protected section: auth gate + workspace shell. */
 function ProtectedLayout({ children }: { children: React.ReactNode }) {
@@ -166,6 +168,10 @@ createRoot(document.getElementById("root")!).render(
           <Suspense fallback={<RouteLoading />}>
             <Routes>
               <Route path="/" element={<Landing />} />
+
+              {/* ---- Billing routes ---- */}
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/payment-success" element={<PaymentSuccess />} />
               <Route
                 path="/auth"
                 element={<AuthPage redirectAfterAuth="/dashboard" />}
